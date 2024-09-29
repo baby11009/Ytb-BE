@@ -51,6 +51,7 @@ const UserSchema = new mongoose.Schema(
     },
     banner: {
       type: String,
+      default: "df-banner.jpg",
     },
     subscriber: {
       type: Number,

@@ -31,7 +31,10 @@ router
   .get(getUserDetails)
   .delete(deleteUser)
   .patch(
-    createMulterUpload("user avatar").fields([{ name: "image", maxCount: 1 }]),
+    createMulterUpload("user avatar").fields([
+      { name: "image", maxCount: 1 },
+      { name: "banner", maxCount: 1 },
+    ]),
     multerErrorHandling,
     updateUser
   );
