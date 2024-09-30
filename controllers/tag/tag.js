@@ -91,7 +91,7 @@ const getTagDetails = async (req, res) => {
 const updateTag = async (req, res) => {
   const { id } = req.params;
 
-  const { title } = req.body;
+  const { title, slug } = req.body;
 
   if (!id) {
     throw new BadRequestError("Please provide tag ID");
@@ -111,18 +111,18 @@ const updateTag = async (req, res) => {
     let updateData = {};
 
     if (title) {
-
       if (foundedTag.title === title) {
         throw new BadRequestError("Tag's title is still the same");
       }
+      updateData.title = title;
+    }
 
-      const exitsTagTitle = await Tag.findOne({ title: title });
-
-      if (exitsTagTitle) {
-        throw new BadRequestError("Tag's title already exists");
+    if (slug) {
+      if (foundedTag.slug === slug) {
+        throw new BadRequestError("Tag's slug is still the same");
       }
 
-      updateData.title = title;
+      updateData.slug = slug;
     }
 
     if (req.files.image) {
@@ -170,9 +170,7 @@ const deleteTag = async (req, res) => {
 };
 
 const deleteManyTags = async (req, res) => {
-    
   const { idList } = req.body;
-  console.log("🚀 ~ idList:", idList)
 
   if (!idList || idList.length === 0) {
     throw new BadRequestError("Must choose at least one tag");

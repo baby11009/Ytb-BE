@@ -8,6 +8,12 @@ const Tag = new mongoose.Schema(
       unique: true,
       minLength: 3,
       maxLength: 50,
+      unique: true,
+    },
+    slug: {
+      type: String,
+      required: [true, "Please provide an slug for the tag"],
+      unique: true,
     },
     icon: {
       type: String,
