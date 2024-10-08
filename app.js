@@ -54,7 +54,8 @@ app.use("/api/v1/cmtReact", authMiddleware, cmtReactRouter);
 app.use("/api/v1/data", combineRouter);
 
 // Admin site
-app.use("/api/v1/user", authMiddleware, permissionMiddleware, userRouter);
+// app.use("/api/v1/user", authMiddleware, permissionMiddleware, userRouter);
+app.use("/api/v1/user", userRouter);
 app.use("/api/v1/playlist", authMiddleware, playlistRouter);
 app.use("/api/v1/tag", authMiddleware, permissionMiddleware, tagRouter);
 

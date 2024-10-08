@@ -24,6 +24,8 @@ router
     multerErrorHandling,
     createUser
   );
+
+
 router.route("/delete-many").post(deleteManyUsers);
 
 router

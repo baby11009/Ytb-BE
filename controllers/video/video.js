@@ -14,7 +14,15 @@ const asssetPath = path.join(__dirname, "../../assets");
 const upLoadVideo = async (req, res) => {
   const { image, video } = req.files;
 
-  const { userId, type, title } = req.body;
+  const {
+    userId,
+    type,
+    title,
+    tag = [],
+    view = 0,
+    like = 0,
+    dislike = 0,
+  } = req.body;
 
   const fileErr = [];
 
@@ -60,11 +68,15 @@ const upLoadVideo = async (req, res) => {
     video: video[0].filename,
     thumb: image[0].filename,
     duration: videoDuration,
+    tag: tag,
+    view,
+    like,
+    dislike,
   };
 
-  const videoCreated = await Video.create(data);
+  await Video.create(data);
 
-  const updatedUser = await User.findByIdAndUpdate(userId, {
+  await User.findByIdAndUpdate(userId, {
     $inc: { totalVids: 1 },
   });
 
@@ -72,7 +84,6 @@ const upLoadVideo = async (req, res) => {
 };
 
 const getVideos = async (req, res) => {
-  
   let limit = Number(req.query.limit) || 5;
   let page = Number(req.query.page) || 1;
 
@@ -132,7 +143,7 @@ const getVideos = async (req, res) => {
         type: 1,
         view: 1,
         like: 1,
-        disLike: 1,
+        dislike: 1,
         createdAt: 1,
       },
     },
@@ -181,17 +192,44 @@ const getVideoDetails = async (req, res) => {
       $unwind: "$user_info", // Tách kết quả kết hợp thành các tài liệu riêng lẻ
     },
     {
+      $lookup: {
+        from: "tags",
+        let: { tagIds: "$tag" },
+        pipeline: [
+          {
+            $addFields: {
+              _idStr: { $toString: "$_id" },
+            },
+          },
+          {
+            $match: {
+              $expr: { $in: ["$_idStr", "$$tagIds"] },
+            },
+          },
+          {
+            $project: {
+              _id: 1,
+              title: 1,
+              slug: 1,
+            },
+          },
+        ],
+        as: "tag_info",
+      },
+    },
+    {
       $project: {
         _id: 1,
         title: 1, // Các trường bạn muốn giữ lại từ Video
         "user_info._id": 1,
         "user_info.email": 1,
+        tag_info: { $ifNull: ["$tag_info", []] },
         thumb: 1,
         video: 1,
         type: 1,
         view: 1,
         like: 1,
-        disLike: 1,
+        dislike: 1,
       },
     },
   ]);
@@ -217,7 +255,7 @@ const updateVideo = async (req, res) => {
     throw new BadRequestError("There is nothing to update.");
   }
 
-  let updatedKey = ["title", "view", "like", "disLike", "image", "type"];
+  let updatedKey = ["title", "view", "like", "dislike", "image", "type", "tag"];
 
   let updateData = {};
 
@@ -225,11 +263,14 @@ const updateVideo = async (req, res) => {
 
   let notAllowValue = [];
 
-  for (const [key, value] of Object.entries(req.body)) {
+  for (let [key, value] of Object.entries(req.body)) {
     if (updatedKey.includes(key)) {
       if (value === "") {
         emptyList.push(key);
       } else {
+        if (key === "tag") {
+          value = JSON.parse(value);
+        }
         updateData[key] = value;
       }
     } else {

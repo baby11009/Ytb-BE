@@ -59,7 +59,7 @@ const toggleReact = async (req, res) => {
   }
 
   const video = await Video.findByIdAndUpdate(videoId, {
-    $inc: { like: likeCount, disLike: dislikeCount },
+    $inc: { like: likeCount, dislike: dislikeCount },
   });
 
   res.status(StatusCodes.OK).json({ msg });

@@ -37,6 +37,7 @@ const createTag = async (req, res) => {
 };
 
 const getTags = async (req, res) => {
+  
   const { limit, page, title, createdAt } = req.query;
 
   const dataLimit = Number(limit) || 5;

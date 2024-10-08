@@ -575,11 +575,11 @@ const updateUser = async (req, res) => {
       throw new InternalServerError("Failed to update user");
     }
 
-    if (foundedUser.avatar !== "df.jpg") {
+    if (foundedUser.avatar !== "df.jpg" && finalObject.avatar) {
       deleteFile(path.join(avatarPath, foundedUser.avatar));
     }
 
-    if (foundedUser.banner !== "df-banner.jpg") {
+    if (foundedUser.banner !== "df-banner.jpg" && finalObject.banner) {
       deleteFile(path.join(avatarPath, foundedUser.banner));
     }
 
