@@ -12,7 +12,7 @@ const {
   changePassword,
   validOtp,
   resetPassword,
-} = require("../controllers/user/auth");
+} = require("../controllers/auth/auth");
 
 router.route("/register").post(register);
 

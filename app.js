@@ -18,16 +18,12 @@ const {
   authRouter,
   userRouter,
   fileRouter,
-  clientUser,
   videoRouter,
-  clientVideo,
   commentRouter,
-  subscribeRouter,
-  reactRouter,
-  cmtReactRouter,
   playlistRouter,
   tagRouter,
   combineRouter,
+  clientRouter,
 } = require("./routes");
 
 app.use(cors());
@@ -39,18 +35,18 @@ app.get("/", (req, res) => {
   res.send("Hello, world!");
 });
 
+// Admin
+app.use("/api/v1/admin", authMiddleware, permissionMiddleware);
+// Client
+app.use("/api/v1/client", authMiddleware, clientRouter);
+
 // Both site
 app.use("/api/v1/auth", authRouter);
 app.use("/api/v1/file", fileRouter);
 app.use("/api/v1/comment", commentRouter);
-app.use("/api/v1/video", videoRouter);
-app.use("/api/v1/react", authMiddleware, reactRouter);
+app.use("/api/v1/video", authMiddleware, permissionMiddleware, videoRouter);
 
 // User site
-app.use("/api/v1/account", authMiddleware, clientUser);
-app.use("/api/v1/clientVideo", clientVideo);
-app.use("/api/v1/subscribe", authMiddleware, subscribeRouter);
-app.use("/api/v1/cmtReact", authMiddleware, cmtReactRouter);
 app.use("/api/v1/data", combineRouter);
 
 // Admin site

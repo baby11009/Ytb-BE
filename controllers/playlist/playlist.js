@@ -95,8 +95,6 @@ const getPlaylists = async (req, res) => {
     }
   });
 
-  console.log("🚀 ~ findObj:", findObj);
-
   let sortNum = 1;
 
   if (req.query.createdAt === "mới nhất") {
@@ -365,8 +363,6 @@ const deleteManyPlaylist = async (req, res) => {
       },
     },
   ]);
-
-  console.log("🚀 ~ foundedPlaylist:", foundedPlaylists);
 
   if (foundedPlaylists.length === 0) {
     throw new NotFoundError(

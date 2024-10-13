@@ -1,10 +1,10 @@
-const { Video, Playlist, User } = require("../../models");
+const { Video, Playlist, User,Comment } = require("../../models");
 const { StatusCodes } = require("http-status-codes");
 const { BadRequestError, NotFoundError } = require("../../errors");
 const mongoose = require("mongoose");
 
 const getVideoList = async (req, res) => {
-  const { limit, page, createdAt, tag, type, search, userId } = req.query;
+  const { limit, page, tag, type, search, channelEmail, sort } = req.query;
 
   const listLimit = Number(limit) || 8;
 
@@ -29,16 +29,16 @@ const getVideoList = async (req, res) => {
     },
   ];
 
-  if (userId) {
+  if (channelEmail) {
     pipeline.push(
       {
         $addFields: {
-          _idStr: { $toString: "$user_info._id" },
+          email: "$user_info.email",
         },
       },
       {
         $match: {
-          _idStr: { $eq: userId },
+          email: { $eq: channelEmail },
         },
       }
     );
@@ -110,41 +110,51 @@ const getVideoList = async (req, res) => {
     );
   }
 
-  let sortNum = -1;
-  if (createdAt === "cũ nhất") {
-    sortNum = 1;
-  }
+  pipeline.push({
+    $project: {
+      _id: 1,
+      title: 1, // Các trường bạn muốn giữ lại từ Video
+      "user_info._id": 1,
+      "user_info.email": 1,
+      "user_info.avatar": 1,
+      "user_info.name": 1,
+      tag_info: 1,
+      tag: 1,
+      thumb: 1,
+      duration: { $ifNull: ["$duration", 0] },
+      type: 1,
+      view: 1,
+      like: 1,
+      disLike: 1,
+      createdAt: 1,
+    },
+  });
 
-  pipeline.push(
-    {
-      $project: {
-        _id: 1,
-        title: 1, // Các trường bạn muốn giữ lại từ Video
-        "user_info._id": 1,
-        "user_info.email": 1,
-        "user_info.avatar": 1,
-        "user_info.name": 1,
-        tag_info: 1,
-        tag: 1,
-        thumb: 1,
-        duration: { $ifNull: ["$duration", 0] },
-        type: 1,
-        view: 1,
-        like: 1,
-        disLike: 1,
-        createdAt: 1,
-      },
-    },
-    {
-      $sort: { createdAt: sortNum },
-    },
-    {
-      $facet: {
-        totalCount: [{ $count: "total" }],
-        data: [{ $skip: skip }, { $limit: listLimit }],
-      },
+  const validSortKey = ["createdAt", "view"];
+
+  const sortObj = {};
+
+  if (sort && Object.keys(sort).length > 0) {
+    for (const [key, value] of Object.entries(sort)) {
+      if (
+        validSortKey.includes(key) &&
+        (Number(value) === 1 || Number(value) === -1)
+      ) {
+        sortObj[`${key}`] = Number(value);
+      }
     }
-  );
+  }
+  // $sort sẽ dựa theo thứ tự điều kiện sort trong object
+  pipeline.push({
+    $sort: sortObj,
+  });
+
+  pipeline.push({
+    $facet: {
+      totalCount: [{ $count: "total" }],
+      data: [{ $skip: skip }, { $limit: listLimit }],
+    },
+  });
 
   const videos = await Video.aggregate(pipeline);
 
@@ -153,7 +163,7 @@ const getVideoList = async (req, res) => {
     qtt: videos[0]?.data?.length,
     totalQtt: videos[0]?.totalCount[0]?.total,
     currPage: listPage,
-    totalPages: Math.ceil(videos[0]?.totalCount[0]?.total / listLimit) || 0,
+    totalPage: Math.ceil(videos[0]?.totalCount[0]?.total / listLimit) || 0,
   });
 };
 
@@ -329,6 +339,7 @@ const getDataList = async (req, res) => {
           video_list: { $ifNull: ["$video_list", null] },
           videoCount: { $size: "$itemList" },
           createdAt: 1,
+          updatedAt: 1,
         },
       },
       {
@@ -489,10 +500,61 @@ const getDataList = async (req, res) => {
 
 const getChannelInfo = async (req, res) => {
   const { email } = req.params;
+  const { userId } = req.query;
 
-  const channel = await User.findOne({ email: email }).select(
-    "-password -codeExpires -codeType -privateCode -updatedAt -__v"
-  );
+  const pipeline = [{ $match: { email: email } }];
+
+  if (userId) {
+    pipeline.push(
+      {
+        $lookup: {
+          from: "subscribes",
+          let: {
+            channelId: "$_id",
+            subscriberId: new mongoose.Types.ObjectId(userId),
+          },
+          pipeline: [
+            {
+              $match: {
+                $expr: {
+                  $and: [
+                    { $eq: ["$channel_id", "$$channelId"] },
+                    { $eq: ["$subscriber_id", "$$subscriberId"] },
+                  ],
+                },
+              },
+            },
+          ],
+          as: "subscription_info",
+        },
+      },
+      {
+        $unwind: {
+          path: "$subscription_info",
+          preserveNullAndEmptyArrays: true,
+        },
+      }
+    );
+  }
+
+  pipeline.push({
+    $project: {
+      _id: 1,
+      name: 1,
+      email: 1,
+      avatar: 1,
+      banner: 1,
+      subscriber: 1,
+      totalVids: 1,
+      createdAt: 1,
+      "subscription_info.notify": {
+        $ifNull: ["$subscription_info.notify", null],
+      },
+      "subscription_info._id": { $ifNull: ["$subscription_info._id", null] },
+    },
+  });
+
+  const channel = await User.aggregate(pipeline);
 
   if (!channel) {
     throw new NotFoundError("Not found channel");
@@ -502,36 +564,47 @@ const getChannelInfo = async (req, res) => {
 };
 
 const getChannelPlaylistVideos = async (req, res) => {
-  const { createdAt, limit, page, channelId } = req.query;
+  const {
+    limit,
+    page,
+    channelEmail,
+    videoLimit = 12,
+    sort = { createdAt: -1 },
+  } = req.query;
+
+  if (!channelEmail) {
+    throw new BadRequestError("Please provide a channel email");
+  }
 
   const dataLimit = Number(limit) || 3;
   const dataPage = Number(page) || 1;
 
   const skip = (dataPage - 1) * dataLimit;
-  let sortNum = -1;
-  if (createdAt === "cũ nhất") {
-    sortNum = 1;
+
+  const foundedChannel = await User.findOne({ email: channelEmail });
+
+  if (!foundedChannel) {
+    throw new NotFoundError("Channel not found");
   }
 
-  const pipeline = [];
-
-  if (channelId) {
-    pipeline.push(
-      { $addFields: { _idStr: { $toString: "$created_user_id" } } },
-      {
-        $match: { _idStr: channelId },
-      }
-    );
-  }
-
-  pipeline.push(
+  const pipeline = [
+    {
+      $match: {
+        created_user_id: foundedChannel._id,
+      },
+    },
     {
       $lookup: {
         from: "videos",
         let: { videoIdList: "$itemList" },
         pipeline: [
-          { $addFields: { _idStr: { $toString: "$_id" } } },
-          { $match: { $expr: { $in: ["$_idStr", "$$videoIdList"] } } },
+          {
+            $addFields: {
+              _idStr: { $toString: "$_id" },
+              reverseIdList: { $reverseArray: "$$videoIdList" },
+            },
+          },
+          { $match: { $expr: { $in: ["$_idStr", "$reverseIdList"] } } },
           {
             $lookup: {
               from: "users",
@@ -554,6 +627,9 @@ const getChannelPlaylistVideos = async (req, res) => {
           },
           { $unwind: "$user_info" },
           {
+            $limit: Number(videoLimit),
+          },
+          {
             $project: {
               _id: 1,
               thumb: 1,
@@ -567,11 +643,365 @@ const getChannelPlaylistVideos = async (req, res) => {
         as: "video_list",
       },
     },
+  ];
+
+  const validSortKey = ["createdAt", "updatedAt"];
+
+  const sortObj = {};
+
+  if (sort && Object.keys(sort).length > 0) {
+    for (const [key, value] of Object.entries(sort)) {
+      if (
+        validSortKey.includes(key) &&
+        (Number(value) === 1 || Number(value) === -1)
+      ) {
+        sortObj[`${key}`] = Number(value);
+      }
+    }
+  }
+
+  // $sort sẽ dựa theo thứ tự điều kiện sort trong object
+  pipeline.push({
+    $sort: sortObj,
+  });
+
+  pipeline.push(
     {
       $project: {
         _id: 1,
         title: 1,
-        video_list: 1,
+        video_list: { $reverseArray: "$video_list" },
+        videoCount: { $size: "$itemList" },
+        createdAt: 1,
+        updatedAt: 1,
+      },
+    },
+    { $skip: skip },
+    {
+      $limit: dataLimit,
+    },
+    {
+      $facet: {
+        totalCount: [{ $count: "total" }],
+        data: [{ $skip: skip }, { $limit: dataLimit }],
+      },
+    }
+  );
+  const playlists = await Playlist.aggregate(pipeline);
+
+  res.status(StatusCodes.OK).json({
+    data: playlists[0]?.data,
+    qtt: playlists[0]?.data?.length,
+    totalQtt: playlists[0]?.totalCount[0]?.total,
+    currPage: dataPage,
+    totalPage: Math.ceil(playlists[0]?.totalCount[0]?.total / dataLimit) || 0,
+  });
+};
+
+const getVideoDetails = async (req, res) => {
+  const { id } = req.params;
+
+  const { subscriberId } = req.query;
+
+  const pipeline = [
+    {
+      $match: {
+        _id: new mongoose.Types.ObjectId(id),
+      },
+    },
+    {
+      $lookup: {
+        from: "users",
+        localField: "user_id",
+        foreignField: "_id",
+        as: "channel_info",
+      },
+    },
+    {
+      $unwind: "$channel_info",
+    },
+  ];
+
+  if (subscriberId) {
+    // Subscription state
+    pipeline.push({
+      $lookup: {
+        from: "subscribes",
+        let: {
+          videoOwnerId: "$user_id",
+          subscriberId: new mongoose.Types.ObjectId(subscriberId),
+        },
+        // pipeline để so sánh dữ liệu
+        pipeline: [
+          {
+            $match: {
+              $expr: {
+                $and: [
+                  { $eq: ["$channel_id", "$$videoOwnerId"] },
+                  { $eq: ["$subscriber_id", "$$subscriberId"] },
+                ],
+              },
+            },
+          },
+        ],
+        as: "subscription_info",
+      },
+    });
+    pipeline.push({
+      $unwind: {
+        path: "$subscription_info",
+        preserveNullAndEmptyArrays: true, // Ensure video is returned even if no subscription exists
+      },
+    });
+
+    pipeline.push({
+      $lookup: {
+        from: "reacts",
+        let: {
+          videoId: new mongoose.Types.ObjectId(id),
+          subscriberId: new mongoose.Types.ObjectId(subscriberId),
+        },
+        // pipeline để so sánh dữ liệu
+        pipeline: [
+          {
+            $match: {
+              $expr: {
+                $and: [
+                  { $eq: ["$video_id", "$$videoId"] },
+                  { $eq: ["$user_id", "$$subscriberId"] },
+                ],
+              },
+            },
+          },
+        ],
+        as: "react_info",
+      },
+    });
+    pipeline.push({
+      $unwind: {
+        path: "$react_info",
+        preserveNullAndEmptyArrays: true, // Ensure video is returned even if no subscription exists
+      },
+    });
+  }
+
+  pipeline.push({
+    $project: {
+      _id: 1,
+      title: 1, // Các trường bạn muốn giữ lại từ Video
+      "channel_info._id": 1,
+      "channel_info.name": 1,
+      "channel_info.avatar": 1,
+      "channel_info.subscriber": 1,
+      thumb: 1,
+      video: 1,
+      type: 1,
+      view: 1,
+      like: 1,
+      disLike: 1,
+      totalCmt: 1,
+      createdAt: 1,
+      "subscription_info.notify": {
+        $ifNull: ["$subscription_info.notify", null],
+      },
+      "subscription_info._id": { $ifNull: ["$subscription_info._id", null] },
+      "react_info._id": { $ifNull: ["$react_info._id", null] },
+      "react_info.type": {
+        $ifNull: ["$react_info.type", null],
+      },
+    },
+  });
+
+  const video = await Video.aggregate(pipeline);
+
+  if (!video) {
+    throw new NotFoundError(`Not found video with id ${id}`);
+  }
+
+  res.status(StatusCodes.OK).json({ data: video[0] });
+};
+
+const getVideoCmts = async (req, res) => {
+  const { videoId } = req.params;
+
+  const { replyId, userId, createdAt } = req.query;
+
+  let limit = Number(req.query.limit) || 5;
+
+  let page = Number(req.query.page) || 1;
+
+  let skip = (page - 1) * limit;
+
+  const findParams = Object.keys(req.query).filter(
+    (key) =>
+      key !== "limit" &&
+      key !== "page" &&
+      key !== "createdAt" &&
+      key !== "replyId" &&
+      key !== "userId"
+  );
+
+  let findObj = {};
+
+  findParams.forEach((item) => {
+    if (item === "reply") {
+      findObj["replied_cmt_id"] = { $exists: JSON.parse(req.query[item]) };
+    } else if (item === "id") {
+      findObj["_idStr"] = { $regex: req.query[item], $options: "i" };
+    }
+  });
+
+  let sortNum = 1;
+
+  if (createdAt === "mới nhất") {
+    sortNum = -1;
+  }
+
+  const pipeline = [
+    { $match: { video_id: new mongoose.Types.ObjectId(videoId) } },
+  ];
+
+  if (replyId) {
+    pipeline.push({
+      $match: { replied_cmt_id: { $exists: true } },
+    });
+    pipeline.push({
+      $match: {
+        $or: [
+          { replied_parent_cmt_id: new mongoose.Types.ObjectId(replyId) },
+          { replied_cmt_id: new mongoose.Types.ObjectId(replyId) },
+        ],
+      },
+    });
+  } else {
+    pipeline.push({
+      $match: { replied_cmt_id: { $exists: false } },
+    });
+  }
+
+  if (userId) {
+    pipeline.push(
+      {
+        $lookup: {
+          from: "cmtreacts",
+          let: {
+            commentId: "$_id",
+            userId: new mongoose.Types.ObjectId(userId),
+          },
+          pipeline: [
+            {
+              $match: {
+                $expr: {
+                  $and: [
+                    { $eq: ["$cmt_id", "$$commentId"] },
+                    { $eq: ["$user_id", "$$userId"] },
+                  ],
+                },
+              },
+            },
+          ],
+          as: "react_info",
+        },
+      },
+      {
+        $unwind: {
+          path: "$react_info",
+          preserveNullAndEmptyArrays: true, // Ensure video is returned even if no subscription exists
+        },
+      }
+    );
+  }
+
+  pipeline.push(
+    {
+      $lookup: {
+        from: "users", // Collection users mà bạn muốn join
+        localField: "user_id", // Trường trong collection videos (khóa ngoại)
+        foreignField: "_id", // Trường trong collection users (khóa chính)
+        as: "user_info", // Tên mảng để lưu kết quả join
+      },
+    },
+    {
+      $unwind: "$user_info",
+    },
+    {
+      $lookup: {
+        from: "comments",
+        let: {
+          replyCmtId: "$replied_cmt_id",
+        },
+        pipeline: [
+          {
+            $match: {
+              $expr: {
+                $eq: ["$_id", "$$replyCmtId"],
+              },
+            },
+          },
+        ],
+        as: "reply_comment_info",
+      },
+    },
+    {
+      $unwind: {
+        path: "$reply_comment_info",
+        preserveNullAndEmptyArrays: true, // Ensure video is returned even if no subscription exists
+      },
+    },
+    {
+      $lookup: {
+        from: "users",
+        let: {
+          userId: "$reply_comment_info.user_id",
+        },
+        pipeline: [
+          {
+            $match: {
+              $expr: {
+                $eq: ["$_id", "$$userId"],
+              },
+            },
+          },
+        ],
+        as: "reply_user_info",
+      },
+    },
+    {
+      $unwind: {
+        path: "$reply_user_info",
+        preserveNullAndEmptyArrays: true, // Ensure video is returned even if no subscription exists
+      },
+    },
+    {
+      $addFields: {
+        _idStr: { $toString: "$_id" },
+      },
+    },
+    {
+      $match: findObj,
+    },
+    {
+      $project: {
+        _id: 1,
+        title: 1,
+        "user_info._id": 1,
+        "user_info.email": 1,
+        "user_info.avatar": 1,
+        "user_info.subscriber": { $ifNull: ["$user_info.subscribe", 0] },
+        "react_info._id": { $ifNull: ["$react_info._id", null] },
+        "react_info.type": { $ifNull: ["$react_info.type", null] },
+        "reply_comment_info._id": {
+          $ifNull: ["$reply_comment_info._id", null],
+        },
+        "reply_user_info.email": {
+          $ifNull: ["$reply_user_info.email", null],
+        },
+        cmtText: 1,
+        like: 1,
+        dislike: 1,
+        replied_parent_cmt_id: 1,
+        replied_cmt_id: 1,
+        replied_cmt_total: 1,
         createdAt: 1,
       },
     },
@@ -580,19 +1010,32 @@ const getChannelPlaylistVideos = async (req, res) => {
         createdAt: sortNum,
       },
     },
-    { $skip: skip },
     {
-      $limit: dataLimit,
+      $facet: {
+        totalCount: [{ $count: "total" }],
+        data: [{ $skip: skip }, { $limit: limit }],
+      },
     }
   );
 
-  const playlists = await Playlist.aggregate(pipeline);
+  let result = Comment.aggregate(pipeline);
 
-  res.status(StatusCodes.OK).json({ data: playlists });
+  const comments = await result;
+
+  res.status(StatusCodes.OK).json({
+    data: comments[0]?.data,
+    qtt: comments[0]?.data?.length,
+    totalQtt: comments[0]?.totalCount[0]?.total,
+    currPage: page,
+    totalPages: Math.ceil(comments[0]?.totalCount[0]?.total / limit) || 1,
+  });
 };
+
 module.exports = {
   getVideoList,
   getDataList,
   getChannelInfo,
   getChannelPlaylistVideos,
+  getVideoDetails,
+  getVideoCmts,
 };

@@ -13,11 +13,8 @@ const {
   deleteManyVideos,
 } = require("../controllers/video/video");
 
-const { authMiddleware } = require("../middlewares");
-
 router.post(
   "/upload",
-  authMiddleware,
   createMulterUpload("video thumb", "videos").fields([
     { name: "image", maxCount: 1 },
     { name: "video", maxCount: 1 },
@@ -28,14 +25,13 @@ router.post(
 
 router.route("/").get(getVideos);
 
-router.route("/delete-many").post(authMiddleware, deleteManyVideos);
+router.route("/delete-many").post(deleteManyVideos);
 
 router
   .route("/:id")
-  .delete(authMiddleware, deleteVideo)
+  .delete(deleteVideo)
   .get(getVideoDetails)
   .patch(
-    authMiddleware,
     createMulterUpload("video thumb").fields([{ name: "image", maxCount: 1 }]),
     multerErrorHandling,
     updateVideo

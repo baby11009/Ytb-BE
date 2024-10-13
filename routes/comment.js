@@ -1,16 +1,11 @@
 const express = require("express");
-const router = express.Router();
-const multer = require("multer");
-
-// accept data from form-data
-const upload = multer();
+const router = express.Router()
 
 const { authMiddleware } = require("../middlewares");
 
 const {
   createCmt,
   getCmts,
-  getVideoCmts,
   getCmtDetails,
   updateCmt,
   deleteCmt,
@@ -20,12 +15,10 @@ const {
 router
   .route("/")
   .all(authMiddleware)
-  .post(upload.none(), createCmt)
+  .post(createCmt)
   .get(getCmts);
 
 router.route("/delete-many").post(authMiddleware, deleteManyCmt);
-
-router.route("/video-comment/:videoId").get(getVideoCmts);
 
 router
   .route("/:id")
