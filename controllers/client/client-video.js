@@ -97,9 +97,9 @@ const getVideos = async (req, res) => {
       findObj[item] = { $regex: req.query[item], $options: "i" };
     }
   });
-  let sortNum = 1;
+  let sortNum = -1;
 
-  if (req.query.createdAt === "mới nhất") {
+  if (req.query.createdAt === "cũ nhất") {
     sortNum = -1;
   }
 
@@ -148,6 +148,7 @@ const getVideos = async (req, res) => {
         like: 1,
         dislike: 1,
         createdAt: 1,
+        totalCmt: 1,
       },
     },
     {
@@ -189,7 +190,7 @@ const getVideoDetails = async (req, res) => {
     },
     {
       $match: {
-        $and: [{ _idStr: id }, { serIdStr: userId }],
+        $and: [{ _idStr: id }, { userIdStr: userId }],
       },
     },
     {
@@ -232,10 +233,10 @@ const getVideoDetails = async (req, res) => {
       },
     },
   ]);
-  if (!video) {
+
+  if (video.length < 1) {
     throw new NotFoundError(`Not found video with id ${id}`);
   }
-
   res.status(StatusCodes.OK).json({ data: video[0] });
 };
 

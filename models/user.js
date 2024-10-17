@@ -63,6 +63,7 @@ const UserSchema = new mongoose.Schema(
     },
     description: {
       type: String,
+      default: "",
     },
     playlistList: {
       type: mongoose.Types.ObjectId,
