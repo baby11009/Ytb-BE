@@ -82,26 +82,63 @@ const getVideos = async (req, res) => {
 
   let skip = (page - 1) * limit;
 
+  const { sort } = req.query;
+
   const findParams = Object.keys(req.query).filter(
-    (key) => key !== "limit" && key !== "page" && key !== "createdAt"
+    (key) => key !== "limit" && key !== "page" && key !== "sort"
   );
 
   let findObj = {};
 
   findParams.forEach((item) => {
-    if (item === "email") {
-      findObj["user_info.email"] = { $regex: req.query[item], $options: "i" };
-    } else if (item === "id" && item !== "") {
-      findObj["_idStr"] = { $regex: req.query[item], $options: "i" };
-    } else {
-      findObj[item] = { $regex: req.query[item], $options: "i" };
+    switch (item) {
+      case "email":
+        findObj["user_info.email"] = { $regex: req.query[item], $options: "i" };
+        break;
+      case "id":
+        findObj["_idStr"] = { $regex: req.query[item], $options: "i" };
+        break;
+      default:
+        findObj[item] = { $regex: req.query[item], $options: "i" };
+        break;
     }
   });
-  let sortNum = -1;
 
-  if (req.query.createdAt === "cũ nhất") {
-    sortNum = -1;
+  let sortObj = {};
+
+  let sortDateObj = {};
+
+  const uniqueSortKeys = ["view", "like", "dislike", "totalCmt"];
+
+  const sortKeys = ["createdAt"];
+
+  if (Object.keys(sort).length > 0) {
+    let unique = [];
+    let uniqueValue;
+    for (const [key, value] of Object.entries(sort)) {
+      if (sortKeys.includes(key)) {
+        sortDateObj[key] = Number(value);
+      } else if (uniqueSortKeys.includes(key)) {
+        unique.push(key);
+        uniqueValue = Number(value);
+      }
+    }
+
+    if (unique.length > 1) {
+      throw new BadRequestError(
+        `Only one sort key in ${uniqueSortKeys.join(", ")} is allowed`
+      );
+    } else if (unique.length > 0) {
+      sortObj[unique[0]] = uniqueValue;
+    }
+  } else {
+    sortDateObj = {
+      createdAt: -1,
+    };
   }
+
+  const combinedSort = { ...sortObj, ...sortDateObj };
+  console.log("🚀 ~ combinedSort:", combinedSort);
 
   const pipeline = [
     {
@@ -113,6 +150,9 @@ const getVideos = async (req, res) => {
       $match: {
         _userIdStr: userId,
       },
+    },
+    {
+      $match: findObj,
     },
     {
       $lookup: {
@@ -129,9 +169,6 @@ const getVideos = async (req, res) => {
       $addFields: {
         _idStr: { $toString: "$_id" },
       },
-    },
-    {
-      $match: findObj,
     },
     {
       $project: {
@@ -152,9 +189,7 @@ const getVideos = async (req, res) => {
       },
     },
     {
-      $sort: {
-        createdAt: sortNum,
-      },
+      $sort: combinedSort,
     },
     {
       $facet: {
