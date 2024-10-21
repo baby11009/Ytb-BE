@@ -101,30 +101,59 @@ const getCmts = async (req, res) => {
   let page = Number(req.query.page) || 1;
 
   let skip = (page - 1) * limit;
-
+  const { sort } = req.query;
   const findParams = Object.keys(req.query).filter(
-    (key) => key !== "limit" && key !== "page" && key !== "createdAt"
+    (key) => key !== "limit" && key !== "page" && key !== "sort"
   );
 
   let findObj = {};
 
   findParams.forEach((item) => {
-    if (item === "email") {
-      findObj["user_info.email"] = { $regex: req.query[item], $options: "i" };
-    } else if (item === "title") {
-      findObj["video_info.title"] = { $regex: req.query[item], $options: "i" };
+    if (item === "videoId") {
+      findObj["video_info._id"] = { $regex: req.query[item], $options: "i" };
     } else if (item === "reply") {
       findObj["replied_cmt_id"] = { $exists: JSON.parse(req.query[item]) };
     } else if (item === "id") {
       findObj["_idStr"] = { $regex: req.query[item], $options: "i" };
+    } else if (item === "text") {
+      findObj["cmtText"] = { $regex: req.query[item], $options: "i" };
     }
   });
 
-  let sortNum = 1;
+  let sortObj = {};
 
-  if (req.query.createdAt === "mới nhất") {
-    sortNum = -1;
+  let sortDateObj = {};
+
+  const uniqueSortKeys = ["view", "like", "dislike", "totalCmt"];
+
+  const sortKeys = ["createdAt"];
+
+  if (Object.keys(sort).length > 0) {
+    let unique = [];
+    let uniqueValue;
+    for (const [key, value] of Object.entries(sort)) {
+      if (sortKeys.includes(key)) {
+        sortDateObj[key] = Number(value);
+      } else if (uniqueSortKeys.includes(key)) {
+        unique.push(key);
+        uniqueValue = Number(value);
+      }
+    }
+
+    if (unique.length > 1) {
+      throw new BadRequestError(
+        `Only one sort key in ${uniqueSortKeys.join(", ")} is allowed`
+      );
+    } else if (unique.length > 0) {
+      sortObj[unique[0]] = uniqueValue;
+    }
+  } else {
+    sortDateObj = {
+      createdAt: -1,
+    };
   }
+
+  const combinedSort = { ...sortObj, ...sortDateObj };
 
   const pipeline = [
     {
@@ -143,6 +172,7 @@ const getCmts = async (req, res) => {
         from: "videos", // Collection users mà bạn muốn join
         localField: "video_id", // Trường trong collection videos (khóa ngoại)
         foreignField: "_id", // Trường trong collection users (khóa chính)
+        pipeline: [{ $project: { _id: 1, thumb: 1, title: 1 } }],
         as: "video_info", // Tên mảng để lưu kết quả join
       },
     },
@@ -153,22 +183,19 @@ const getCmts = async (req, res) => {
       $match: findObj,
     },
     {
+      $sort: combinedSort,
+    },
+    {
       $project: {
         _id: 1,
         title: 1,
-        "user_info.email": 1,
-        "video_info.title": 1,
+        video_info: 1,
         cmtText: 1,
         createdAt: 1,
         like: 1,
         dislike: 1,
         replied_cmt_id: 1,
         replied_cmt_total: 1,
-      },
-    },
-    {
-      $sort: {
-        createdAt: sortNum,
       },
     },
     {
@@ -188,10 +215,9 @@ const getCmts = async (req, res) => {
     qtt: comments[0]?.data?.length,
     totalQtt: comments[0]?.totalCount[0]?.total,
     currPage: page,
-    totalPages: Math.ceil(comments[0]?.totalCount[0]?.total / limit) | 1,
+    totalPages: Math.floor(comments[0]?.totalCount[0]?.total / limit) || 1,
   });
 };
-
 
 const getCmtDetails = async (req, res) => {
   const { userId } = req.user;
@@ -235,6 +261,7 @@ const getCmtDetails = async (req, res) => {
 
 const updateCmt = async (req, res) => {
   const { id } = req.params;
+
   const { userId } = req.user;
 
   if (id === "" || id === ":id") {
