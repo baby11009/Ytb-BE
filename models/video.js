@@ -52,12 +52,14 @@ const VideoSchema = new mongoose.Schema(
       type: Number,
       default: 0,
     },
+    description: {
+      type: String,
+      default: "",
+    },
   },
   {
     timestamps: true,
   }
 );
-
-
 
 module.exports = mongoose.model("Video", VideoSchema);

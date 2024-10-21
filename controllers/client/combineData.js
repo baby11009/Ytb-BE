@@ -1,4 +1,4 @@
-const { Video, Playlist, User,Comment } = require("../../models");
+const { Video, Playlist, User, Comment } = require("../../models");
 const { StatusCodes } = require("http-status-codes");
 const { BadRequestError, NotFoundError } = require("../../errors");
 const mongoose = require("mongoose");
@@ -297,6 +297,8 @@ const getDataList = async (req, res) => {
       playlistPipeline.push({
         $match: {
           title: { $regex: search, $options: "i" },
+          // Public only playlist
+          type: "public",
         },
       });
     }
@@ -591,6 +593,7 @@ const getChannelPlaylistVideos = async (req, res) => {
     {
       $match: {
         created_user_id: foundedChannel._id,
+        type: "public",
       },
     },
     {

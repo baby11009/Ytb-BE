@@ -3,7 +3,11 @@ const mongoose = require("mongoose");
 
 const { StatusCodes } = require("http-status-codes");
 
-const { BadRequestError, NotFoundError } = require("../../errors");
+const {
+  BadRequestError,
+  NotFoundError,
+  InternalServerError,
+} = require("../../errors");
 
 const { deleteFile, getVideoDuration } = require("../../utils/file");
 
@@ -16,7 +20,7 @@ const upLoadVideo = async (req, res) => {
 
   const { userId } = req.user;
 
-  const { type, title, tag = [] } = req.body;
+  const { type, title, tag = [], description = "" } = req.body;
 
   const fileErr = [];
 
@@ -63,6 +67,7 @@ const upLoadVideo = async (req, res) => {
     thumb: image[0].filename,
     duration: videoDuration,
     tag: tag,
+    description,
   };
 
   await Video.create(data);
@@ -138,7 +143,6 @@ const getVideos = async (req, res) => {
   }
 
   const combinedSort = { ...sortObj, ...sortDateObj };
-  console.log("🚀 ~ combinedSort:", combinedSort);
 
   const pipeline = [
     {
@@ -186,6 +190,7 @@ const getVideos = async (req, res) => {
         dislike: 1,
         createdAt: 1,
         totalCmt: 1,
+        description: 1,
       },
     },
     {
@@ -265,6 +270,7 @@ const getVideoDetails = async (req, res) => {
         view: 1,
         like: 1,
         dislike: 1,
+        description: 1,
       },
     },
   ]);
@@ -278,8 +284,20 @@ const getVideoDetails = async (req, res) => {
 const updateVideo = async (req, res) => {
   const { id } = req.params;
 
+  const { userId } = req.user;
+
   if (id === "" || id === ":id") {
     throw new BadRequestError("Please provide video id");
+  }
+
+  const foundedVideo = await Video.findOne({ user_id: userId });
+
+  if (!foundedVideo) {
+    throw new NotFoundError(`Cannot find video with id ${id}`);
+  }
+
+  if (foundedVideo.user_id.toString() !== userId) {
+    throw new ForbiddenError("You are not authorized to update this video.");
   }
 
   if (
@@ -290,7 +308,7 @@ const updateVideo = async (req, res) => {
     throw new BadRequestError("There is nothing to update.");
   }
 
-  let updatedKey = ["title", "image", "type", "tag"];
+  let updatedKey = ["title", "image", "type", "tag", "description"];
 
   let updateData = {};
 
@@ -330,8 +348,13 @@ const updateVideo = async (req, res) => {
   }
 
   const video = await Video.findByIdAndUpdate(id, updateData);
+  if (!video) {
+    throw new InternalServerError(
+      "These something went wrong with the server please try again later"
+    );
+  }
 
-  if (req.files?.image && req.files?.image[0]) {
+  if (req.files?.image && req.files?.image[0] && video) {
     const imgPath = path.join(asssetPath, "video thumb", video.thumb);
     deleteFile(imgPath);
   }
@@ -393,7 +416,7 @@ const deleteVideo = async (req, res) => {
 const deleteManyVideos = async (req, res) => {
   const { idList } = req.body;
 
-  const { userId } = req.body;
+  const { userId } = req.user;
 
   if (!idList) {
     throw new BadRequestError("Please provide idList");
@@ -412,7 +435,7 @@ const deleteManyVideos = async (req, res) => {
         return id;
       }
 
-      if (video.user_id.toString() !== req.user.userId) {
+      if (video.user_id.toString() !== userId) {
         throw new BadRequestError(
           `Video with id ${id} does not belong to your account`
         );

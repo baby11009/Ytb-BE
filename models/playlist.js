@@ -16,6 +16,11 @@ const Playlist = new mongoose.Schema(
       type: Array,
       default: [],
     },
+    type: {
+      type: String,
+      enum: ["public", "private"],
+      default: "public",
+    },
   },
   { timestamps: true }
 );

@@ -43,17 +43,21 @@ app.use("/api/v1/client", authMiddleware, clientRouter);
 // Both site
 app.use("/api/v1/auth", authRouter);
 app.use("/api/v1/file", fileRouter);
-app.use("/api/v1/comment", commentRouter);
-app.use("/api/v1/video", authMiddleware, permissionMiddleware, videoRouter);
 
 // User site
 app.use("/api/v1/data", combineRouter);
 
 // Admin site
-// app.use("/api/v1/user", authMiddleware, permissionMiddleware, userRouter);
-app.use("/api/v1/user", userRouter);
-app.use("/api/v1/playlist", authMiddleware, playlistRouter);
+app.use("/api/v1/user", authMiddleware, permissionMiddleware, userRouter);
 app.use("/api/v1/tag", authMiddleware, permissionMiddleware, tagRouter);
+app.use("/api/v1/video", authMiddleware, permissionMiddleware, videoRouter);
+app.use("/api/v1/comment", authMiddleware, permissionMiddleware, commentRouter);
+app.use(
+  "/api/v1/playlist",
+  authMiddleware,
+  permissionMiddleware,
+  playlistRouter
+);
 
 app.use(notFoundMiddleware);
 app.use(errorHandlerMiddleware);

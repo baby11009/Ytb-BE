@@ -21,12 +21,6 @@ const createPlaylist = async (req, res) => {
     throw new BadRequestError("Please chose at least one video");
   }
 
-  const { userId: id, role } = req.user;
-
-  if (role !== "admin" && id !== userId) {
-    throw new ForbiddenError("You can't create playlist for other user");
-  }
-
   const foundedVideos = await Video.aggregate([
     {
       $addFields: {
@@ -74,10 +68,7 @@ const getPlaylists = async (req, res) => {
   const skip = (page - 1) * limit;
 
   const findParams = Object.keys(req.query).filter(
-    (key) =>
-      key !== "limit" &&
-      key !== "page" &&
-      key !== "createdAt"
+    (key) => key !== "limit" && key !== "page" && key !== "createdAt"
   );
 
   let findObj = {};
@@ -215,8 +206,6 @@ const updatePlaylist = async (req, res) => {
     throw new BadRequestError("Please provide playlist id to update");
   }
 
-  const { userId, role } = req.user;
-
   const { videoIdList, title } = req.body;
 
   if (!videoIdList && !title) {
@@ -229,14 +218,6 @@ const updatePlaylist = async (req, res) => {
 
   if (!foundedPlaylist) {
     throw new NotFoundError("Playlist not found");
-  }
-  if (
-    role !== "admin" &&
-    foundedPlaylist.created_user_id.toString() !== userId
-  ) {
-    throw new ForbiddenError(
-      "You are not allowed to update playlist does not belong to your account"
-    );
   }
 
   if (videoIdList && videoIdList.length > 0) {
@@ -324,18 +305,7 @@ const updatePlaylist = async (req, res) => {
 const deletePlaylist = async (req, res) => {
   const { id } = req.params;
 
-  const { userId, role } = req.user;
-
   const foundedPlaylist = await Playlist.findById(id);
-
-  if (
-    role !== "admin" &&
-    foundedPlaylist.created_user_id.toString() !== userId
-  ) {
-    throw new ForbiddenError(
-      "You are not allowed to delete playlist does not belong to your account"
-    );
-  }
 
   const playlist = await Playlist.deleteOne({ _id: id });
 

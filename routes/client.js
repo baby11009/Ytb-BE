@@ -31,6 +31,15 @@ const {
   deleteCmt,
   deleteManyCmt,
 } = require("../controllers/client/client-comment");
+
+const {
+  createPlaylist,
+  getPlaylists,
+  getPlaylistDetails,
+  updatePlaylist,
+  deletePlaylist,
+  deleteManyPlaylist,
+} = require("../controllers/client/client-playlist");
 const { toggleCmtReact } = require("../controllers/client/client-cmtReact");
 const router = express.Router();
 
@@ -96,5 +105,16 @@ router
 // comment react
 
 router.route("/cmt-react").post(toggleCmtReact);
+
+// playlist
+router.route("/playlist").get(getPlaylists).post(createPlaylist);
+
+router.route("/playlist/delete-many").post(deleteManyPlaylist);
+
+router
+  .route("/playlist/:id")
+  .get(getPlaylistDetails)
+  .patch(updatePlaylist)
+  .delete(deletePlaylist);
 
 module.exports = router;

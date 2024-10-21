@@ -9,13 +9,11 @@ const {
   deleteManyPlaylist,
 } = require("../controllers/playlist/playlist");
 
-const { permissionMiddleware } = require("../middlewares");
-
 const router = express.Router();
 
 router.route("/").get(getPlaylists).post(createPlaylist);
 
-router.route("/delete-many").post(permissionMiddleware, deleteManyPlaylist);
+router.route("/delete-many").post(deleteManyPlaylist);
 
 router
   .route("/:id")
