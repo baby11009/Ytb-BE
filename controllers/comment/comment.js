@@ -323,53 +323,7 @@ const deleteCmt = async (req, res) => {
     );
   }
 
-  const cmt = await Comment.findByIdAndDelete(id);
-
-  await Video.findOneAndUpdate(
-    { _id: cmt.video_id },
-    { $inc: { totalCmt: -1 } }
-  );
-
-  if (cmt.replied_parent_cmt_id) {
-    await Comment.updateOne(
-      { _id: cmt.replied_parent_cmt_id },
-      { $inc: { replied_cmt_total: -1 } }
-    );
-  } else if (cmt.replied_cmt_id) {
-    await Comment.updateOne(
-      { _id: cmt.replied_cmt_id },
-      { $inc: { replied_cmt_total: -1 } }
-    );
-  }
-
-  if (cmt.like > 0 || cmt.dislike > 0) {
-    await CmtReact.deleteMany({ cmt_id: cmt._id });
-  }
-
-  if (cmt.replied_cmt_total > 0) {
-    const filter = {
-      video_id: cmt.video_id,
-      $or: [{ replied_cmt_id: cmt._id }, { replied_parent_cmt_id: cmt._id }],
-    };
-
-    const dltCmtList = await Comment.find(filter);
-
-    await Comment.deleteMany(filter);
-    const qtt = dltCmtList.length;
-    await Video.findOneAndUpdate(
-      { _id: cmt.video_id },
-      { $inc: { totalCmt: -qtt } }
-    );
-
-    const promiseList = dltCmtList.reduce((acc, item) => {
-      if (item.like > 0 || item.dislike > 0) {
-        acc.push(CmtReact.deleteMany({ cmt_id: item._id }));
-      }
-      return acc;
-    }, []);
-
-    await Promise.all(promiseList);
-  }
+  const cmt = await Comment.deleteOne({ _id: id });
 
   if (!cmt) {
     throw new InternalServerError(`Failed to delete comment with id ${id}`);
@@ -388,34 +342,15 @@ const deleteManyCmt = async (req, res) => {
     throw new BadRequestError("idList must be an array and can't be empty");
   }
 
-  let notFoundedCmts;
-
-  if (req.user.role !== "admin") {
-    notFoundedCmts = await Promise.all(
-      idList.map(async (id) => {
-        const cmt = await Comment.findById(id);
-        if (!cmt) {
-          return id;
-        }
-        if (req.user.userId !== cmt.user_id.toString()) {
-          throw new BadRequestError(
-            `Comment with id ${id} does not belong to user with id ${req.user.userId}`
-          );
-        }
-        return null;
-      })
-    );
-  } else {
-    notFoundedCmts = await Promise.all(
-      idList.map(async (id) => {
-        const cmt = await Comment.findById(id);
-        if (!cmt) {
-          return id;
-        }
-        return null;
-      })
-    );
-  }
+  let notFoundedCmts = await Promise.all(
+    idList.map(async (id) => {
+      const cmt = await Comment.findById(id);
+      if (!cmt) {
+        return id;
+      }
+      return null;
+    })
+  );
 
   notFoundedCmts = notFoundedCmts.filter((id) => id !== null);
 
@@ -424,66 +359,14 @@ const deleteManyCmt = async (req, res) => {
       `The following video IDs could not be found: ${notFoundedCmts.join(", ")}`
     );
   }
-  let dltCmts = [];
 
-  await Promise.all(
-    idList.map(async (id) => {
-      const cmt = await Comment.findByIdAndDelete(id);
+  const deleteComments = idList.reduce((acc, id) => {
+    acc.push(Comment.deleteOne({ _id: id }));
 
-      await Video.updateOne({ _id: cmt.video_id }, { $inc: { totalCmt: -1 } });
-
-      dltCmts.push(cmt);
-
-      if (cmt.like > 0 || cmt.dislike > 0) {
-        await CmtReact.deleteMany({ cmt_id: cmt._id });
-      }
-
-      if (cmt.replied_parent_cmt_id) {
-        await Comment.updateOne(
-          { _id: cmt.replied_parent_cmt_id },
-          { $inc: { replied_cmt_total: -1 } }
-        );
-      } else if (cmt.replied_cmt_id) {
-        await Comment.updateOne(
-          { _id: cmt.replied_cmt_id },
-          { $inc: { replied_cmt_total: -1 } }
-        );
-      }
-    })
-  );
-
-  let replyList = [];
-
-  await Promise.all(
-    dltCmts.map(async (item) => {
-      const filter = {
-        video_id: item?.video_id,
-        $or: [
-          { replied_cmt_id: item?._id },
-          { replied_parent_cmt_id: item?._id },
-        ],
-      };
-
-      if (item?.replied_cmt_total > 0) {
-        const replyCmts = await Comment.find(filter);
-        await Video.updateOne(
-          { _id: item?.video_id },
-          { $inc: { totalCmt: -replyCmts.length } }
-        );
-        replyList.push(...replyCmts);
-        await Comment.deleteMany(filter);
-      }
-    })
-  );
-
-  const promiseList = replyList.reduce((acc, item) => {
-    if (item?.like > 0 || item?.dislike > 0) {
-      acc.push(CmtReact.deleteMany({ cmt_id: item?._id }));
-    }
     return acc;
   }, []);
 
-  await Promise.all(promiseList);
+  await Promise.all(deleteComments);
 
   res.status(StatusCodes.OK).json({
     msg: `Comments with the following IDs have been deleted: ${idList.join(

@@ -104,10 +104,10 @@ const getVideos = async (req, res) => {
       findObj[item] = { $regex: req.query[item], $options: "i" };
     }
   });
-  let sortNum = 1;
+  let sortNum = -1;
 
-  if (req.query.createdAt === "mới nhất") {
-    sortNum = -1;
+  if (req.query.createdAt === "cũ nhất") {
+    sortNum = 1;
   }
 
   const pipeline = [
@@ -317,40 +317,7 @@ const deleteVideo = async (req, res) => {
     throw new NotFoundError(`Not found video with id ${id}`);
   }
 
-  if (req.user.role !== "admin") {
-    if (req.user.userId !== foundedVideo.user_id.toString()) {
-      throw new BadRequestError(
-        `Video with id ${id} does not belong to your account`
-      );
-    }
-  }
-
-  const video = await Video.findOneAndDelete({ _id: id });
-
-  if (video.video !== "") {
-    const videoPath = path.join(asssetPath, "videos", video.video);
-    deleteFile(videoPath);
-  }
-
-  if (video.thumb !== "") {
-    const thumbPath = path.join(asssetPath, "video thumb", video.thumb);
-    deleteFile(thumbPath);
-  }
-
-  await User.updateOne({ _id: video.user_id }, { $inc: { totalVids: -1 } });
-
-  const foundedCmt = await Comment.find({ video_id: video._id });
-
-  await Comment.deleteMany({ video_id: video._id });
-
-  const promiseList = foundedCmt.reduce((acc, item) => {
-    if (item.like > 0 || item.dislike > 0) {
-      acc.push(CmtReact.deleteMany({ cmt_id: item._id }));
-    }
-    return acc;
-  }, []);
-
-  await Promise.all(promiseList);
+  await Video.deleteOne({ _id: id });
 
   res.status(StatusCodes.OK).json({ msg: "Video deleted successfully" });
 };
@@ -365,38 +332,16 @@ const deleteManyVideos = async (req, res) => {
     throw new BadRequestError("idList must be an array and can't be empty");
   }
 
-  let notFoundedVideos;
+  let notFoundedVideos = await Promise.all(
+    idList.map(async (id) => {
+      const video = await Video.findById(id);
 
-  if (req.user.role !== "admin") {
-    notFoundedVideos = await Promise.all(
-      idList.map(async (id) => {
-        const video = await Video.findById(id);
-
-        if (!video) {
-          return id;
-        }
-
-        if (video.user_id.toString() !== req.user.userId) {
-          throw new BadRequestError(
-            `Video with id ${id} does not belong to your account`
-          );
-        }
-
-        return null;
-      })
-    );
-  } else {
-    notFoundedVideos = await Promise.all(
-      idList.map(async (id) => {
-        const video = await Video.findById(id);
-
-        if (!video) {
-          return id;
-        }
-        return null;
-      })
-    );
-  }
+      if (!video) {
+        return id;
+      }
+      return null;
+    })
+  );
 
   notFoundedVideos = notFoundedVideos.filter((id) => id !== null);
 
@@ -408,22 +353,11 @@ const deleteManyVideos = async (req, res) => {
     );
   }
 
-  const deleteVideos = await Promise.all(
-    idList.map(async (id) => {
-      const video = await Video.findByIdAndDelete(id);
-
-      if (!video) {
-        throw new NotFoundError(`Cannot delete video with id ${id}`);
-      }
-
-      await User.updateOne({ _id: video.user_id }, { $inc: { totalVids: -1 } });
-
-      const imgPath = path.join(asssetPath, "video thumb", video.thumb);
-      deleteFile(imgPath);
-      const videoPath = path.join(asssetPath, "videos", video.video);
-      deleteFile(videoPath);
-    })
-  );
+  const deleteVideos = idList.reduce((acc, id) => {
+    acc.push(Video.deleteOne({ _id: id }));
+    return acc;
+  }, []);
+  await Promise.all(deleteVideos);
 
   res.status(StatusCodes.OK).json({ msg: "Videos deleted successfully" });
 };

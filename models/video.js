@@ -1,5 +1,9 @@
 const mongoose = require("mongoose");
 
+const path = require("path");
+const asssetPath = path.join(__dirname, "../assets");
+const { deleteFile } = require("../utils/file");
+
 const VideoSchema = new mongoose.Schema(
   {
     user_id: {
@@ -62,4 +66,66 @@ const VideoSchema = new mongoose.Schema(
   }
 );
 
+// Cascade when deleting video
+VideoSchema.pre("deleteOne", async function () {
+  const { _id } = this.getQuery();
+
+  const Video = mongoose.model("Video");
+
+  const User = mongoose.model("User");
+
+  const Comment = mongoose.model("Comment");
+
+  const React = mongoose.model("React");
+
+  const video = await Video.findOne({ _id: _id });
+
+  // Delete video and thumbnail belong to this video
+  const videoPath = path.join(asssetPath, "videos", video.video);
+  deleteFile(videoPath);
+
+  const thumbPath = path.join(asssetPath, "video thumb", video.thumb);
+  deleteFile(thumbPath);
+
+  // Update user total uploaded video
+  await User.updateOne({ _id: video.user_id }, { $inc: { totalVids: -1 } });
+
+  // Delete all reacts that belong to this video
+  await React.deleteMany({ video_id: _id });
+
+  // Delete all comments that belong to this video
+  const foundedCmt = await Comment.find({ video_id: _id });
+
+  if (foundedCmt.length > 0) {
+    await Comment.deleteMany({ video_id: _id });
+  }
+});
+
+// Cascade when deleting user
+VideoSchema.pre("deleteMany", async function () {
+  const { user_id } = this.getQuery();
+
+  const Video = mongoose.model("Video");
+
+  const Comment = mongoose.model("Comment");
+
+  const React = mongoose.model("React");
+
+  // Find all the videos is belong to user
+  const foundedVideos = await Video.find({ user_id });
+
+  // Deleting all the comments that belong to this video
+  foundedVideos.map(async (video) => {
+    // Delete video and thumbnail belong to this video
+    const imgPath = path.join(asssetPath, "video thumb", video.thumb);
+    deleteFile(imgPath);
+    const videoPath = path.join(asssetPath, "videos", video.video);
+    deleteFile(videoPath);
+
+    // Delete all the React belong to videos
+    await React.deleteMany({ video_id: video._id });
+    // Delete all the comments belong to videos
+    await Comment.deleteMany({ video_id: video._id });
+  });
+});
 module.exports = mongoose.model("Video", VideoSchema);

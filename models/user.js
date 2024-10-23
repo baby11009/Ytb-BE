@@ -2,6 +2,9 @@ const mongoose = require("mongoose");
 const jwt = require("jsonwebtoken");
 const bcrypt = require("bcryptjs");
 
+const path = require("path");
+const avatarPath = path.join(__dirname, "../assets/user avatar");
+
 const UserSchema = new mongoose.Schema(
   {
     name: {
@@ -102,6 +105,89 @@ UserSchema.pre(
     next();
   }
 );
+
+// Cascade when deleting user
+UserSchema.pre("deleteOne", async function () {
+  const { _id } = this.getQuery();
+  const User = mongoose.model("User");
+  const Video = mongoose.model("Video");
+  const Playlist = mongoose.model("Playlist");
+  const Comment = mongoose.model("Comment");
+  const React = mongoose.model("React");
+  const Subscribe = mongoose.model("Subscribe");
+  const CmtReact = mongoose.model("CmtReact");
+
+  const foundedUser = await User.findById(_id);
+
+  // Deleting avatar file if user has uploaded
+  if (foundedUser.avatar !== "df.jpg") {
+    deleteFile(path.join(avatarPath, foundedUser.avatar));
+  }
+
+  // Deleting banner file if user has uploaded
+  if (foundedUser.banner !== "df-banner.jpg") {
+    deleteFile(path.join(avatarPath, foundedUser.banner));
+  }
+
+  // Finding all the video that user has uploaded
+  const foundedVideo = await Video.find({ user_id: foundedUser._id });
+
+  // If user has uploaded more than one video then deleting all the videos that have been founded
+  if (foundedVideo.length > 0) {
+    await Video.deleteMany({ user_id: foundedUser._id });
+  }
+
+  // Find all the subscriptions that user has subscribed to other channels
+  const foundedSubscribes1 = await Subscribe.find({
+    subscriber_id: foundedUser._id,
+  });
+
+  // If subscription is more than one than delete the subscription and update channel subscriber count
+  if (foundedSubscribes1.length > 0) {
+    await Subscribe.deleteMany({ subscriber_id: foundedUser._id });
+
+    foundedSubscribes1.forEach(async (subscribe) => {
+      await User.updateOne(
+        { _id: subscribe.channel_id },
+        { $inc: { subscriber: -1 } }
+      );
+    });
+  }
+
+  const foundedSubscribes2 = await React.find({ user_id: foundedUser._id });
+  if (foundedSubscribes2.length > 0) {
+    // Delete all the Subscribe that user has subscribed to user channel
+    await Subscribe.deleteMany({ channel_id: foundedUser._id });
+  }
+
+  const foundedReacts = await React.find({ user_id: foundedUser._id });
+  if (foundedReacts.length > 0) {
+    // Delete all the react that user has created
+    await React.deleteMany({ user_id: foundedUser._id });
+  }
+
+  // Check if user has created any comments
+  const foundedComments = await Comment.find({ user_id: foundedUser._id });
+  if (foundedComments.length > 0) {
+    // Delete all the comment that user has created
+    await Comment.deleteMany({ user_id: foundedUser._id });
+  }
+
+  const foundedPlaylists = await Playlist.find({
+    created_user_id: foundedUser._id,
+  });
+  if (foundedPlaylists.length > 0) {
+    // Delete all the playlist that user has created
+    await Playlist.deleteMany({ created_user_id: foundedUser._id });
+  }
+
+  // Find all the comment react that user has created
+  const foundedCmtReacts = await CmtReact.find({ user_id: foundedUser._id });
+  if (foundedCmtReacts.length > 0) {
+    // Delete all the comment react that user has created
+    await CmtReact.deleteMany({ user_id: foundedUser._id });
+  }
+});
 
 UserSchema.methods.createJwt = function () {
   return jwt.sign(
