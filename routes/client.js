@@ -30,6 +30,7 @@ const {
   updateCmt,
   deleteCmt,
   deleteManyCmt,
+  getVideoComments,
 } = require("../controllers/client/client-comment");
 
 const {
@@ -95,6 +96,7 @@ router.route("/react/:videoId").get(getVideotReactState);
 router.route("/comment").post(createCmt).get(getCmts);
 
 router.route("/comment/delete-many").post(deleteManyCmt);
+router.route("/comment/video-comments").get(getVideoComments);
 
 router
   .route("/comment/:id")

@@ -11,7 +11,7 @@ const {
 const createCmt = async (req, res) => {
   const { userId } = req.user;
 
-  const { videoId, cmtText } = req.body;
+  const { videoId, cmtText, replyId } = req.body;
   const neededKeys = ["videoId", "cmtText"];
 
   if (Object.values(req.body).length === 0) {
@@ -39,35 +39,35 @@ const createCmt = async (req, res) => {
   }
 
   const video = await Video.updateOne(
-    { _id: req.body.videoId },
+    { _id: videoId },
     { $inc: { totalCmt: 1 } }
   );
 
   if (video.matchedCount === 0) {
-    throw new NotFoundError(`Not found video with id ${req.body.videoId}`);
+    throw new NotFoundError(`Not found video with id ${videoId}`);
   }
 
   let data = {
     user_id: userId,
-    video_id: req.body.videoId,
-    cmtText: req.body.cmtText,
+    video_id: videoId,
+    cmtText: cmtText,
   };
   let replyCmt;
 
-  if (req.body.replyId) {
-    replyCmt = await Comment.findById(req.body.replyId);
+  if (replyId) {
+    replyCmt = await Comment.findById(replyId);
 
     if (!replyCmt) {
-      throw new NotFoundError(`Not found comment with id ${req.body.replyId}`);
+      throw new NotFoundError(`Not found comment with id ${replyId}`);
     }
 
-    if (replyCmt.video_id?.toString() !== req.body.videoId) {
+    if (replyCmt.video_id?.toString() !== videoId) {
       throw new BadRequestError(
         "Reply comment should belong to the same video"
       );
     }
 
-    let cmtId = req.body.replyId;
+    let cmtId = replyId;
 
     if (replyCmt?.replied_parent_cmt_id) {
       cmtId = replyCmt?.replied_parent_cmt_id;
@@ -79,15 +79,7 @@ const createCmt = async (req, res) => {
 
     await Comment.updateOne({ _id: cmtId }, { $inc: { replied_cmt_total: 1 } });
 
-    data["replied_cmt_id"] = req.body.replyId;
-  }
-
-  if (req.query.like) {
-    data.like = req.query.like;
-  }
-
-  if (req.query.dislike) {
-    data.dislike = req.query.dislike;
+    data["replied_cmt_id"] = replyId;
   }
 
   const cmt = await Comment.create(data);
@@ -124,7 +116,7 @@ const getCmts = async (req, res) => {
 
   let sortDateObj = {};
 
-  const uniqueSortKeys = ["view", "like", "dislike", "totalCmt"];
+  const uniqueSortKeys = [];
 
   const sortKeys = ["createdAt"];
 
@@ -215,7 +207,144 @@ const getCmts = async (req, res) => {
     qtt: comments[0]?.data?.length,
     totalQtt: comments[0]?.totalCount[0]?.total,
     currPage: page,
-    totalPages: Math.floor(comments[0]?.totalCount[0]?.total / limit) || 1,
+    totalPages: Math.ceil(comments[0]?.totalCount[0]?.total / limit) || 1,
+  });
+};
+
+const getVideoComments = async (req, res) => {
+  const { userId } = req.user;
+
+  const { sort, limit, page } = req.query;
+
+  const limitNum = Number(limit);
+  const pageNum = Number(page);
+
+  const skip = (pageNum - 1) * limitNum;
+
+  const findObj = {};
+
+  const findKeys = ["text", "videoId"];
+
+  const findQueryKey = Object.keys(req.query).filter(
+    (key) => key !== "sort" && key !== "limit" && key !== "page"
+  );
+
+  findQueryKey.forEach((key) => {
+    if (findKeys.includes(key) && req.query[key]) {
+      switch (key) {
+        case "text":
+          findObj["cmtText"] = { $regex: req.query[key], $options: "i" };
+          break;
+        case "videoId":
+          findObj["videoIdStr"] = { $regex: req.query[key], $options: "i" };
+          break;
+        default:
+          findObj[key] = { $regex: req.query[key], $options: "i" };
+      }
+    }
+  });
+
+  let sortObj = {};
+
+  let sortDateObj = {};
+
+  const uniqueSortKeys = [];
+
+  const sortKeys = ["createdAt"];
+
+  if (Object.keys(sort).length > 0) {
+    let unique = [];
+    let uniqueValue;
+    for (const [key, value] of Object.entries(sort)) {
+      if (sortKeys.includes(key)) {
+        sortDateObj[key] = Number(value);
+      } else if (uniqueSortKeys.includes(key)) {
+        unique.push(key);
+        uniqueValue = Number(value);
+      }
+    }
+
+    if (unique.length > 1) {
+      throw new BadRequestError(
+        `Only one sort key in ${uniqueSortKeys.join(", ")} is allowed`
+      );
+    } else if (unique.length > 0) {
+      sortObj[unique[0]] = uniqueValue;
+    }
+  } else {
+    sortDateObj = {
+      createdAt: -1,
+    };
+  }
+
+  const combinedSort = { ...sortObj, ...sortDateObj };
+
+  const pipeline = [
+    {
+      $lookup: {
+        from: "videos",
+        localField: "video_id",
+        foreignField: "_id",
+        pipeline: [{ $project: { _id: 1, user_id: 1, title: 1, thumb: 1 } }],
+        as: "video_info",
+      },
+    },
+    {
+      $unwind: "$video_info",
+    },
+    {
+      $lookup: {
+        from: "users",
+        localField: "user_id",
+        foreignField: "_id",
+        pipeline: [{ $project: { _id: 1, name: 1, email: 1 } }],
+        as: "user_info",
+      },
+    },
+    {
+      $unwind: "$user_info",
+    },
+    {
+      $addFields: {
+        userIdStr: { $toString: "$video_info.user_id" },
+        videoIdStr: { $toString: "$video_info.video" },
+      },
+    },
+    {
+      $match: {
+        userIdStr: userId,
+        ...findObj,
+      },
+    },
+    {
+      $sort: combinedSort,
+    },
+    {
+      $project: {
+        _id: 1,
+        cmtText: 1,
+        video_info: 1,
+        createdAt: 1,
+        video_info: 1,
+        user_info: 1,
+      },
+    },
+    {
+      $facet: {
+        totalCount: [{ $count: "total" }],
+        data: [{ $skip: skip }, { $limit: limitNum }],
+      },
+    },
+  ];
+
+  const comments = await Comment.aggregate(pipeline);
+
+  res.status(StatusCodes.OK).json({
+    data: comments[0]?.data,
+    qtt: comments[0]?.data?.length,
+    totalQtt: comments[0]?.totalCount[0]?.total,
+    currPage: Number(page),
+    totalPages: Math.ceil(comments[0]?.totalCount[0]?.total / limit) || 1,
   });
 };
 
@@ -252,7 +381,7 @@ const getCmtDetails = async (req, res) => {
     },
   ]);
 
-  if (!cmt) {
+  if (cmt.length < 1) {
     throw new NotFoundError(`Cannot find comment with id ${id}`);
   }
 
@@ -329,12 +458,48 @@ const deleteCmt = async (req, res) => {
     throw new BadRequestError(`Please provide comment id`);
   }
 
-  const foundedCmt = await Comment.findById(id);
+  const foundedCmt = await Comment.aggregate([
+    {
+      $addFields: {
+        _idStr: { $toString: "$_id" },
+        userIdStr: { $toString: "$user_id" },
+      },
+    },
+    {
+      $match: {
+        _idStr: id,
+      },
+    },
+    {
+      $lookup: {
+        from: "videos",
+        localField: "video_id",
+        foreignField: "_id",
+        pipeline: [{ $project: { _id: 1, user_id: 1 } }],
+        as: "video_info",
+      },
+    },
+    {
+      $unwind: "$video_info",
+    },
+    {
+      $addFields: {
+        videoCreatedUserId: { $toString: "$video_info.user_id" },
+      },
+    },
+    {
+      $project: { _id: 1, userIdStr: 1, video_info: 1, videoCreatedUserId: 1 },
+    },
+  ]).then((data) => data[0]);
 
   if (!foundedCmt) {
     throw new NotFoundError(`Cannot find comment with id ${id}`);
   }
-  if (userId !== foundedCmt.user_id.toString()) {
+
+  if (
+    userId !== foundedCmt.userIdStr &&
+    userId !== foundedCmt.videoCreatedUserId
+  ) {
     throw new BadRequestError(
       `Comment with id ${id} does not belong to user with id ${req.user.userId}`
     );
@@ -410,11 +575,49 @@ const deleteManyCmt = async (req, res) => {
 
   notFoundedCmts = await Promise.all(
     idList.map(async (id) => {
-      const cmt = await Comment.findById(id);
+      const cmt = Comment.aggregate([
+        {
+          $addFields: {
+            _idStr: { $toString: "$_id" },
+            userIdStr: { $toString: "$user_id" },
+          },
+        },
+        {
+          $match: {
+            _idStr: id,
+          },
+        },
+        {
+          $lookup: {
+            from: "videos",
+            localField: "video_id",
+            foreignField: "_id",
+            pipeline: [{ $project: { _id: 1, user_id: 1 } }],
+            as: "video_info",
+          },
+        },
+        {
+          $unwind: "$video_info",
+        },
+        {
+          $addFields: {
+            videoCreatedUserId: { $toString: "$video_info.user_id" },
+          },
+        },
+        {
+          $project: {
+            _id: 1,
+            userIdStr: 1,
+            video_info: 1,
+            videoCreatedUserId: 1,
+          },
+        },
+      ]).then((data) => data[0]);
+
       if (!cmt) {
         return id;
       }
-      if (userId !== cmt.user_id.toString()) {
+      if (userId !== cmt.userIdStr && userId !== videoCreatedUserId) {
         throw new BadRequestError(
           `Comment with id ${id} does not belong to user with id ${userId}`
         );
@@ -505,4 +708,5 @@ module.exports = {
   updateCmt,
   deleteCmt,
   deleteManyCmt,
+  getVideoComments,
 };
