@@ -20,43 +20,41 @@ const videoThumbPath = path.join(__dirname, "../../assets/video thumb");
 const videoPath = path.join(__dirname, "../../assets/videos");
 
 const createUser = async (req, res) => {
-  const keys = Object.keys(req.body);
+  try {
+    const keys = Object.keys(req.body);
 
-  if (keys.length === 0) {
+    if (keys.length === 0) {
+      throw new BadRequestError("Please provide data to create user");
+    }
+
+    const existingUser = await User.findOne({ email: req.body.email });
+
+    if (existingUser) {
+      throw new BadRequestError("Email already registered");
+    }
+
+    let finalData = { ...req.body };
+
+    if (req.files.image && req.files.image[0]) {
+      finalData.avatar = req.files.image[0].filename;
+    }
+
+    if (req.files.banner && req.files.banner[0]) {
+      finalData.banner = req.files.banner[0].filename;
+    }
+
+    const user = await User.create(finalData);
+
+    res.status(StatusCodes.CREATED).json({ msg: user });
+  } catch (error) {
     if (req.files.image) {
       deleteFile(req.files.image[0].path);
     }
     if (req.files.banner) {
       deleteFile(req.files.banner[0].path);
     }
-    throw new BadRequestError("Please provide data to create user");
+    throw error;
   }
-
-  const existingUser = await User.findOne({ email: req.body.email });
-
-  if (existingUser) {
-    if (req.files.image) {
-      deleteFile(req.files.image[0].path);
-    }
-    if (req.files.banner) {
-      deleteFile(req.files.banner[0].path);
-    }
-    throw new BadRequestError("Email already registered");
-  }
-
-  let finalData = { ...req.body };
-
-  if (req.files.image) {
-    finalData.avatar = req.files.image[0].filename;
-  }
-
-  if (req.files.banner) {
-    finalData.banner = req.files.banner[0].filename;
-  }
-
-  const user = await User.create(finalData);
-
-  res.status(StatusCodes.CREATED).json({ msg: user });
 };
 
 const getUsers = async (req, res) => {

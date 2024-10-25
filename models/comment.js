@@ -1,6 +1,10 @@
 const mongoose = require("mongoose");
 
-const CmtSchema = new mongoose.Schema(
+const Video = require("./video");
+const CmtReact = require("./cmtReact");
+const { NotFoundError } = require("../errors");
+
+const Comment = new mongoose.Schema(
   {
     user_id: {
       type: mongoose.Types.ObjectId,
@@ -38,15 +42,23 @@ const CmtSchema = new mongoose.Schema(
   }
 );
 
+// Update links data when user create comment
+Comment.pre("save", async function () {
+  const video = await Video.updateOne(
+    { _id: this.video_id.toString() },
+    { $inc: { totalCmt: 1 } }
+  );
+
+  if (video.matchedCount === 0) {
+    throw new NotFoundError(`Not found video with id ${req.body.videoId}`);
+  }
+});
+
 // Cascade delete and update when delete comment
-CmtSchema.pre("deleteOne", async function (next) {
+Comment.pre("deleteOne", async function (next) {
   const { _id } = this.getQuery();
 
   const Comment = mongoose.model("Comment");
-
-  const Video = mongoose.model("Video");
-
-  const CmtReact = mongoose.model("CmtReact");
 
   const cmt = await Comment.findOne({ _id: _id });
 
@@ -71,21 +83,6 @@ CmtSchema.pre("deleteOne", async function (next) {
     if (dltCmtList.length > 0) {
       // Delete all the founded comments
       await Comment.deleteMany(filter);
-
-      const qtt = dltCmtList.length;
-
-      // Update Video total comment
-      await Video.findOneAndUpdate(
-        { _id: cmt.video_id },
-        { $inc: { totalCmt: -qtt } }
-      );
-
-      // delete all the react belong to the founded comments that have been deleted
-      dltCmtList.forEach(async (item) => {
-        if (item.like > 0 || item.dislike > 0) {
-          await CmtReact.deleteMany({ cmt_id: item._id });
-        }
-      });
     }
   } // Update root comments reply count when the deleted comment is not root comment
   else if (cmt.replied_parent_cmt_id) {
@@ -103,21 +100,25 @@ CmtSchema.pre("deleteOne", async function (next) {
 
 // Cascade delete and update when delete user or video
 
-CmtSchema.pre("deleteMany", async function () {
-  const { user_id, video_id } = this.getQuery();
+Comment.pre("deleteMany", async function () {
+  const { user_id, video_id, $or } = this.getQuery();
 
   const Comment = mongoose.model("Comment");
-  const CmtReact = mongoose.model("CmtReact");
-  const Video = mongoose.model("Video");
   const findObj = {};
 
   if (user_id && !video_id) {
     findObj.user_id = user_id;
   } else if (video_id && !user_id) {
-    findObj.video_id = video_id;
+    if ($or) {
+      findObj.video_id = video_id;
+      findObj["$or"] = $or;
+    } else {
+      findObj.video_id = video_id;
+    }
   }
 
   const foundedCmts = await Comment.find(findObj);
+  console.log("🚀 ~ foundedCmts:", foundedCmts);
 
   // Xóa các CmtReact của Comment đã delete
   foundedCmts.forEach(async (cmt) => {
@@ -149,12 +150,10 @@ CmtSchema.pre("deleteMany", async function () {
 
           const availableCmts = await Comment.find({ video_id: cmt.video_id });
 
-          const qtt = dltCmtList.length;
-
           // Update Video total comment
           await Video.findOneAndUpdate(
             { _id: cmt.video_id },
-            { $inc: { totalCmt: availableCmts.length } }
+            { totalCmt: availableCmts.length }
           );
 
           // delete all the react belong to the founded comments that have been deleted
@@ -180,4 +179,4 @@ CmtSchema.pre("deleteMany", async function () {
   });
 });
 
-module.exports = mongoose.model("Comment", CmtSchema);
+module.exports = mongoose.model("Comment", Comment);

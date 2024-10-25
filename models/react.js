@@ -1,6 +1,6 @@
 const mongoose = require("mongoose");
 
-const ReactSchema = new mongoose.Schema(
+const React = new mongoose.Schema(
   {
     user_id: {
       type: mongoose.Types.ObjectId,
@@ -19,7 +19,7 @@ const ReactSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-ReactSchema.pre("deleteMany", async function () {
+React.pre("deleteMany", async function () {
   const { user_id } = this.getQuery();
   // Just do all of the work when it is cascade deleting when deleting user
   if (user_id) {
@@ -37,4 +37,4 @@ ReactSchema.pre("deleteMany", async function () {
   }
 });
 
-module.exports = mongoose.model("React", ReactSchema);
+module.exports = mongoose.model("React", React);

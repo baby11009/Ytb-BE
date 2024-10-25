@@ -1,6 +1,6 @@
 const mongoose = require("mongoose");
 
-const PlaylistSchema = new mongoose.Schema(
+const Playlist = new mongoose.Schema(
   {
     created_user_id: {
       type: mongoose.Types.ObjectId,
@@ -25,4 +25,4 @@ const PlaylistSchema = new mongoose.Schema(
   { timestamps: true }
 );
   
-module.exports = mongoose.model("Playlist", PlaylistSchema);
+module.exports = mongoose.model("Playlist", Playlist);

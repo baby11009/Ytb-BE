@@ -29,42 +29,35 @@ const createCmt = async (req, res) => {
     );
   }
 
+  const { userId, videoId, cmtText, replyId, like, dislike } = req.body;
+
   const user = await User.findById(req.body.userId);
 
   if (!user) {
-    throw new NotFoundError(`Not found user with id ${req.body.userId}`);
-  }
-
-  const video = await Video.updateOne(
-    { _id: req.body.videoId },
-    { $inc: { totalCmt: 1 } }
-  );
-
-  if (video.matchedCount === 0) {
-    throw new NotFoundError(`Not found video with id ${req.body.videoId}`);
+    throw new NotFoundError(`Not found user with id ${userId}`);
   }
 
   let data = {
-    user_id: req.body.userId,
-    video_id: req.body.videoId,
-    cmtText: req.body.cmtText,
+    user_id: userId,
+    video_id: videoId,
+    cmtText: cmtText,
   };
   let replyCmt;
 
-  if (req.body.replyId) {
-    replyCmt = await Comment.findById(req.body.replyId);
+  if (replyId) {
+    replyCmt = await Comment.findById(replyId);
 
     if (!replyCmt) {
-      throw new NotFoundError(`Not found comment with id ${req.body.replyId}`);
+      throw new NotFoundError(`Not found comment with id ${replyId}`);
     }
 
-    if (replyCmt.video_id?.toString() !== req.body.videoId) {
+    if (replyCmt.video_id?.toString() !== videoId) {
       throw new BadRequestError(
         "Reply comment should belong to the same video"
       );
     }
 
-    let cmtId = req.body.replyId;
+    let cmtId = replyId;
 
     if (replyCmt?.replied_parent_cmt_id) {
       cmtId = replyCmt?.replied_parent_cmt_id;
@@ -76,15 +69,15 @@ const createCmt = async (req, res) => {
 
     await Comment.updateOne({ _id: cmtId }, { $inc: { replied_cmt_total: 1 } });
 
-    data["replied_cmt_id"] = req.body.replyId;
+    data["replied_cmt_id"] = replyId;
   }
 
-  if (req.query.like) {
-    data.like = req.query.like;
+  if (like) {
+    data.like = like;
   }
 
-  if (req.query.dislike) {
-    data.dislike = req.query.dislike;
+  if (dislike) {
+    data.dislike = dislike;
   }
 
   const cmt = await Comment.create(data);
@@ -189,7 +182,7 @@ const getCmts = async (req, res) => {
     qtt: comments[0]?.data?.length,
     totalQtt: comments[0]?.totalCount[0]?.total,
     currPage: page,
-    totalPages: Math.ceil(comments[0]?.totalCount[0]?.total / limit) | 1,
+    totalPages: Math.ceil(comments[0]?.totalCount[0]?.total / limit) || 1,
   });
 };
 
@@ -313,14 +306,6 @@ const deleteCmt = async (req, res) => {
 
   if (!foundedCmt) {
     throw new NotFoundError(`Cannot find comment with id ${id}`);
-  }
-  if (
-    req.user.role !== "admin" &&
-    req.user.userId !== foundedCmt.user_id.toString()
-  ) {
-    throw new BadRequestError(
-      `Comment with id ${id} does not belong to user with id ${req.user.userId}`
-    );
   }
 
   const cmt = await Comment.deleteOne({ _id: id });

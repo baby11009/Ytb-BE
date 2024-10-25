@@ -10,15 +10,16 @@ const createTag = async (req, res) => {
     if (Object.keys(req.body).length === 0) {
       throw new BadRequestError("Please provide data to register");
     }
-
-    const foundedTag = await Tag.findOne({ title: req.body.title });
+    const { title } = req.body;
+    const foundedTag = await Tag.findOne({ title: title });
 
     if (foundedTag) {
       throw new BadRequestError("Tag's title must be unique");
     }
 
     const data = {
-      ...req.body,
+      title: title,
+      slug: title.toLowerCase().replace(/[^\w]+/g, "-"),
     };
 
     if (req.files.image) {
@@ -37,7 +38,6 @@ const createTag = async (req, res) => {
 };
 
 const getTags = async (req, res) => {
-  
   const { limit, page, title, createdAt } = req.query;
 
   const dataLimit = Number(limit) || 5;

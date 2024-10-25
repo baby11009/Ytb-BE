@@ -1,6 +1,6 @@
 const mongoose = require("mongoose");
 
-const SubscribeSchema = new mongoose.Schema(
+const Subscribe= new mongoose.Schema(
   {
     subscriber_id: {
       type: mongoose.Types.ObjectId,
@@ -21,4 +21,4 @@ const SubscribeSchema = new mongoose.Schema(
   }
 );
 
-module.exports = mongoose.model("Subscribe", SubscribeSchema);
+module.exports = mongoose.model("Subscribe", Subscribe);

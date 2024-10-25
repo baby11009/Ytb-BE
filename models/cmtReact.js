@@ -1,6 +1,6 @@
 const mongoose = require("mongoose");
-
-const CmtReactSchema = new mongoose.Schema(
+const Comment = require("./comment");
+const CmtReact = new mongoose.Schema(
   {
     user_id: {
       type: mongoose.Types.ObjectId,
@@ -19,12 +19,11 @@ const CmtReactSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-CmtReactSchema.pre("deleteMany", async function () {
+CmtReact.pre("deleteMany", async function () {
   const { user_id } = this.getQuery();
   // Just do all of the work when is is cascade deleting when deleting user
   if (user_id) {
     const CmtReact = mongoose.model("CmtReact");
-    const Comment = mongoose.model("Comment");
     const foundedCmtReacts = await CmtReact.find({ user_id });
 
     // Update the comment like and dislike count of the comment that user has reacted to
@@ -37,4 +36,4 @@ CmtReactSchema.pre("deleteMany", async function () {
     });
   }
 });
-module.exports = mongoose.model("CmtReact", CmtReactSchema);
+module.exports = mongoose.model("CmtReact", CmtReact);

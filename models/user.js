@@ -5,7 +5,7 @@ const bcrypt = require("bcryptjs");
 const path = require("path");
 const avatarPath = path.join(__dirname, "../assets/user avatar");
 
-const UserSchema = new mongoose.Schema(
+const User = new mongoose.Schema(
   {
     name: {
       type: String,
@@ -78,13 +78,13 @@ const UserSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-UserSchema.pre("save", async function (next) {
+User.pre("save", async function (next) {
   const salt = await bcrypt.genSalt(10);
   this.password = await bcrypt.hash(this.password, salt);
   next();
 });
 
-UserSchema.pre(
+User.pre(
   ["update", "updateOne", "findOneAndUpdate"],
   async function (next) {
     const update = this.getUpdate();
@@ -107,7 +107,7 @@ UserSchema.pre(
 );
 
 // Cascade when deleting user
-UserSchema.pre("deleteOne", async function () {
+User.pre("deleteOne", async function () {
   const { _id } = this.getQuery();
   const User = mongoose.model("User");
   const Video = mongoose.model("Video");
@@ -189,7 +189,7 @@ UserSchema.pre("deleteOne", async function () {
   }
 });
 
-UserSchema.methods.createJwt = function () {
+User.methods.createJwt = function () {
   return jwt.sign(
     {
       userId: this._id,
@@ -202,18 +202,18 @@ UserSchema.methods.createJwt = function () {
   );
 };
 
-UserSchema.methods.comparePassword = async function (candidatePw) {
+User.methods.comparePassword = async function (candidatePw) {
   const isMatch = await bcrypt.compare(candidatePw, this.password);
 
   return isMatch;
 };
 
-UserSchema.methods.getName = function () {
+User.methods.getName = function () {
   return this.name;
 };
 
-UserSchema.methods.isAdmin = function () {
+User.methods.isAdmin = function () {
   return this.role === "admin";
 };
 
-module.exports = mongoose.model("User", UserSchema);
+module.exports = mongoose.model("User", User);

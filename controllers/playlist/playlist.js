@@ -305,9 +305,9 @@ const updatePlaylist = async (req, res) => {
 const deletePlaylist = async (req, res) => {
   const { id } = req.params;
 
-  const foundedPlaylist = await Playlist.findById(id);
+  await Playlist.findById(id);
 
-  const playlist = await Playlist.deleteOne({ _id: id });
+  await Playlist.deleteOne({ _id: id });
 
   res.status(StatusCodes.OK).json({ msg: "Playlist deleted successfully" });
 };

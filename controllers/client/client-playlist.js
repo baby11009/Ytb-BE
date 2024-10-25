@@ -397,7 +397,7 @@ const deletePlaylist = async (req, res) => {
     throw new ForbiddenError("You are not authorized to delete this playlist");
   }
 
-  const playlist = await Playlist.deleteOne({ _id: id });
+  await Playlist.deleteOne({ _id: id });
 
   res.status(StatusCodes.OK).json({ msg: "Playlist deleted successfully" });
 };

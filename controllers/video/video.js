@@ -24,63 +24,61 @@ const upLoadVideo = async (req, res) => {
     dislike = 0,
   } = req.body;
 
-  const fileErr = [];
+  try {
+    const fileErr = [];
 
-  const videoPath = path.join(asssetPath, "videos", video[0].filename);
+    if (!video || video.length === 0) {
+      fileErr.push("video");
+    }
 
-  if (!image || image.length === 0 || !userId || !type || !title) {
-    if (video && video[0]) {
-      deleteFile(videoPath);
-    } else {
+    if (!image || image.length === 0) {
       fileErr.push("image");
     }
-  }
 
-  if (!video || video.length === 0 || !userId || !type || !title) {
+    if (fileErr.length > 0) {
+      throw new BadRequestError(`Please provide ${fileErr.join(", ")}`);
+    }
+
+    if (!userId) {
+      throw new BadRequestError("Please provide user id");
+    }
+
+    const foundedUser = await User.findById(userId);
+
+    if (!foundedUser) {
+      throw new NotFoundError(`Not found user with id ${userId}`);
+    }
+
+    const videoDuration = await getVideoDuration(videoPath);
+
+    const data = {
+      user_id: userId,
+      type: type,
+      title: title,
+      video: video[0].filename,
+      thumb: image[0].filename,
+      duration: videoDuration,
+      tag: tag,
+      view,
+      like,
+      dislike,
+    };
+
+    await Video.create(data);
+
+    res.status(StatusCodes.CREATED).json({ msg: "Upload video successfully" });
+  } catch (error) {
+    if (video && video[0]) {
+      const videoPath = path.join(asssetPath, "videos", video[0].filename);
+
+      deleteFile(videoPath);
+    }
     if (image && image[0]) {
       const imagePath = path.join(asssetPath, "video thumb", image[0].filename);
       deleteFile(imagePath);
-    } else {
-      fileErr.push("video");
     }
+    throw error;
   }
-
-  if (fileErr.length > 0) {
-    throw new BadRequestError(`Please provide ${fileErr.join(", ")}`);
-  }
-
-  if (!userId) {
-    throw new BadRequestError("Please provide user id");
-  }
-
-  const foundedUser = await User.findById(userId);
-
-  if (!foundedUser) {
-    throw new NotFoundError(`Not found user with id ${userId}`);
-  }
-
-  const videoDuration = await getVideoDuration(videoPath);
-
-  const data = {
-    user_id: userId,
-    type: type,
-    title: title,
-    video: video[0].filename,
-    thumb: image[0].filename,
-    duration: videoDuration,
-    tag: tag,
-    view,
-    like,
-    dislike,
-  };
-
-  await Video.create(data);
-
-  await User.findByIdAndUpdate(userId, {
-    $inc: { totalVids: 1 },
-  });
-
-  res.status(StatusCodes.CREATED).json({ msg: "Upload video successfully" });
 };
 
 const getVideos = async (req, res) => {
@@ -353,11 +351,9 @@ const deleteManyVideos = async (req, res) => {
     );
   }
 
-  const deleteVideos = idList.reduce((acc, id) => {
-    acc.push(Video.deleteOne({ _id: id }));
-    return acc;
-  }, []);
-  await Promise.all(deleteVideos);
+  idList.forEach(async (id) => {
+    await Video.deleteOne({ _id: id });
+  });
 
   res.status(StatusCodes.OK).json({ msg: "Videos deleted successfully" });
 };
