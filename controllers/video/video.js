@@ -23,6 +23,7 @@ const upLoadVideo = async (req, res) => {
     like = 0,
     dislike = 0,
   } = req.body;
+  
 
   try {
     const fileErr = [];
@@ -49,7 +50,7 @@ const upLoadVideo = async (req, res) => {
       throw new NotFoundError(`Not found user with id ${userId}`);
     }
 
-    const videoDuration = await getVideoDuration(videoPath);
+    const videoDuration = await getVideoDuration(video[0].path);
 
     const data = {
       user_id: userId,
@@ -69,13 +70,11 @@ const upLoadVideo = async (req, res) => {
     res.status(StatusCodes.CREATED).json({ msg: "Upload video successfully" });
   } catch (error) {
     if (video && video[0]) {
-      const videoPath = path.join(asssetPath, "videos", video[0].filename);
-
-      deleteFile(videoPath);
+      deleteFile(video[0].path);
     }
     if (image && image[0]) {
-      const imagePath = path.join(asssetPath, "video thumb", image[0].filename);
-      deleteFile(imagePath);
+
+      deleteFile(image[0].path);
     }
     throw error;
   }

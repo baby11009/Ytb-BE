@@ -4,20 +4,27 @@ const fs = require("fs");
 
 const assetsPath = path.join(__dirname, "../assets");
 
-const fileFilter = (req, file, cb, type) => {
-  const fileType = ["image", "video"];
-
-  if (file.mimetype.startsWith(`${fileType[type || 0]}/`) || !type) {
+const fileFilter = (req, file, cb) => {
+  if (
+    (file.fieldname === "image" || file.fieldname === "thumbnail" || file.fieldname === "banner") &&
+    file.mimetype.startsWith("image/")
+  ) {
+    cb(null, true);
+  } else if (file.fieldname === "video" && file.mimetype.startsWith("video/")) {
     cb(null, true);
   } else {
-    cb(new Error(`${fileType[type || 0]} file only`), false);
+    cb(new Error(`Only accepted image or video file`), false);
   }
 };
 
-function createMulterUpload(imageDes, videoDes, type) {
+function createMulterUpload(imageDes, videoDes) {
   const storage = multer.diskStorage({
     destination: (req, file, cb) => {
-      if ((file.mimetype.startsWith("image/") || file.mimetype.startsWith("image/"))&& imageDes) {
+      if (
+        (file.mimetype.startsWith("image/") ||
+          file.mimetype.startsWith("image/")) &&
+        imageDes
+      ) {
         const imgPath = path.join(assetsPath, imageDes);
         cb(null, imgPath);
       } else if (file.mimetype.startsWith("video/") && videoDes) {
@@ -39,7 +46,7 @@ function createMulterUpload(imageDes, videoDes, type) {
   return multer({
     storage: storage,
     fileFilter: (req, file, cb) => {
-      return fileFilter(req, file, cb, type);
+      return fileFilter(req, file, cb);
     },
   });
 }

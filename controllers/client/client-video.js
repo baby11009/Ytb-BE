@@ -21,6 +21,7 @@ const upLoadVideo = async (req, res) => {
   const { userId } = req.user;
 
   const { type, title, tag = [], description = "" } = req.body;
+  const videoPath = path.join(asssetPath, "videos", video[0].filename);
 
   try {
     const fileErr = [];
@@ -66,12 +67,10 @@ const upLoadVideo = async (req, res) => {
   } catch (error) {
     if (image && image[0]) {
       const imagePath = path.join(asssetPath, "video thumb", image[0].filename);
-
       deleteFile(imagePath);
     }
 
     if (video && video[0]) {
-      const videoPath = path.join(asssetPath, "videos", video[0].filename);
       deleteFile(videoPath);
     }
     throw error;

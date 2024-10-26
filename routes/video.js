@@ -2,7 +2,11 @@ const express = require("express");
 
 const router = express.Router();
 
-const { createMulterUpload, multerErrorHandling } = require("../middlewares");
+const {
+  createMulterUpload,
+  multerErrorHandling,
+  fileLimitSizeMiddleware,
+} = require("../middlewares");
 
 const {
   upLoadVideo,
@@ -15,11 +19,14 @@ const {
 
 router.post(
   "/upload",
-  createMulterUpload("video thumb", "videos").fields([
+  createMulterUpload("video thumb", "videos", 2).fields([
     { name: "image", maxCount: 1 },
     { name: "video", maxCount: 1 },
   ]),
   multerErrorHandling,
+  (req, res, next) => {
+    fileLimitSizeMiddleware(req, res, next, 2);
+  },
   upLoadVideo
 );
 
@@ -32,8 +39,13 @@ router
   .delete(deleteVideo)
   .get(getVideoDetails)
   .patch(
-    createMulterUpload("video thumb").fields([{ name: "image", maxCount: 1 }]),
+    createMulterUpload("video thumb", undefined).fields([
+      { name: "image", maxCount: 1 },
+    ]),
     multerErrorHandling,
+    (req, res, next) => {
+      fileLimitSizeMiddleware(req, res, next, 2);
+    },
     updateVideo
   );
 

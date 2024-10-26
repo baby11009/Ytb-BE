@@ -1,5 +1,9 @@
 const express = require("express");
-const { createMulterUpload, multerErrorHandling } = require("../middlewares");
+const {
+  createMulterUpload,
+  multerErrorHandling,
+  fileLimitSizeMiddleware,
+} = require("../middlewares");
 const {
   getAccountInfo,
   getAccountSubscribedChannel,
@@ -25,7 +29,6 @@ const {
 const {
   createCmt,
   getCmts,
-  getVideoCmts,
   getCmtDetails,
   updateCmt,
   deleteCmt,
@@ -54,6 +57,9 @@ router
       { name: "banner", maxCount: 1 },
     ]),
     multerErrorHandling,
+    (req, res, next) => {
+      fileLimitSizeMiddleware(req, res, next, 2);
+    },
     settingAccount
   );
 router.get("/user/subscribe-channels", getAccountSubscribedChannel);
@@ -66,6 +72,9 @@ router.post(
     { name: "video", maxCount: 1 },
   ]),
   multerErrorHandling,
+  (req, res, next) => {
+    fileLimitSizeMiddleware(req, res, next, 2);
+  },
   upLoadVideo
 );
 
@@ -80,6 +89,9 @@ router
   .patch(
     createMulterUpload("video thumb").fields([{ name: "image", maxCount: 1 }]),
     multerErrorHandling,
+    (req, res, next) => {
+      fileLimitSizeMiddleware(req, res, next, 2);
+    },
     updateVideo
   );
 

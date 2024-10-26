@@ -2,7 +2,11 @@ const express = require("express");
 
 const router = express.Router();
 
-const { createMulterUpload, multerErrorHandling } = require("../middlewares");
+const {
+  createMulterUpload,
+  multerErrorHandling,
+  fileLimitSizeMiddleware,
+} = require("../middlewares");
 
 const {
   createUser,
@@ -23,6 +27,9 @@ router
       { name: "banner", maxCount: 1 },
     ]),
     multerErrorHandling,
+    (req, res, next) => {
+      fileLimitSizeMiddleware(req, res, next, 2);
+    },
     createUser
   );
 
@@ -39,6 +46,9 @@ router
       { name: "banner", maxCount: 1 },
     ]),
     multerErrorHandling,
+    (req, res, next) => {
+      fileLimitSizeMiddleware(req, res, next, 2);
+    },
     updateUser
   );
 

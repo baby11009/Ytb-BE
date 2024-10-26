@@ -438,7 +438,7 @@ const updateCmt = async (req, res) => {
     throw new InternalServerError(`Failed to update comment`);
   }
 
-  res.status(StatusCodes.OK).json({ msg: "Comment updated" });
+  res.status(StatusCodes.OK).json({ msg: "Comment updated", data: foundedCmt });
 };
 
 const deleteCmt = async (req, res) => {
