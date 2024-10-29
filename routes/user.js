@@ -27,8 +27,11 @@ router
       { name: "banner", maxCount: 1 },
     ]),
     multerErrorHandling,
-    (req, res, next) => {
-      fileLimitSizeMiddleware(req, res, next, 2);
+    async (req, res, next) => {
+      fileLimitSizeMiddleware(req, res, next, {
+        image: 4,
+        banner: 6,
+      });
     },
     createUser
   );
@@ -46,8 +49,8 @@ router
       { name: "banner", maxCount: 1 },
     ]),
     multerErrorHandling,
-    (req, res, next) => {
-      fileLimitSizeMiddleware(req, res, next, 2);
+    async (req, res, next) => {
+      fileLimitSizeMiddleware(req, res, next, { image: 4, banner: 6 });
     },
     updateUser
   );

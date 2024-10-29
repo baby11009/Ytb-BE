@@ -24,8 +24,8 @@ router.post(
     { name: "video", maxCount: 1 },
   ]),
   multerErrorHandling,
-  (req, res, next) => {
-    fileLimitSizeMiddleware(req, res, next, 2);
+  async (req, res, next) => {
+    fileLimitSizeMiddleware(req, res, next, { image: 4 });
   },
   upLoadVideo
 );
@@ -43,8 +43,10 @@ router
       { name: "image", maxCount: 1 },
     ]),
     multerErrorHandling,
-    (req, res, next) => {
-      fileLimitSizeMiddleware(req, res, next, 2);
+    async (req, res, next) => {
+      fileLimitSizeMiddleware(req, res, next, {
+        image: 4,
+      });
     },
     updateVideo
   );

@@ -57,8 +57,8 @@ router
       { name: "banner", maxCount: 1 },
     ]),
     multerErrorHandling,
-    (req, res, next) => {
-      fileLimitSizeMiddleware(req, res, next, 2);
+    async (req, res, next) => {
+      fileLimitSizeMiddleware(req, res, next, { image: 4, banner: 6 });
     },
     settingAccount
   );
@@ -72,8 +72,8 @@ router.post(
     { name: "video", maxCount: 1 },
   ]),
   multerErrorHandling,
-  (req, res, next) => {
-    fileLimitSizeMiddleware(req, res, next, 2);
+  async (req, res, next) => {
+    fileLimitSizeMiddleware(req, res, next, { image: 4 });
   },
   upLoadVideo
 );
@@ -89,8 +89,10 @@ router
   .patch(
     createMulterUpload("video thumb").fields([{ name: "image", maxCount: 1 }]),
     multerErrorHandling,
-    (req, res, next) => {
-      fileLimitSizeMiddleware(req, res, next, 2);
+    async (req, res, next) => {
+      async (req, res, next) => {
+        fileLimitSizeMiddleware(req, res, next, { image: 4 });
+      };
     },
     updateVideo
   );

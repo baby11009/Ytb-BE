@@ -61,31 +61,24 @@ const getAccountSubscribedChannel = async (req, res) => {
 
 const settingAccount = async (req, res) => {
   const id = req.user.userId;
-
-  const { email, ...data } = req.body;
-
-  let foundedUser;
+  const { ...data } = req.body;
 
   try {
-    if (email) {
-      throw new BadRequestError("Cannot update user email address");
-    }
-
     const dataFields = Object.keys(data);
 
     if (dataFields.length === 0 && !req.files) {
       throw new BadRequestError("No data provided to update");
     }
 
-    foundedUser = await User.findOne({ _id: id }).select(
-      "name password role confirmed subscriber totalVids banner avatar"
+    const foundedUser = await User.findOne({ _id: id }).select(
+      "name password role confirmed subscriber totalVids banner avatar description"
     );
 
     if (!foundedUser) {
       throw new NotFoundError("User not found");
     }
 
-    const validateFields = ["name", "password"];
+    const validateFields = ["name", "password", "description"];
 
     const notValidateFields = [];
 
@@ -96,30 +89,22 @@ const settingAccount = async (req, res) => {
     for (const field of dataFields) {
       if (!validateFields.includes(field)) {
         notValidateFields.push(field);
-      } else {
-        if (foundedUser[field] === data[field]) {
-          sameValueFields.push(field);
-        } else {
-          if (
-            field === "password" &&
-            (await foundedUser.comparePassword(data[field]))
-          ) {
-            sameValueFields.push(field);
-          } else {
-            if (field === "confirmed") {
-              let value =
-                data[field] === "true"
-                  ? true
-                  : data[field] === "false"
-                  ? false
-                  : data[field];
-
-              data[field] = value;
-            }
-            finalObject[field] = data[field];
-          }
-        }
+        continue;
       }
+
+      if (foundedUser[field] === data[field]) {
+        sameValueFields.push(field);
+        continue;
+      }
+
+      if (
+        field === "password" &&
+        (await foundedUser.comparePassword(data[field]))
+      ) {
+        sameValueFields.push(field);
+      }
+
+      finalObject[field] = data[field];
     }
 
     if (notValidateFields.length > 0) {
@@ -142,11 +127,8 @@ const settingAccount = async (req, res) => {
       finalObject.banner = req.files.banner[0].filename;
     }
 
-    const user = await User.updateOne({ _id: id }, finalObject);
 
-    if (user.modifiedCount === 0) {
-      throw new InternalServerError("Failed to update user");
-    }
+    await User.updateOne({ _id: id }, finalObject);
 
     if (foundedUser.avatar !== "df.jpg" && finalObject.avatar) {
       deleteFile(path.join(avatarPath, foundedUser.avatar));

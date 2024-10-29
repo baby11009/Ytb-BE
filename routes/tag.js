@@ -2,7 +2,11 @@ const express = require("express");
 
 const router = express.Router();
 
-const { createMulterUpload, multerErrorHandling } = require("../middlewares");
+const {
+  createMulterUpload,
+  multerErrorHandling,
+  fileLimitSizeMiddleware,
+} = require("../middlewares");
 
 const {
   createTag,
@@ -19,6 +23,9 @@ router
   .post(
     createMulterUpload("tag icon").fields([{ name: "image", maxCount: 1 }]),
     multerErrorHandling,
+    async (req, res, next) => {
+      fileLimitSizeMiddleware(req, res, next, { image: 4 });
+    },
     createTag
   );
 
@@ -28,6 +35,9 @@ router
   .patch(
     createMulterUpload("tag icon").fields([{ name: "image", maxCount: 1 }]),
     multerErrorHandling,
+    async (req, res, next) => {
+      fileLimitSizeMiddleware(req, res, next, { image: 4 });
+    },
     updateTag
   )
   .delete(deleteTag);
