@@ -7,6 +7,7 @@ const {
   getChannelPlaylistVideos,
   getVideoDetails,
   getVideoCmts,
+  getRandomShort,
 } = require("../controllers/client/combineData");
 
 const router = express.Router();
@@ -22,5 +23,7 @@ router.route("/channels/:email").get(getChannelInfo);
 router.route("/video/:id").get(getVideoDetails);
 
 router.route("/comment/video-cmt/:videoId").get(getVideoCmts);
+
+router.route("/short").get(getRandomShort);
 
 module.exports = router;

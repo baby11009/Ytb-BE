@@ -18,11 +18,11 @@ const Playlist = new mongoose.Schema(
     },
     type: {
       type: String,
-      enum: ["public", "private"],
+      enum: ["public", "private", "personal"],
       default: "public",
     },
   },
   { timestamps: true }
 );
-  
+
 module.exports = mongoose.model("Playlist", Playlist);

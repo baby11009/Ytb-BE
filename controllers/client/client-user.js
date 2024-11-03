@@ -5,17 +5,74 @@ const path = require("path");
 const mongoose = require("mongoose");
 const { Subscribe, User } = require("../../models");
 const avatarPath = path.join(__dirname, "../../assets/user avatar");
-const videoThumbPath = path.join(__dirname, "../../assets/video thumb");
-const videoPath = path.join(__dirname, "../../assets/videos");
 
 const getAccountInfo = async (req, res) => {
   const id = req.user.userId;
 
-  const user = await User.findById(id).select(
-    "-password -codeExpires -codeType -privateCode -updatedAt -__v"
-  );
+  const user = await User.aggregate([
+    { $addFields: { _idStr: { $toString: "$_id" } } },
+    { $match: { _idStr: id } },
+    {
+      $lookup: {
+        from: "subscribes",
+        pipeline: [
+          {
+            $addFields: {
+              subscriber_idStr: { $toString: "$subscriber_id" },
+            },
+          },
+          {
+            $match: {
+              subscriber_idStr: id,
+            },
+          },
+          {
+            $lookup: {
+              from: "users",
+              localField: "channel_id",
+              foreignField: "_id",
+              pipeline: [
+                { $project: { _id: 1, email: 1, name: 1, avatar: 1 } },
+              ],
+              as: "channel_info",
+            },
+          },
+          {
+            $unwind: {
+              path: "$channel_info",
+              preserveNullAndEmptyArrays: true,
+            },
+          },
+          {
+            $project: {
+              "channel_info._id": 1,
+              "channel_info.email": 1,
+              "channel_info.name": 1,
+              "channel_info.avatar": 1,
+            },
+          },
+        ],
+        as: "subscribed_list",
+      },
+    },
+    {
+      $project: {
+        _id: 1,
+        email: 1,
+        name: 1,
+        avatar: 1,
+        banner: 1,
+        role: 1,
+        description: 1,
+        subscriber: 1,
+        totalVids: 1,
+        description: 1,
+        subscribed_list: 1,
+      },
+    },
+  ]);
 
-  res.status(StatusCodes.OK).json({ data: user });
+  res.status(StatusCodes.OK).json({ data: user[0] });
 };
 
 const getAccountSubscribedChannel = async (req, res) => {
@@ -126,7 +183,6 @@ const settingAccount = async (req, res) => {
     if (req.files?.banner) {
       finalObject.banner = req.files.banner[0].filename;
     }
-
 
     await User.updateOne({ _id: id }, finalObject);
 

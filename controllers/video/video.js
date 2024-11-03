@@ -23,7 +23,6 @@ const upLoadVideo = async (req, res) => {
     like = 0,
     dislike = 0,
   } = req.body;
-  
 
   try {
     const fileErr = [];
@@ -73,7 +72,6 @@ const upLoadVideo = async (req, res) => {
       deleteFile(video[0].path);
     }
     if (image && image[0]) {
-
       deleteFile(image[0].path);
     }
     throw error;
@@ -227,6 +225,7 @@ const getVideoDetails = async (req, res) => {
         view: 1,
         like: 1,
         dislike: 1,
+        description: 1,
       },
     },
   ]);

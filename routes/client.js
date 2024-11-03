@@ -90,9 +90,7 @@ router
     createMulterUpload("video thumb").fields([{ name: "image", maxCount: 1 }]),
     multerErrorHandling,
     async (req, res, next) => {
-      async (req, res, next) => {
-        fileLimitSizeMiddleware(req, res, next, { image: 4 });
-      };
+      fileLimitSizeMiddleware(req, res, next, { image: 4 });
     },
     updateVideo
   );

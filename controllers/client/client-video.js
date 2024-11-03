@@ -281,6 +281,7 @@ const getVideoDetails = async (req, res) => {
 
 const updateVideo = async (req, res) => {
   const { id } = req.params;
+  console.log("🚀 ~ id:", id);
 
   const { userId } = req.user;
 

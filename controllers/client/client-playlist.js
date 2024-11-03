@@ -56,7 +56,7 @@ const createPlaylist = async (req, res) => {
 
 const getPlaylists = async (req, res) => {
   const { userId } = req.user;
-  const { sort } = req.query;
+  const { sort, videoLimit } = req.query;
   const limit = Number(req.query.limit) || 5;
   const page = Number(req.query.page) || 1;
   const skip = (page - 1) * limit;
@@ -84,7 +84,7 @@ const getPlaylists = async (req, res) => {
 
   const uniqueSortKeys = ["size"];
 
-  const sortKeys = ["createdAt"];
+  const sortKeys = ["createdAt", "title", "updatedAt"];
 
   if (Object.keys(sort).length > 0) {
     let unique = [];
@@ -113,6 +113,7 @@ const getPlaylists = async (req, res) => {
   }
 
   const combinedSort = { ...sortObj, ...sortDateObj };
+  console.log("🚀 ~ combinedSort:", combinedSort)
 
   const pipeline = [
     {
@@ -146,7 +147,7 @@ const getPlaylists = async (req, res) => {
           },
           { $match: { $expr: { $in: ["$_idStr", "$reverseIdList"] } } },
           {
-            $limit: 8,
+            $limit: 1,
           },
           {
             $project: {
@@ -165,10 +166,11 @@ const getPlaylists = async (req, res) => {
         created_user_id: 1,
         title: 1,
         itemList: 1,
-        createdAt: 1,
         video_list: "$video_list",
         size: 1,
         type: 1,
+        createdAt: 1,
+        updatedAt: 1,
       },
     },
     {
@@ -186,7 +188,7 @@ const getPlaylists = async (req, res) => {
     qtt: playlists[0]?.data?.length,
     totalQtt: playlists[0]?.totalCount[0]?.total,
     currPage: page,
-    totalPages: Math.ceil(playlists[0]?.totalCount[0]?.total / limit),
+    totalPage: Math.ceil(playlists[0]?.totalCount[0]?.total / limit),
   });
 };
 

@@ -167,6 +167,147 @@ const getVideoList = async (req, res) => {
   });
 };
 
+const getRandomShort = async (req, res) => {
+  const { watchedIdList = [], userId, shortId } = req.query;
+
+  let size = 3;
+
+  const addFieldsObj = {};
+
+  let matchObj = {
+    $expr: { $eq: [{ $toLower: "$type" }, "short"] },
+  };
+
+  if (userId) {
+    addFieldsObj.userIdStr = { $toString: "$user_id" };
+    matchObj.userIdStr = { $ne: userId };
+  }
+
+  let foundedShort = [];
+
+  if (shortId) {
+    size = 2;
+    foundedShort = await Video.aggregate([
+      { $addFields: { _idStr: { $toString: "$_id" } } },
+      {
+        $match: { _idStr: shortId },
+      },
+      {
+        $lookup: {
+          from: "users",
+          localField: "user_id",
+          foreignField: "_id",
+          as: "user_info",
+        },
+      },
+      {
+        $unwind: {
+          path: "$user_info",
+          preserveNullAndEmptyArrays: true,
+        },
+      },
+      {
+        $lookup: {
+          from: "comments",
+          localField: "_id",
+          foreignField: "video_id",
+          as: "comment_list",
+        },
+      },
+      {
+        $project: {
+          _id: 1,
+          title: 1, // Các trường bạn muốn giữ lại từ Video
+          "user_info._id": 1,
+          "user_info.email": 1,
+          "user_info.avatar": 1,
+          "user_info.name": 1,
+          tag: 1,
+          thumb: 1,
+          video: 1,
+          duration: { $ifNull: ["$duration", 0] },
+          type: 1,
+          view: 1,
+          like: 1,
+          disLike: 1,
+          createdAt: 1,
+          totalCmt: { $size: "$comment_list" },
+        },
+      },
+    ]);
+
+    watchedIdList.push(shortId);
+  }
+
+  if (watchedIdList.length > 0) {
+    addFieldsObj["_idStr"] = { $toString: "$_id" };
+    matchObj["_idStr"] = { $nin: watchedIdList };
+  }
+
+  const pipeline = [
+    {
+      $lookup: {
+        from: "users",
+        localField: "user_id",
+        foreignField: "_id",
+        as: "user_info",
+      },
+    },
+    {
+      $unwind: {
+        path: "$user_info",
+        preserveNullAndEmptyArrays: true,
+      },
+    },
+    {
+      $lookup: {
+        from: "comments",
+        localField: "_id",
+        foreignField: "video_id",
+        as: "comment_list",
+      },
+    },
+    {
+      $addFields: addFieldsObj,
+    },
+    {
+      $match: matchObj,
+    },
+    { $sample: { size } },
+    {
+      $project: {
+        _id: 1,
+        title: 1, // Các trường bạn muốn giữ lại từ Video
+        "user_info._id": 1,
+        "user_info.email": 1,
+        "user_info.avatar": 1,
+        "user_info.name": 1,
+        tag: 1,
+        thumb: 1,
+        video: 1,
+        duration: { $ifNull: ["$duration", 0] },
+        type: 1,
+        view: 1,
+        like: 1,
+        disLike: 1,
+        createdAt: 1,
+        totalCmt: { $size: "$comment_list" },
+      },
+    },
+  ];
+
+  const shorts = await Video.aggregate(pipeline);
+
+  let finalData = [...shorts];
+  if (foundedShort.length > 0) {
+    console.log("🚀 ~ foundedShort:", foundedShort);
+    finalData = [...foundedShort, ...finalData];
+  }
+  res.status(StatusCodes.OK).json({
+    data: finalData,
+  });
+};
+
 // Lấy data channel, playlist và video
 const getDataList = async (req, res) => {
   const {
@@ -268,7 +409,7 @@ const getDataList = async (req, res) => {
     sortNum = 1;
   }
 
-  if (!type && !tag && page < 3) {
+  if (type !== "short" && !tag && page < 3) {
     const playlistPipeline = [
       {
         $lookup: {
@@ -389,6 +530,14 @@ const getDataList = async (req, res) => {
     videoPipeline.push({
       $match: {
         title: { $regex: search, $options: "i" },
+      },
+    });
+  }
+
+  if (type) {
+    videoPipeline.push({
+      $match: {
+        type,
       },
     });
   }
@@ -648,7 +797,7 @@ const getChannelPlaylistVideos = async (req, res) => {
     },
   ];
 
-  const validSortKey = ["createdAt", "updatedAt"];
+  const validSortKey = ["createdAt", "updatedAt", "textAZ"];
 
   const sortObj = {};
 
@@ -677,6 +826,7 @@ const getChannelPlaylistVideos = async (req, res) => {
         videoCount: { $size: "$itemList" },
         createdAt: 1,
         updatedAt: 1,
+        itemList: 1,
       },
     },
     { $skip: skip },
@@ -788,32 +938,64 @@ const getVideoDetails = async (req, res) => {
     });
   }
 
-  pipeline.push({
-    $project: {
-      _id: 1,
-      title: 1, // Các trường bạn muốn giữ lại từ Video
-      "channel_info._id": 1,
-      "channel_info.name": 1,
-      "channel_info.avatar": 1,
-      "channel_info.subscriber": 1,
-      thumb: 1,
-      video: 1,
-      type: 1,
-      view: 1,
-      like: 1,
-      disLike: 1,
-      totalCmt: 1,
-      createdAt: 1,
-      "subscription_info.notify": {
-        $ifNull: ["$subscription_info.notify", null],
-      },
-      "subscription_info._id": { $ifNull: ["$subscription_info._id", null] },
-      "react_info._id": { $ifNull: ["$react_info._id", null] },
-      "react_info.type": {
-        $ifNull: ["$react_info.type", null],
+  pipeline.push(
+    {
+      $lookup: {
+        from: "tags",
+        let: { tagIds: "$tag" },
+        pipeline: [
+          {
+            $addFields: {
+              _idStr: { $toString: "$_id" },
+            },
+          },
+          {
+            $match: {
+              $expr: { $in: ["$_idStr", "$$tagIds"] },
+            },
+          },
+          {
+            $project: {
+              _id: 1,
+              title: 1,
+              slug: 1,
+              icon: 1,
+            },
+          },
+        ],
+        as: "tag_info",
       },
     },
-  });
+    {
+      $project: {
+        _id: 1,
+        title: 1, // Các trường bạn muốn giữ lại từ Video
+        "channel_info._id": 1,
+        "channel_info.name": 1,
+        "channel_info.avatar": 1,
+        "channel_info.email": 1,
+        "channel_info.subscriber": 1,
+        thumb: 1,
+        video: 1,
+        type: 1,
+        view: 1,
+        like: 1,
+        disLike: 1,
+        totalCmt: 1,
+        createdAt: 1,
+        description: 1,
+        "subscription_info.notify": {
+          $ifNull: ["$subscription_info.notify", null],
+        },
+        "subscription_info._id": { $ifNull: ["$subscription_info._id", null] },
+        "react_info._id": { $ifNull: ["$react_info._id", null] },
+        "react_info.type": {
+          $ifNull: ["$react_info.type", null],
+        },
+        tag_info: { $ifNull: ["$tag_info", []] },
+      },
+    }
+  );
 
   const video = await Video.aggregate(pipeline);
 
@@ -1041,4 +1223,5 @@ module.exports = {
   getChannelPlaylistVideos,
   getVideoDetails,
   getVideoCmts,
+  getRandomShort,
 };
