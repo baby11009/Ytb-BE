@@ -168,7 +168,8 @@ const getVideoList = async (req, res) => {
 };
 
 const getRandomShort = async (req, res) => {
-  const { watchedIdList = [], userId, shortId } = req.query;
+  const { userId } = req.user;
+  const { watchedIdList = [], shortId } = req.query;
 
   let size = 3;
 
@@ -178,8 +179,74 @@ const getRandomShort = async (req, res) => {
     $expr: { $eq: [{ $toLower: "$type" }, "short"] },
   };
 
+  const pipeline = [
+    {
+      $lookup: {
+        from: "users",
+        localField: "user_id",
+        foreignField: "_id",
+        as: "channel_info",
+      },
+    },
+    {
+      $unwind: {
+        path: "$channel_info",
+        preserveNullAndEmptyArrays: true,
+      },
+    },
+    {
+      $lookup: {
+        from: "comments",
+        localField: "_id",
+        foreignField: "video_id",
+        as: "comment_list",
+      },
+    },
+  ];
+
   if (userId) {
-    addFieldsObj.userIdStr = { $toString: "$user_id" };
+    console.log("🚀 ~ userId:", userId);
+    addFieldsObj.userIdStr = { $toString: "$channel_info._id" };
+    // pipeline.push(
+    //   {
+    //     $lookup: {
+    //       from: "subscribes",
+    //       let: { channelId: "$channel_info._id" },
+    //       pipeline: [
+    //         {
+    //           $addFields: {
+    //             subscriberIdStr: { $toString: "$subscriber_id" },
+    //           },
+    //         },
+    //         {
+    //           $match: {
+    //             $expr: {
+    //               $and: [
+    //                 { $eq: ["$channel_id", "$$channelId"] },
+    //                 { $eq: [userId, "$subscriberIdStr"] },
+    //               ],
+    //             },
+    //           },
+    //         },
+    //         {
+    //           $project: {
+    //             subscriber_id: 1,
+    //             channel_id: 1,
+    //             notify: 1,
+    //           },
+    //         },
+    //       ],
+    //       as: "subscribe_info",
+    //     },
+    //   },
+    //   {
+    //     $unwind: {
+    //       path: "$subscribe_info",
+    //       preserveNullAndEmptyArrays: true,
+    //     },
+    //   }
+    // );
+
     matchObj.userIdStr = { $ne: userId };
   }
 
@@ -244,29 +311,7 @@ const getRandomShort = async (req, res) => {
     matchObj["_idStr"] = { $nin: watchedIdList };
   }
 
-  const pipeline = [
-    {
-      $lookup: {
-        from: "users",
-        localField: "user_id",
-        foreignField: "_id",
-        as: "user_info",
-      },
-    },
-    {
-      $unwind: {
-        path: "$user_info",
-        preserveNullAndEmptyArrays: true,
-      },
-    },
-    {
-      $lookup: {
-        from: "comments",
-        localField: "_id",
-        foreignField: "video_id",
-        as: "comment_list",
-      },
-    },
+  pipeline.push(
     {
       $addFields: addFieldsObj,
     },
@@ -278,10 +323,10 @@ const getRandomShort = async (req, res) => {
       $project: {
         _id: 1,
         title: 1, // Các trường bạn muốn giữ lại từ Video
-        "user_info._id": 1,
-        "user_info.email": 1,
-        "user_info.avatar": 1,
-        "user_info.name": 1,
+        "channel_info._id": 1,
+        "channel_info.email": 1,
+        "channel_info.avatar": 1,
+        "channel_info.name": 1,
         tag: 1,
         thumb: 1,
         video: 1,
@@ -291,10 +336,11 @@ const getRandomShort = async (req, res) => {
         like: 1,
         disLike: 1,
         createdAt: 1,
+        // subscribe_info: { $ifNull: ["$subscribe_info", null] },
         totalCmt: { $size: "$comment_list" },
       },
-    },
-  ];
+    }
+  );
 
   const shorts = await Video.aggregate(pipeline);
 
@@ -1007,9 +1053,11 @@ const getVideoDetails = async (req, res) => {
 };
 
 const getVideoCmts = async (req, res) => {
+  const { userId } = req.user;
+
   const { videoId } = req.params;
 
-  const { replyId, userId, createdAt } = req.query;
+  const { replyId, createdAt } = req.query;
 
   let limit = Number(req.query.limit) || 5;
 
@@ -1022,8 +1070,7 @@ const getVideoCmts = async (req, res) => {
       key !== "limit" &&
       key !== "page" &&
       key !== "createdAt" &&
-      key !== "replyId" &&
-      key !== "userId"
+      key !== "replyId"
   );
 
   let findObj = {};
@@ -1207,12 +1254,14 @@ const getVideoCmts = async (req, res) => {
 
   const comments = await result;
 
+  const total = await Comment.countDocuments({ video_id: videoId });
+
   res.status(StatusCodes.OK).json({
     data: comments[0]?.data,
     qtt: comments[0]?.data?.length,
-    totalQtt: comments[0]?.totalCount[0]?.total,
+    totalQtt: total,
     currPage: page,
-    totalPages: Math.ceil(comments[0]?.totalCount[0]?.total / limit) || 1,
+    totalPage: Math.ceil(comments[0]?.totalCount[0]?.total / limit) || 1,
   });
 };
 

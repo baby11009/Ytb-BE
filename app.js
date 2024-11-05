@@ -12,6 +12,7 @@ const {
   notFoundMiddleware,
   errorHandlerMiddleware,
   permissionMiddleware,
+  getAccountInfoMiddleware,
 } = require("./middlewares");
 
 const {
@@ -45,7 +46,7 @@ app.use("/api/v1/auth", authRouter);
 app.use("/api/v1/file", fileRouter);
 
 // User site
-app.use("/api/v1/data", combineRouter);
+app.use("/api/v1/data", getAccountInfoMiddleware, combineRouter);
 
 // Admin site
 app.use("/api/v1/user", authMiddleware, permissionMiddleware, userRouter);

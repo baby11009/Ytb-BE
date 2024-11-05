@@ -205,7 +205,7 @@ const getCmts = async (req, res) => {
 const getVideoComments = async (req, res) => {
   const { userId } = req.user;
 
-  const { sort, limit, page } = req.query;
+  const { sort, limit, page, videoId } = req.query;
 
   const limitNum = Number(limit);
   const pageNum = Number(page);
