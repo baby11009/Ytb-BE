@@ -2,6 +2,8 @@ const { CmtReact, Comment } = require("../../models");
 const { BadRequestError, NotFoundError } = require("../../errors");
 const { StatusCodes } = require("http-status-codes");
 const cmtReact = require("../../models/cmtReact");
+const { getIo } = require("../../socket");
+const mongoose = require("mongoose");
 
 const toggleCmtReact = async (req, res) => {
   const { userId } = req.user;
@@ -59,9 +61,66 @@ const toggleCmtReact = async (req, res) => {
     }
   }
 
-  const cmt = await Comment.findByIdAndUpdate(cmtId, {
-    $inc: { like: likeCount, dislike: dislikeCount },
-  });
+  const cmt = await Comment.findByIdAndUpdate(
+    cmtId,
+    {
+      $inc: { like: likeCount, dislike: dislikeCount },
+    },
+    { returnDocument: "after" }
+  );
+  if (cmt) {
+    const commentAfterDelete = await Comment.aggregate([
+      {
+        $match: { _id: cmt._id },
+      },
+      {
+        $lookup: {
+          from: "cmtreacts",
+          let: {
+            commentId: "$_id",
+            userId: new mongoose.Types.ObjectId(userId),
+          },
+          pipeline: [
+            {
+              $match: {
+                $expr: {
+                  $and: [
+                    { $eq: ["$cmt_id", "$$commentId"] },
+                    { $eq: ["$user_id", "$$userId"] },
+                  ],
+                },
+              },
+            },
+          ],
+          as: "react_info",
+        },
+      },
+      {
+        $unwind: {
+          path: "$react_info",
+          preserveNullAndEmptyArrays: true,
+        },
+      },
+      {
+        $project: {
+          _id: 1,
+          title: 1,
+          "react_info._id": { $ifNull: ["$react_info._id", null] },
+          "react_info.type": { $ifNull: ["$react_info.type", null] },
+          cmtText: 1,
+          like: 1,
+          dislike: 1,
+          replied_parent_cmt_id: 1,
+          replied_cmt_id: 1,
+          replied_cmt_total: 1,
+          createdAt: 1,
+        },
+      },
+    ]);
+
+    const io = getIo();
+    io.emit(`update-parent-comment-${userId}`, commentAfterDelete[0]);
+  }
 
   res.status(StatusCodes.OK).json({ msg });
 };

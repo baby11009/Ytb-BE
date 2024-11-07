@@ -1,11 +1,12 @@
 require("dotenv").config();
 require("express-async-errors");
-
+const { createServer } = require("http");
 const express = require("express");
 const app = express();
 const helmet = require("helmet");
 const cors = require("cors");
 const connectDb = require("./db/connect");
+const { init } = require("./socket");
 
 const {
   authMiddleware,
@@ -68,7 +69,14 @@ const port = process.env.PORT || 5000;
 const start = async () => {
   try {
     await connectDb(process.env.DB_URI);
-    app.listen(port, () => console.log(`Server is listening on ${port}....`));
+
+    const httpServer = createServer(app);
+    init(httpServer);
+    // io.use(cors());
+    httpServer.listen(port, () =>
+      console.log(`Server is listening on ${port}....`)
+    );
+    // app.listen(port, () => console.log(`Server is listening on ${port}....`));
   } catch (error) {
     console.log(error);
   }

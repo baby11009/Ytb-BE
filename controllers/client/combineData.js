@@ -167,18 +167,210 @@ const getVideoList = async (req, res) => {
   });
 };
 
+// const getRandomShort = async (req, res) => {
+//   let userId;
+//   if (req.user) {
+//     userId = req.user.userId;
+//   }
+
+//   const { watchedIdList = [], shortId } = req.query;
+
+//   let size = 3;
+
+//   const addFieldsObj = {};
+
+//   let matchObj = {
+//     $expr: { $eq: [{ $toLower: "$type" }, "short"] },
+//   };
+
+//   const pipeline = [
+//     {
+//       $lookup: {
+//         from: "users",
+//         localField: "user_id",
+//         foreignField: "_id",
+//         as: "channel_info",
+//       },
+//     },
+//     {
+//       $unwind: {
+//         path: "$channel_info",
+//         preserveNullAndEmptyArrays: true,
+//       },
+//     },
+//     {
+//       $lookup: {
+//         from: "comments",
+//         localField: "_id",
+//         foreignField: "video_id",
+//         as: "comment_list",
+//       },
+//     },
+//   ];
+
+//   if (userId) {
+//     console.log("🚀 ~ userId:", userId);
+//     addFieldsObj.userIdStr = { $toString: "$channel_info._id" };
+//     // pipeline.push(
+//     //   {
+//     //     $lookup: {
+//     //       from: "subscribes",
+//     //       let: { channelId: "$channel_info._id" },
+//     //       pipeline: [
+//     //         {
+//     //           $addFields: {
+//     //             subscriberIdStr: { $toString: "$subscriber_id" },
+//     //           },
+//     //         },
+//     //         {
+//     //           $match: {
+//     //             $expr: {
+//     //               $and: [
+//     //                 { $eq: ["$channel_id", "$$channelId"] },
+//     //                 { $eq: [userId, "$subscriberIdStr"] },
+//     //               ],
+//     //             },
+//     //           },
+//     //         },
+//     //         {
+//     //           $project: {
+//     //             subscriber_id: 1,
+//     //             channel_id: 1,
+//     //             notify: 1,
+//     //           },
+//     //         },
+//     //       ],
+//     //       as: "subscribe_info",
+//     //     },
+//     //   },
+//     //   {
+//     //     $unwind: {
+//     //       path: "$subscribe_info",
+//     //       preserveNullAndEmptyArrays: true,
+//     //     },
+//     //   }
+//     // );
+
+//     matchObj.userIdStr = { $ne: userId };
+//   }
+
+//   let foundedShort = [];
+
+//   if (shortId) {
+//     size = 2;
+//     foundedShort = await Video.aggregate([
+//       { $addFields: { _idStr: { $toString: "$_id" } } },
+//       {
+//         $match: { _idStr: shortId },
+//       },
+//       {
+//         $lookup: {
+//           from: "users",
+//           localField: "user_id",
+//           foreignField: "_id",
+//           as: "user_info",
+//         },
+//       },
+//       {
+//         $unwind: {
+//           path: "$user_info",
+//           preserveNullAndEmptyArrays: true,
+//         },
+//       },
+//       {
+//         $lookup: {
+//           from: "comments",
+//           localField: "_id",
+//           foreignField: "video_id",
+//           as: "comment_list",
+//         },
+//       },
+//       {
+//         $project: {
+//           _id: 1,
+//           title: 1, // Các trường bạn muốn giữ lại từ Video
+//           "user_info._id": 1,
+//           "user_info.email": 1,
+//           "user_info.avatar": 1,
+//           "user_info.name": 1,
+//           tag: 1,
+//           thumb: 1,
+//           video: 1,
+//           duration: { $ifNull: ["$duration", 0] },
+//           type: 1,
+//           view: 1,
+//           like: 1,
+//           disLike: 1,
+//           createdAt: 1,
+//           totalCmt: { $size: "$comment_list" },
+//         },
+//       },
+//     ]);
+
+//     watchedIdList.push(shortId);
+//   }
+
+//   if (watchedIdList.length > 0) {
+//     addFieldsObj["_idStr"] = { $toString: "$_id" };
+//     matchObj["_idStr"] = { $nin: watchedIdList };
+//   }
+
+//   pipeline.push(
+//     {
+//       $addFields: addFieldsObj,
+//     },
+//     {
+//       $match: matchObj,
+//     },
+//     { $sample: { size } },
+//     {
+//       $project: {
+//         _id: 1,
+//         title: 1, // Các trường bạn muốn giữ lại từ Video
+//         "channel_info._id": 1,
+//         "channel_info.email": 1,
+//         "channel_info.avatar": 1,
+//         "channel_info.name": 1,
+//         tag: 1,
+//         thumb: 1,
+//         video: 1,
+//         duration: { $ifNull: ["$duration", 0] },
+//         type: 1,
+//         view: 1,
+//         like: 1,
+//         disLike: 1,
+//         createdAt: 1,
+//         // subscribe_info: { $ifNull: ["$subscribe_info", null] },
+//         totalCmt: { $size: "$comment_list" },
+//       },
+//     }
+//   );
+
+//   const shorts = await Video.aggregate(pipeline);
+
+//   let finalData = [...shorts];
+//   if (foundedShort.length > 0) {
+//     console.log("🚀 ~ foundedShort:", foundedShort);
+//     finalData = [...foundedShort, ...finalData];
+//   }
+//   res.status(StatusCodes.OK).json({
+//     data: finalData,
+//   });
+// };
+
+// Lấy data channel, playlist và video
+
 const getRandomShort = async (req, res) => {
-  const { userId } = req.user;
+  let userId;
+  if (req.user) {
+    userId = req.user.userId;
+  }
   const { watchedIdList = [], shortId } = req.query;
-
   let size = 3;
-
   const addFieldsObj = {};
-
   let matchObj = {
     $expr: { $eq: [{ $toLower: "$type" }, "short"] },
   };
-
   const pipeline = [
     {
       $lookup: {
@@ -194,64 +386,15 @@ const getRandomShort = async (req, res) => {
         preserveNullAndEmptyArrays: true,
       },
     },
-    {
-      $lookup: {
-        from: "comments",
-        localField: "_id",
-        foreignField: "video_id",
-        as: "comment_list",
-      },
-    },
   ];
 
   if (userId) {
-    console.log("🚀 ~ userId:", userId);
     addFieldsObj.userIdStr = { $toString: "$channel_info._id" };
-    // pipeline.push(
-    //   {
-    //     $lookup: {
-    //       from: "subscribes",
-    //       let: { channelId: "$channel_info._id" },
-    //       pipeline: [
-    //         {
-    //           $addFields: {
-    //             subscriberIdStr: { $toString: "$subscriber_id" },
-    //           },
-    //         },
-    //         {
-    //           $match: {
-    //             $expr: {
-    //               $and: [
-    //                 { $eq: ["$channel_id", "$$channelId"] },
-    //                 { $eq: [userId, "$subscriberIdStr"] },
-    //               ],
-    //             },
-    //           },
-    //         },
-    //         {
-    //           $project: {
-    //             subscriber_id: 1,
-    //             channel_id: 1,
-    //             notify: 1,
-    //           },
-    //         },
-    //       ],
-    //       as: "subscribe_info",
-    //     },
-    //   },
-    //   {
-    //     $unwind: {
-    //       path: "$subscribe_info",
-    //       preserveNullAndEmptyArrays: true,
-    //     },
-    //   }
-    // );
 
     matchObj.userIdStr = { $ne: userId };
   }
 
   let foundedShort = [];
-
   if (shortId) {
     size = 2;
     foundedShort = await Video.aggregate([
@@ -260,57 +403,17 @@ const getRandomShort = async (req, res) => {
         $match: { _idStr: shortId },
       },
       {
-        $lookup: {
-          from: "users",
-          localField: "user_id",
-          foreignField: "_id",
-          as: "user_info",
-        },
-      },
-      {
-        $unwind: {
-          path: "$user_info",
-          preserveNullAndEmptyArrays: true,
-        },
-      },
-      {
-        $lookup: {
-          from: "comments",
-          localField: "_id",
-          foreignField: "video_id",
-          as: "comment_list",
-        },
-      },
-      {
         $project: {
           _id: 1,
-          title: 1, // Các trường bạn muốn giữ lại từ Video
-          "user_info._id": 1,
-          "user_info.email": 1,
-          "user_info.avatar": 1,
-          "user_info.name": 1,
-          tag: 1,
-          thumb: 1,
-          video: 1,
-          duration: { $ifNull: ["$duration", 0] },
-          type: 1,
-          view: 1,
-          like: 1,
-          disLike: 1,
-          createdAt: 1,
-          totalCmt: { $size: "$comment_list" },
         },
       },
     ]);
-
     watchedIdList.push(shortId);
   }
-
   if (watchedIdList.length > 0) {
     addFieldsObj["_idStr"] = { $toString: "$_id" };
     matchObj["_idStr"] = { $nin: watchedIdList };
   }
-
   pipeline.push(
     {
       $addFields: addFieldsObj,
@@ -322,39 +425,20 @@ const getRandomShort = async (req, res) => {
     {
       $project: {
         _id: 1,
-        title: 1, // Các trường bạn muốn giữ lại từ Video
-        "channel_info._id": 1,
-        "channel_info.email": 1,
-        "channel_info.avatar": 1,
-        "channel_info.name": 1,
-        tag: 1,
-        thumb: 1,
-        video: 1,
-        duration: { $ifNull: ["$duration", 0] },
-        type: 1,
-        view: 1,
-        like: 1,
-        disLike: 1,
-        createdAt: 1,
-        // subscribe_info: { $ifNull: ["$subscribe_info", null] },
-        totalCmt: { $size: "$comment_list" },
       },
     }
   );
-
   const shorts = await Video.aggregate(pipeline);
 
-  let finalData = [...shorts];
+  let finalData = [...shorts.map((item) => item._id)];
   if (foundedShort.length > 0) {
-    console.log("🚀 ~ foundedShort:", foundedShort);
-    finalData = [...foundedShort, ...finalData];
+    finalData = [foundedShort[0]._id, ...finalData];
   }
   res.status(StatusCodes.OK).json({
     data: finalData,
   });
 };
 
-// Lấy data channel, playlist và video
 const getDataList = async (req, res) => {
   const {
     limit,
@@ -900,7 +984,11 @@ const getChannelPlaylistVideos = async (req, res) => {
 const getVideoDetails = async (req, res) => {
   const { id } = req.params;
 
-  const { subscriberId } = req.query;
+  let userId;
+
+  if (req.user) {
+    userId = req.user.userId;
+  }
 
   const pipeline = [
     {
@@ -921,14 +1009,14 @@ const getVideoDetails = async (req, res) => {
     },
   ];
 
-  if (subscriberId) {
+  if (userId) {
     // Subscription state
     pipeline.push({
       $lookup: {
         from: "subscribes",
         let: {
           videoOwnerId: "$user_id",
-          subscriberId: new mongoose.Types.ObjectId(subscriberId),
+          subscriberId: new mongoose.Types.ObjectId(userId),
         },
         // pipeline để so sánh dữ liệu
         pipeline: [
@@ -940,6 +1028,15 @@ const getVideoDetails = async (req, res) => {
                   { $eq: ["$subscriber_id", "$$subscriberId"] },
                 ],
               },
+            },
+          },
+          {
+            $project: {
+              _id: 1,
+              name: 1,
+              email: 1,
+              avatar: 1,
+              subscriber: 1,
             },
           },
         ],
@@ -958,7 +1055,7 @@ const getVideoDetails = async (req, res) => {
         from: "reacts",
         let: {
           videoId: new mongoose.Types.ObjectId(id),
-          subscriberId: new mongoose.Types.ObjectId(subscriberId),
+          subscriberId: new mongoose.Types.ObjectId(userId),
         },
         // pipeline để so sánh dữ liệu
         pipeline: [
@@ -970,6 +1067,11 @@ const getVideoDetails = async (req, res) => {
                   { $eq: ["$user_id", "$$subscriberId"] },
                 ],
               },
+            },
+          },
+          {
+            $project: {
+              type: 1,
             },
           },
         ],
@@ -1016,28 +1118,18 @@ const getVideoDetails = async (req, res) => {
       $project: {
         _id: 1,
         title: 1, // Các trường bạn muốn giữ lại từ Video
-        "channel_info._id": 1,
-        "channel_info.name": 1,
-        "channel_info.avatar": 1,
-        "channel_info.email": 1,
-        "channel_info.subscriber": 1,
+        channel_info: { $ifNull: ["$channel_info", null] },
         thumb: 1,
         video: 1,
         type: 1,
         view: 1,
         like: 1,
-        disLike: 1,
+        dislike: 1,
         totalCmt: 1,
         createdAt: 1,
         description: 1,
-        "subscription_info.notify": {
-          $ifNull: ["$subscription_info.notify", null],
-        },
-        "subscription_info._id": { $ifNull: ["$subscription_info._id", null] },
-        "react_info._id": { $ifNull: ["$react_info._id", null] },
-        "react_info.type": {
-          $ifNull: ["$react_info.type", null],
-        },
+        subscription_info: { $ifNull: ["$subscription_info", null] },
+        react_info: { $ifNull: ["$react_info", null] },
         tag_info: { $ifNull: ["$tag_info", []] },
       },
     }
@@ -1053,11 +1145,14 @@ const getVideoDetails = async (req, res) => {
 };
 
 const getVideoCmts = async (req, res) => {
-  const { userId } = req.user;
+  let userId;
+  if (req?.user) {
+    userId = req.user.userId;
+  }
 
   const { videoId } = req.params;
 
-  const { replyId, createdAt } = req.query;
+  const { replyId, sort } = req.query;
 
   let limit = Number(req.query.limit) || 5;
 
@@ -1066,11 +1161,7 @@ const getVideoCmts = async (req, res) => {
   let skip = (page - 1) * limit;
 
   const findParams = Object.keys(req.query).filter(
-    (key) =>
-      key !== "limit" &&
-      key !== "page" &&
-      key !== "createdAt" &&
-      key !== "replyId"
+    (key) => key !== "limit" && key !== "page" && key !== "replyId"
   );
 
   let findObj = {};
@@ -1083,10 +1174,21 @@ const getVideoCmts = async (req, res) => {
     }
   });
 
-  let sortNum = 1;
+  const validSortKey = ["createdAt", "updatedAt", "textAZ"];
 
-  if (createdAt === "mới nhất") {
-    sortNum = -1;
+  const sortObj = {};
+
+  if (sort && Object.keys(sort).length > 0) {
+    for (const [key, value] of Object.entries(sort)) {
+      if (
+        validSortKey.includes(key) &&
+        (Number(value) === 1 || Number(value) === -1)
+      ) {
+        sortObj[`${key}`] = Number(value);
+      }
+    }
+  } else {
+    sortObj["createdAt"] = -1; // Default sort by createdAt in descending order
   }
 
   const pipeline = [
@@ -1238,9 +1340,7 @@ const getVideoCmts = async (req, res) => {
       },
     },
     {
-      $sort: {
-        createdAt: sortNum,
-      },
+      $sort: sortObj,
     },
     {
       $facet: {

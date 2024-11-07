@@ -1,6 +1,7 @@
 const { User, Video, Comment, CmtReact } = require("../../models");
 const { StatusCodes } = require("http-status-codes");
 const mongoose = require("mongoose");
+const { getIo } = require("../../socket.js");
 
 const {
   NotFoundError,
@@ -68,7 +69,16 @@ const createCmt = async (req, res) => {
       data["replied_parent_cmt_id"] = replyCmt?.replied_cmt_id;
     }
 
-    await Comment.updateOne({ _id: cmtId }, { $inc: { replied_cmt_total: 1 } });
+    const parentCmt = await Comment.findOneAndUpdate(
+      { _id: cmtId },
+      { $inc: { replied_cmt_total: 1 } },
+      { returnDocument: "after" }
+    );
+
+    if (parentCmt) {
+      const io = getIo();
+      io.emit(`update-parent-comment-${userId}`, parentCmt);
+    }
 
     data["replied_cmt_id"] = replyId;
   }
@@ -503,7 +513,11 @@ const deleteCmt = async (req, res) => {
     );
   }
 
-  const cmt = await Comment.deleteOne({ _id: id });
+  const cmt = await Comment.findOneAndDelete(
+    { _id: id },
+    { returnDocument: "before" }
+  );
+  console.log("🚀 ~ cmt:", cmt);
 
   if (!cmt) {
     throw new InternalServerError(`Failed to delete comment with id ${id}`);
