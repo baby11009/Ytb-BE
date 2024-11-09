@@ -68,8 +68,9 @@ const toggleCmtReact = async (req, res) => {
     },
     { returnDocument: "after" }
   );
+
   if (cmt) {
-    const commentAfterDelete = await Comment.aggregate([
+    const commentAfterUpdate = await Comment.aggregate([
       {
         $match: { _id: cmt._id },
       },
@@ -108,12 +109,17 @@ const toggleCmtReact = async (req, res) => {
           "react_info.type": { $ifNull: ["$react_info.type", null] },
           like: 1,
           dislike: 1,
+          replied_cmt_id: 1,
         },
       },
     ]);
 
     const io = getIo();
-    io.emit(`update-parent-comment-${userId}`, commentAfterDelete[0]);
+    let event = `update-comment-${userId}`;
+    if (commentAfterUpdate[0]?.replied_cmt_id) {
+      event = `update-reply-comment-${userId}`;
+    }
+    io.emit(event, commentAfterUpdate[0]);
   }
 
   res.status(StatusCodes.OK).json({ msg });

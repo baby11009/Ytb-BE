@@ -118,9 +118,11 @@ const createCmt = async (req, res) => {
         },
       },
     ]);
-    if (!replyId) {
-      io.emit(`create-comment-${userId}`, createdCmt);
+    let event = `create-comment-${userId}`;
+    if (replyId) {
+      event = `create-reply-comment-${userId}`;
     }
+    io.emit(event, createdCmt[0]);
   }
 
   res.status(StatusCodes.CREATED).json({ msg: "Comment created", data: cmt });
@@ -488,7 +490,11 @@ const updateCmt = async (req, res) => {
     throw new InternalServerError(`Failed to update comment`);
   }
   const io = getIo();
-  io.emit(`update-parent-comment-${userId}`, cmt);
+  let event = `update-comment-${userId}`;
+  if (cmt.replied_cmt_id) {
+    event = `update-reply-comment-${userId}`;
+  }
+  io.emit(event, cmt);
 
   res.status(StatusCodes.OK).json({ msg: "Comment updated", data: foundedCmt });
 };
@@ -497,7 +503,6 @@ const deleteCmt = async (req, res) => {
   const { userId } = req.user;
   const { id } = req.params;
 
-  const io = getIo();
   if (!id || id === "" || id === ":id") {
     throw new BadRequestError(`Please provide comment id`);
   }
@@ -564,7 +569,12 @@ const deleteCmt = async (req, res) => {
   if (!cmt) {
     throw new InternalServerError(`Failed to delete comment with id ${id}`);
   }
-  io.emit(`delete-comment-${userId}`, cmt);
+  const io = getIo();
+  let event = `delete-comment-${userId}`;
+  if (cmt.replied_cmt_id) {
+    event = `delete-reply-comment-${userId}`;
+  }
+  io.emit(event, cmt);
   res.status(StatusCodes.OK).json({ msg: "Comment deleted", data: foundedCmt });
 };
 

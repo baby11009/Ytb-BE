@@ -1203,7 +1203,6 @@ const getVideoCmts = async (req, res) => {
   } else {
     sortObj["createdAt"] = -1;
   }
-  console.log(sortObj);
 
   if (replyId) {
     pipeline.push({
@@ -1359,12 +1358,23 @@ const getVideoCmts = async (req, res) => {
 
   const comments = await result;
 
-  const total = await Comment.countDocuments({ video_id: videoId });
+  const countObj = {
+    videoIdStr: videoId,
+    replied_cmt_id: { $exists: false },
+  };
+  if (replyId) {
+    countObj.replied_cmt_id = { $exists: true };
+  }
+  const totalData = await Comment.aggregate([
+    { $addFields: { videoIdStr: { $toString: "$video_id" } } },
+    { $match: countObj },
+    { $count: "total" },
+  ]);
 
   res.status(StatusCodes.OK).json({
     data: comments[0]?.data,
     qtt: comments[0]?.data?.length,
-    totalQtt: total,
+    totalQtt: totalData[0]?.count || 0,
     currPage: page,
     totalPage: Math.ceil(comments[0]?.totalCount[0]?.total / limit) || 1,
   });
