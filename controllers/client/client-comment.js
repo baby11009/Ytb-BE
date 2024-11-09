@@ -14,6 +14,7 @@ const createCmt = async (req, res) => {
 
   const { videoId, cmtText, replyId } = req.body;
   const neededKeys = ["videoId", "cmtText"];
+  const io = getIo();
 
   if (Object.values(req.body).length === 0) {
     throw new BadRequestError(
@@ -76,7 +77,6 @@ const createCmt = async (req, res) => {
     );
 
     if (parentCmt) {
-      const io = getIo();
       io.emit(`update-parent-comment-${userId}`, parentCmt);
     }
 
@@ -84,6 +84,44 @@ const createCmt = async (req, res) => {
   }
 
   const cmt = await Comment.create(data);
+
+  if (cmt) {
+    const createdCmt = await Comment.aggregate([
+      { $match: { _id: cmt._id } },
+      {
+        $lookup: {
+          from: "users",
+          localField: "user_id",
+          foreignField: "_id",
+          pipeline: [{ $project: { name: 1, email: 1, avatar: 1 } }],
+          as: "user_info",
+        },
+      },
+      {
+        $unwind: {
+          path: "$user_info",
+          preserveNullAndEmptyArrays: true,
+        },
+      },
+      {
+        $project: {
+          _id: 1,
+          title: 1,
+          user_info: 1,
+          cmtText: 1,
+          like: 1,
+          dislike: 1,
+          replied_parent_cmt_id: 1,
+          replied_cmt_id: 1,
+          replied_cmt_total: 1,
+          createdAt: 1,
+        },
+      },
+    ]);
+    if (!replyId) {
+      io.emit(`create-comment-${userId}`, createdCmt);
+    }
+  }
 
   res.status(StatusCodes.CREATED).json({ msg: "Comment created", data: cmt });
 };
@@ -442,11 +480,15 @@ const updateCmt = async (req, res) => {
     throw new BadRequestError(`${emptyList.join(", ")} cannot be empty`);
   }
 
-  const cmt = await Comment.updateOne({ _id: id }, updateData);
+  const cmt = await Comment.findOneAndUpdate({ _id: id }, updateData, {
+    returnDocument: "after",
+  });
 
-  if (cmt.modifiedCount === 0) {
+  if (!cmt) {
     throw new InternalServerError(`Failed to update comment`);
   }
+  const io = getIo();
+  io.emit(`update-parent-comment-${userId}`, cmt);
 
   res.status(StatusCodes.OK).json({ msg: "Comment updated", data: foundedCmt });
 };
@@ -455,6 +497,7 @@ const deleteCmt = async (req, res) => {
   const { userId } = req.user;
   const { id } = req.params;
 
+  const io = getIo();
   if (!id || id === "" || id === ":id") {
     throw new BadRequestError(`Please provide comment id`);
   }
@@ -517,12 +560,11 @@ const deleteCmt = async (req, res) => {
     { _id: id },
     { returnDocument: "before" }
   );
-  console.log("🚀 ~ cmt:", cmt);
 
   if (!cmt) {
     throw new InternalServerError(`Failed to delete comment with id ${id}`);
   }
-
+  io.emit(`delete-comment-${userId}`, cmt);
   res.status(StatusCodes.OK).json({ msg: "Comment deleted", data: foundedCmt });
 };
 

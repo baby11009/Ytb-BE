@@ -104,16 +104,10 @@ const toggleCmtReact = async (req, res) => {
       {
         $project: {
           _id: 1,
-          title: 1,
           "react_info._id": { $ifNull: ["$react_info._id", null] },
           "react_info.type": { $ifNull: ["$react_info.type", null] },
-          cmtText: 1,
           like: 1,
           dislike: 1,
-          replied_parent_cmt_id: 1,
-          replied_cmt_id: 1,
-          replied_cmt_total: 1,
-          createdAt: 1,
         },
       },
     ]);

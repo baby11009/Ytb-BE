@@ -55,7 +55,7 @@ Comment.pre("save", async function () {
 });
 
 // Cascade delete and update when delete comment
-Comment.pre("deleteOne", async function (next) {
+Comment.pre(["deleteOne", "findOneAndDelete"], async function (next) {
   const { _id } = this.getQuery();
 
   const Comment = mongoose.model("Comment");

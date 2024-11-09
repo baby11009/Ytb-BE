@@ -1164,6 +1164,10 @@ const getVideoCmts = async (req, res) => {
     (key) => key !== "limit" && key !== "page" && key !== "replyId"
   );
 
+  const pipeline = [
+    { $match: { video_id: new mongoose.Types.ObjectId(videoId) } },
+  ];
+
   let findObj = {};
 
   findParams.forEach((item) => {
@@ -1174,7 +1178,7 @@ const getVideoCmts = async (req, res) => {
     }
   });
 
-  const validSortKey = ["createdAt", "updatedAt", "textAZ"];
+  const validSortKey = ["createdAt", "top"];
 
   const sortObj = {};
 
@@ -1184,16 +1188,22 @@ const getVideoCmts = async (req, res) => {
         validSortKey.includes(key) &&
         (Number(value) === 1 || Number(value) === -1)
       ) {
+        if (key === "top") {
+          sortObj.interact = Number(value);
+          pipeline.push({
+            $addFields: {
+              interact: { $sum: ["$like", "$dislike", "$replied_cmt_total"] },
+            },
+          });
+          continue;
+        }
         sortObj[`${key}`] = Number(value);
       }
     }
   } else {
-    sortObj["createdAt"] = -1; // Default sort by createdAt in descending order
+    sortObj["createdAt"] = -1;
   }
-
-  const pipeline = [
-    { $match: { video_id: new mongoose.Types.ObjectId(videoId) } },
-  ];
+  console.log(sortObj);
 
   if (replyId) {
     pipeline.push({
@@ -1252,6 +1262,7 @@ const getVideoCmts = async (req, res) => {
         from: "users", // Collection users mà bạn muốn join
         localField: "user_id", // Trường trong collection videos (khóa ngoại)
         foreignField: "_id", // Trường trong collection users (khóa chính)
+        pipeline: [{ $project: { name: 1, email: 1, avatar: 1 } }],
         as: "user_info", // Tên mảng để lưu kết quả join
       },
     },
@@ -1318,17 +1329,10 @@ const getVideoCmts = async (req, res) => {
       $project: {
         _id: 1,
         title: 1,
-        "user_info._id": 1,
-        "user_info.email": 1,
-        "user_info.avatar": 1,
-        "user_info.subscriber": { $ifNull: ["$user_info.subscribe", 0] },
-        "react_info._id": { $ifNull: ["$react_info._id", null] },
-        "react_info.type": { $ifNull: ["$react_info.type", null] },
-        "reply_comment_info._id": {
-          $ifNull: ["$reply_comment_info._id", null],
-        },
-        "reply_user_info.email": {
-          $ifNull: ["$reply_user_info.email", null],
+        user_info: 1,
+        react_info: { $ifNull: ["$react_info", null] },
+        reply_comment_info: {
+          $ifNull: ["$reply_comment_info", null],
         },
         cmtText: 1,
         like: 1,
@@ -1337,6 +1341,7 @@ const getVideoCmts = async (req, res) => {
         replied_cmt_id: 1,
         replied_cmt_total: 1,
         createdAt: 1,
+        interact: { $ifNull: ["$interact", null] },
       },
     },
     {
