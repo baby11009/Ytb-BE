@@ -573,6 +573,8 @@ const deleteCmt = async (req, res) => {
   let event = `delete-comment-${userId}`;
   if (cmt.replied_cmt_id) {
     event = `delete-reply-comment-${userId}`;
+    const parentCmt = await Comment.findOne({_id : cmt.replied_cmt_id})
+    io.emit(`update-parent-comment-${userId}`, parentCmt);
   }
   io.emit(event, cmt);
   res.status(StatusCodes.OK).json({ msg: "Comment deleted", data: foundedCmt });
