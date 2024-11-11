@@ -14,6 +14,7 @@ const createCmt = async (req, res) => {
 
   const { videoId, cmtText, replyId } = req.body;
   const neededKeys = ["videoId", "cmtText"];
+
   const io = getIo();
 
   if (Object.values(req.body).length === 0) {
@@ -45,10 +46,9 @@ const createCmt = async (req, res) => {
     video_id: videoId,
     cmtText: cmtText,
   };
-  let replyCmt;
 
   if (replyId) {
-    replyCmt = await Comment.findById(replyId);
+    const replyCmt = await Comment.findById(replyId);
 
     if (!replyCmt) {
       throw new NotFoundError(`Not found comment with id ${replyId}`);
@@ -81,6 +81,7 @@ const createCmt = async (req, res) => {
     }
 
     data["replied_cmt_id"] = replyId;
+    data["replied_user_id"] = replyCmt.user_id;
   }
 
   const cmt = await Comment.create(data);
@@ -104,6 +105,21 @@ const createCmt = async (req, res) => {
         },
       },
       {
+        $lookup: {
+          from: "users",
+          localField: "replied_user_id",
+          foreignField: "_id",
+          pipeline: [{ $project: { name: 1, email: 1, avatar: 1 } }],
+          as: "replied_user_info",
+        },
+      },
+      {
+        $unwind: {
+          path: "$replied_user_info",
+          preserveNullAndEmptyArrays: true,
+        },
+      },
+      {
         $project: {
           _id: 1,
           title: 1,
@@ -112,6 +128,7 @@ const createCmt = async (req, res) => {
           like: 1,
           dislike: 1,
           replied_parent_cmt_id: 1,
+          replied_user_info: { $ifNull: ["$replied_user_info", null] },
           replied_cmt_id: 1,
           replied_cmt_total: 1,
           createdAt: 1,
@@ -201,6 +218,21 @@ const getCmts = async (req, res) => {
       },
     },
     {
+      $lookuo: {
+        from: "users",
+        localField: "replied_user_id",
+        foreignField: "_id",
+        pipeline: [{ $project: { name: 1, email: 1, avatar: 1 } }],
+        as: "replied_user_info",
+      },
+    },
+    {
+      $unwind: {
+        path: "$replied_user_info",
+        preserveNullAndEmptyArrays: true,
+      },
+    },
+    {
       $lookup: {
         from: "videos", // Collection users mà bạn muốn join
         localField: "video_id", // Trường trong collection videos (khóa ngoại)
@@ -223,6 +255,7 @@ const getCmts = async (req, res) => {
         _id: 1,
         title: 1,
         video_info: 1,
+        replied_user_info: { $ifNull: ["$replied_user_info", null] },
         cmtText: 1,
         createdAt: 1,
         like: 1,
@@ -322,6 +355,21 @@ const getVideoComments = async (req, res) => {
 
   const pipeline = [
     {
+      $lookuo: {
+        from: "users",
+        localField: "replied_user_id",
+        foreignField: "_id",
+        pipeline: [{ $project: { name: 1, email: 1, avatar: 1 } }],
+        as: "replied_user_info",
+      },
+    },
+    {
+      $unwind: {
+        path: "$replied_user_info",
+        preserveNullAndEmptyArrays: true,
+      },
+    },
+    {
       $lookup: {
         from: "videos",
         localField: "video_id",
@@ -365,6 +413,9 @@ const getVideoComments = async (req, res) => {
         _id: 1,
         cmtText: 1,
         video_info: 1,
+        replied_user_info: {
+          $ifNull: ["$replied_user_info", null],
+        },
         createdAt: 1,
         video_info: 1,
         user_info: 1,
@@ -411,10 +462,26 @@ const getCmtDetails = async (req, res) => {
       },
     },
     {
+      $lookuo: {
+        from: "users",
+        localField: "replied_user_id",
+        foreignField: "_id",
+        pipeline: [{ $project: { name: 1, email: 1, avatar: 1 } }],
+        as: "replied_user_info",
+      },
+    },
+    {
+      $unwind: {
+        path: "$replied_user_info",
+        preserveNullAndEmptyArrays: true,
+      },
+    },
+    {
       $project: {
         _id: 1,
         replied_cmt_id: 1,
         replied_cmt_total: 1,
+        replied_user_info: { $ifNull: ["$replied_user_info", null] },
         cmtText: 1,
         like: 1,
         dislike: 1,
@@ -573,7 +640,7 @@ const deleteCmt = async (req, res) => {
   let event = `delete-comment-${userId}`;
   if (cmt.replied_cmt_id) {
     event = `delete-reply-comment-${userId}`;
-    const parentCmt = await Comment.findOne({_id : cmt.replied_cmt_id})
+    const parentCmt = await Comment.findOne({ _id: cmt.replied_cmt_id });
     io.emit(`update-parent-comment-${userId}`, parentCmt);
   }
   io.emit(event, cmt);

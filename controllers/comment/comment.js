@@ -42,10 +42,9 @@ const createCmt = async (req, res) => {
     video_id: videoId,
     cmtText: cmtText,
   };
-  let replyCmt;
 
   if (replyId) {
-    replyCmt = await Comment.findById(replyId);
+    const replyCmt = await Comment.findById(replyId);
 
     if (!replyCmt) {
       throw new NotFoundError(`Not found comment with id ${replyId}`);
@@ -70,6 +69,7 @@ const createCmt = async (req, res) => {
     await Comment.updateOne({ _id: cmtId }, { $inc: { replied_cmt_total: 1 } });
 
     data["replied_cmt_id"] = replyId;
+    data["replied_user_id"] = replyCmt.user_id;
   }
 
   if (like) {
@@ -118,10 +118,19 @@ const getCmts = async (req, res) => {
   const pipeline = [
     {
       $lookup: {
-        from: "users", // Collection users mà bạn muốn join
-        localField: "user_id", // Trường trong collection videos (khóa ngoại)
-        foreignField: "_id", // Trường trong collection users (khóa chính)
-        as: "user_info", // Tên mảng để lưu kết quả join
+        from: "users",
+        localField: "user_id",
+        foreignField: "_id",
+        pipeline: [
+          {
+            $project: {
+              _id: 1,
+              name: 1,
+              email: 1,
+            },
+          },
+        ],
+        as: "user_info",
       },
     },
     {
@@ -129,9 +138,33 @@ const getCmts = async (req, res) => {
     },
     {
       $lookup: {
+        from: "users",
+        localField: "replied_user_id",
+        foreignField: "_id",
+        pipeline: [
+          {
+            $project: {
+              _id: 1,
+              name: 1,
+              email: 1,
+            },
+          },
+        ],
+        as: "replied_user_info",
+      },
+    },
+    {
+      $unwind: {
+        path: "$replied_user_info",
+        preserveNullAndEmptyArrays: true,
+      },
+    },
+    {
+      $lookup: {
         from: "videos", // Collection users mà bạn muốn join
         localField: "video_id", // Trường trong collection videos (khóa ngoại)
         foreignField: "_id", // Trường trong collection users (khóa chính)
+        pipeline: [{ $project: { _id: 1, title: 1 } }],
         as: "video_info", // Tên mảng để lưu kết quả join
       },
     },
@@ -150,8 +183,9 @@ const getCmts = async (req, res) => {
       $project: {
         _id: 1,
         title: 1,
-        "user_info.email": 1,
-        "video_info.title": 1,
+        user_info: 1,
+        replied_user_info: { $ifNull: ["$replied_user_info", null] },
+        video_info: 1,
         cmtText: 1,
         createdAt: 1,
         like: 1,
@@ -204,6 +238,15 @@ const getCmtDetails = async (req, res) => {
         from: "users",
         localField: "user_id",
         foreignField: "_id",
+        pipeline: [
+          {
+            $project: {
+              _id: 1,
+              name: 1,
+              email: 1,
+            },
+          },
+        ],
         as: "user_info",
       },
     },
@@ -212,9 +255,33 @@ const getCmtDetails = async (req, res) => {
     },
     {
       $lookup: {
+        from: "users",
+        localField: "replied_user_id",
+        foreignField: "_id",
+        pipeline: [
+          {
+            $project: {
+              _id: 1,
+              name: 1,
+              email: 1,
+            },
+          },
+        ],
+        as: "replied_user_info",
+      },
+    },
+    {
+      $unwind: {
+        path: "$replied_user_info",
+        preserveNullAndEmptyArrays: true,
+      },
+    },
+    {
+      $lookup: {
         from: "videos",
         localField: "video_id",
         foreignField: "_id",
+        pipeline: [{ $project: { _id: 1, title: 1 } }],
         as: "video_info",
       },
     },
@@ -224,9 +291,9 @@ const getCmtDetails = async (req, res) => {
     {
       $project: {
         _id: 1,
-        "user_info._id": 1,
-        "user_info.email": 1,
-        "video_info._id": 1,
+        user_info: 1,
+        replied_user_info: { $ifNull: ["$replied_user_info", null] },
+        video_info: 1,
         replied_cmt_id: 1,
         replied_cmt_total: 1,
         cmtText: 1,

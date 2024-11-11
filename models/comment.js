@@ -14,6 +14,9 @@ const Comment = new mongoose.Schema(
       type: mongoose.Types.ObjectId,
       required: [true, "Please provide video ID"],
     },
+    replied_user_id: {
+      type: mongoose.Types.ObjectId,
+    },
     replied_cmt_id: {
       type: mongoose.Types.ObjectId,
     },
@@ -118,7 +121,6 @@ Comment.pre("deleteMany", async function () {
   }
 
   const foundedCmts = await Comment.find(findObj);
-  console.log("🚀 ~ foundedCmts:", foundedCmts);
 
   // Xóa các CmtReact của Comment đã delete
   foundedCmts.forEach(async (cmt) => {

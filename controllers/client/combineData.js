@@ -1145,7 +1145,9 @@ const getVideoDetails = async (req, res) => {
 };
 
 const getVideoCmts = async (req, res) => {
+
   let userId;
+  
   if (req?.user) {
     userId = req.user.userId;
   }
@@ -1270,6 +1272,21 @@ const getVideoCmts = async (req, res) => {
     },
     {
       $lookup: {
+        from: "users", // Collection users mà bạn muốn join
+        localField: "replied_user_id", // Trường trong collection videos (khóa ngoại)
+        foreignField: "_id", // Trường trong collection users (khóa chính)
+        pipeline: [{ $project: { name: 1, email: 1 } }],
+        as: "replied_user_info", // Tên mảng để lưu kết quả join
+      },
+    },
+    {
+      $unwind: {
+        path: "$replied_user_info",
+        preserveNullAndEmptyArrays: true,
+      },
+    },
+    {
+      $lookup: {
         from: "comments",
         let: {
           replyCmtId: "$replied_cmt_id",
@@ -1293,30 +1310,6 @@ const getVideoCmts = async (req, res) => {
       },
     },
     {
-      $lookup: {
-        from: "users",
-        let: {
-          userId: "$reply_comment_info.user_id",
-        },
-        pipeline: [
-          {
-            $match: {
-              $expr: {
-                $eq: ["$_id", "$$userId"],
-              },
-            },
-          },
-        ],
-        as: "reply_user_info",
-      },
-    },
-    {
-      $unwind: {
-        path: "$reply_user_info",
-        preserveNullAndEmptyArrays: true, // Ensure video is returned even if no subscription exists
-      },
-    },
-    {
       $addFields: {
         _idStr: { $toString: "$_id" },
       },
@@ -1333,6 +1326,7 @@ const getVideoCmts = async (req, res) => {
         reply_comment_info: {
           $ifNull: ["$reply_comment_info", null],
         },
+        replied_user_info: { $ifNull: ["$replied_user_info", null] },
         cmtText: 1,
         like: 1,
         dislike: 1,
