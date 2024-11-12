@@ -86,6 +86,8 @@ const createCmt = async (req, res) => {
 };
 
 const getCmts = async (req, res) => {
+  const { videoId } = req.query;
+
   let limit = Number(req.query.limit) || 5;
   let page = Number(req.query.page) || 1;
 
@@ -106,6 +108,8 @@ const getCmts = async (req, res) => {
       findObj["replied_cmt_id"] = { $exists: JSON.parse(req.query[item]) };
     } else if (item === "id") {
       findObj["_idStr"] = { $regex: req.query[item], $options: "i" };
+    } else if (item === "videoId") {
+      findObj["_videoIdStr"] = { $regex: req.query[item], $options: "i" };
     }
   });
 
@@ -174,6 +178,7 @@ const getCmts = async (req, res) => {
     {
       $addFields: {
         _idStr: { $toString: "$_id" },
+        _videoIdStr: { $toString: "$video_id" },
       },
     },
     {

@@ -1001,6 +1001,17 @@ const getVideoDetails = async (req, res) => {
         from: "users",
         localField: "user_id",
         foreignField: "_id",
+        pipeline: [
+          {
+            $project: {
+              _id: 1,
+              name: 1,
+              email: 1,
+              avatar: 1,
+              subscriber:1
+            },
+          },
+        ],
         as: "channel_info",
       },
     },
@@ -1145,9 +1156,8 @@ const getVideoDetails = async (req, res) => {
 };
 
 const getVideoCmts = async (req, res) => {
-
   let userId;
-  
+
   if (req?.user) {
     userId = req.user.userId;
   }

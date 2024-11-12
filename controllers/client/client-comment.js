@@ -218,7 +218,7 @@ const getCmts = async (req, res) => {
       },
     },
     {
-      $lookuo: {
+      $lookup: {
         from: "users",
         localField: "replied_user_id",
         foreignField: "_id",
@@ -355,7 +355,7 @@ const getVideoComments = async (req, res) => {
 
   const pipeline = [
     {
-      $lookuo: {
+      $lookup: {
         from: "users",
         localField: "replied_user_id",
         foreignField: "_id",
