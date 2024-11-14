@@ -15,6 +15,7 @@ const {
 const { StatusCodes } = require("http-status-codes");
 const { deleteFile } = require("../../utils/file");
 const path = require("path");
+const { log } = require("console");
 const avatarPath = path.join(__dirname, "../../assets/user avatar");
 const videoThumbPath = path.join(__dirname, "../../assets/video thumb");
 const videoPath = path.join(__dirname, "../../assets/videos");
@@ -357,7 +358,7 @@ const deleteManyUsers = async (req, res) => {
 
 const updateUser = async (req, res) => {
   const { id } = req.params;
-
+  console.log(id);
   const { email, ...data } = req.body;
 
   let foundedUser;
@@ -444,6 +445,7 @@ const updateUser = async (req, res) => {
     if (req.files?.banner) {
       finalObject.banner = req.files.banner[0].filename;
     }
+    console.log(finalObject);
 
     const user = await User.updateOne({ _id: id }, finalObject);
 

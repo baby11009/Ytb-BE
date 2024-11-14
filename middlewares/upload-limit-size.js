@@ -3,12 +3,12 @@ const path = require("path");
 const { deleteFile } = require("../utils/file");
 
 const fileLimitSizeMiddleware = (req, res, next, limitObject = {}) => {
-  if (Object.keys(req.files).length > 0) {
+
+  if (req.files && Object.keys(req.files).length > 0) {
     const errList = [];
     const fileListPath = [];
     for (const key of Object.keys(req.files)) {
       req.files[key]?.forEach((file) => {
-
         if (
           file.mimetype.startsWith("image/") &&
           limitObject[key] &&
@@ -34,7 +34,6 @@ const fileLimitSizeMiddleware = (req, res, next, limitObject = {}) => {
       throw new BadRequestError(` ${msg}`);
     }
   }
-
   next();
 };
 

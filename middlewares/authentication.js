@@ -29,6 +29,8 @@ const auth = async (req, res, next) => {
       name: payload.username,
       role: user.role,
     };
+
+
     next();
   } catch (error) {
     throw new UnauthenticatedError("Authentication invalid");

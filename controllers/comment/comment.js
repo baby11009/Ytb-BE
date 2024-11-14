@@ -86,8 +86,6 @@ const createCmt = async (req, res) => {
 };
 
 const getCmts = async (req, res) => {
-  const { videoId } = req.query;
-
   let limit = Number(req.query.limit) || 5;
   let page = Number(req.query.page) || 1;
 
@@ -131,6 +129,7 @@ const getCmts = async (req, res) => {
               _id: 1,
               name: 1,
               email: 1,
+              avatar: 1,
             },
           },
         ],
@@ -151,6 +150,7 @@ const getCmts = async (req, res) => {
               _id: 1,
               name: 1,
               email: 1,
+              avatar: 1,
             },
           },
         ],
