@@ -113,7 +113,6 @@ const getPlaylists = async (req, res) => {
   }
 
   const combinedSort = { ...sortObj, ...sortDateObj };
-  console.log("🚀 ~ combinedSort:", combinedSort)
 
   const pipeline = [
     {
@@ -273,7 +272,7 @@ const updatePlaylist = async (req, res) => {
 
   const { id } = req.params;
 
-  if (!id || id === "") {
+  if (!id) {
     throw new BadRequestError("Please provide playlist id to update");
   }
 

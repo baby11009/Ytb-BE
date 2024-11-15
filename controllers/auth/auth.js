@@ -110,9 +110,7 @@ const login = async (req, res) => {
     throw new BadRequestError("Please provide email and password");
   }
 
-  const user = await User.findOne({ email }).select(
-    "-codeExpires -codeType -privateCode"
-  );
+  const user = await User.findOne({ email });
 
   if (!user) {
     throw new UnauthenticatedError(`Email ${email} is not registered`);
@@ -128,19 +126,65 @@ const login = async (req, res) => {
     throw new UnauthenticatedError("Wrong password");
   }
 
-  const data = {
-    data: {
-      avatar: user.avatar,
-      confirmed: user.confirmed,
-      createdAt: user.createdAt,
-      email: user.email,
-      name: user.name,
-      role: user.role,
-      totalVids: user.totalVids,
-      updatedAt: user.updatedAt,
-      __v: user.__v,
-      _id: user._id,
+  const userData = await User.aggregate([
+    { $match: { _id: user._id } },
+    {
+      $lookup: {
+        from: "subscribes",
+        pipeline: [
+          {
+            $match: {
+              subscriber_id: user._id,
+            },
+          },
+          {
+            $lookup: {
+              from: "users",
+              localField: "channel_id",
+              foreignField: "_id",
+              pipeline: [
+                { $project: { _id: 1, email: 1, name: 1, avatar: 1 } },
+              ],
+              as: "channel_info",
+            },
+          },
+          {
+            $unwind: {
+              path: "$channel_info",
+              preserveNullAndEmptyArrays: true,
+            },
+          },
+          {
+            $project: {
+              "channel_info._id": 1,
+              "channel_info.email": 1,
+              "channel_info.name": 1,
+              "channel_info.avatar": 1,
+            },
+          },
+        ],
+        as: "subscribed_list",
+      },
     },
+    {
+      $project: {
+        _id: 1,
+        email: 1,
+        name: 1,
+        avatar: 1,
+        banner: 1,
+        role: 1,
+        description: 1,
+        subscriber: 1,
+        totalVids: 1,
+        description: 1,
+        subscribed_list: 1,
+      },
+    },
+  ]);
+
+  const data = {
+    data: userData[0],
     token: user.createJwt(),
   };
   res.status(StatusCodes.OK).json(data);
@@ -287,7 +331,6 @@ const validOtp = async (req, res) => {
 
 const resetPassword = async (req, res) => {
   const { email, password } = req.body;
-
 
   if (!email || email === "") {
     throw new BadRequestError("Please provide email");
