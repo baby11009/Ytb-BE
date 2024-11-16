@@ -133,7 +133,10 @@ const getPlaylists = async (req, res) => {
     {
       $sort: combinedSort,
     },
-    {
+  ];
+
+  if (videoLimit) {
+    pipeline.push({
       $lookup: {
         from: "videos",
         let: { videoIdList: "$itemList" },
@@ -146,7 +149,7 @@ const getPlaylists = async (req, res) => {
           },
           { $match: { $expr: { $in: ["$_idStr", "$reverseIdList"] } } },
           {
-            $limit: 1,
+            $limit: videoLimit,
           },
           {
             $project: {
@@ -158,7 +161,10 @@ const getPlaylists = async (req, res) => {
         ],
         as: "video_list",
       },
-    },
+    });
+  }
+
+  pipeline.push(
     {
       $project: {
         _id: 1,
@@ -177,8 +183,8 @@ const getPlaylists = async (req, res) => {
         totalCount: [{ $count: "total" }],
         data: [{ $skip: skip }, { $limit: limit }],
       },
-    },
-  ];
+    }
+  );
 
   const playlists = await Playlist.aggregate(pipeline);
 
@@ -208,7 +214,10 @@ const getPlaylistDetails = async (req, res) => {
     {
       $match: { _idStr: id, userIdStr: userId },
     },
-    {
+  ];
+
+  if (videoLimit && videoLimit > 0) {
+    pipeline.push({
       $lookup: {
         from: "videos",
         let: { videoIdList: "$itemList" },
@@ -237,20 +246,21 @@ const getPlaylistDetails = async (req, res) => {
         ],
         as: "video_list",
       },
+    });
+  }
+
+  pipeline.push({
+    $project: {
+      _id: 1,
+      created_user_id: 1,
+      title: 1,
+      itemList: 1,
+      createdAt: 1,
+      type: 1,
+      video_list: "$video_list",
+      size: { $size: "$itemList" },
     },
-    {
-      $project: {
-        _id: 1,
-        created_user_id: 1,
-        title: 1,
-        itemList: 1,
-        createdAt: 1,
-        type: 1,
-        video_list: "$video_list",
-        size: { $size: "$itemList" },
-      },
-    },
-  ];
+  });
 
   const playlist = await Playlist.aggregate(pipeline);
 
@@ -293,12 +303,14 @@ const updatePlaylist = async (req, res) => {
   if (userId !== foundedPlaylist.created_user_id.toString()) {
     throw new ForbiddenError("You are not authorized to update this playlist");
   }
-
+  const updateDatas = {};
+  
   if (title) {
     if (foundedPlaylist.title === title) {
       throw new BadRequestError("The new title of playlist is still the same");
     } else {
-      await Playlist.updateOne({ _id: id }, { title });
+      // await Playlist.updateOne({ _id: id }, { title });
+      updateDatas.title = title;
     }
   }
 
@@ -310,9 +322,14 @@ const updatePlaylist = async (req, res) => {
       if (!validateType.includes(type)) {
         throw new BadRequestError("Invalid playlist type");
       } else {
-        await Playlist.updateOne({ _id: id }, { type });
+        // await Playlist.updateOne({ _id: id }, { type });
+        updateDatas.type = type;
       }
     }
+  }
+
+  if (Object.keys(updateDatas).length > 0) {
+    await playlist.updateOne({ _id: id }, updateDatas);
   }
 
   if (videoIdList && videoIdList.length > 0) {
@@ -384,7 +401,35 @@ const updatePlaylist = async (req, res) => {
     await Playlist.updateOne({ _id: id }, { itemList: [] });
   }
 
-  res.status(StatusCodes.OK).json({ msg: "Playlist updated successfullly" });
+  const pipeline = [
+    {
+      $addFields: {
+        _idStr: { $toString: "$_id" },
+        userIdStr: { $toString: "$created_user_id" },
+      },
+    },
+    {
+      $match: { _idStr: id, userIdStr: userId },
+    },
+    {
+      $project: {
+        _id: 1,
+        created_user_id: 1,
+        title: 1,
+        itemList: 1,
+        createdAt: 1,
+        type: 1,
+        video_list: "$video_list",
+        size: { $size: "$itemList" },
+      },
+    },
+  ];
+
+  const playlist = await Playlist.aggregate(pipeline);
+
+  res
+    .status(StatusCodes.OK)
+    .json({ msg: "Playlist updated successfullly", data: playlist[0] });
 };
 
 const deletePlaylist = async (req, res) => {
