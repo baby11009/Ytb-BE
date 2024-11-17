@@ -8,7 +8,7 @@ const { StatusCodes } = require("http-status-codes");
 
 const createPlaylist = async (req, res) => {
   const { userId } = req.user;
-  const { title, videoIdList = [] } = req.body;
+  const { title, videoIdList = [], type } = req.body;
 
   if (!title || title === "") {
     throw new BadRequestError("Please provide a playlist title");
@@ -48,10 +48,13 @@ const createPlaylist = async (req, res) => {
   const playlist = await Playlist.create({
     created_user_id: userId,
     title,
+    type,
     itemList: videoIdList,
   });
 
-  res.status(StatusCodes.OK).json({ msg: "Created playlist successfully" });
+  res
+    .status(StatusCodes.OK)
+    .json({ msg: "Created playlist successfully", data: playlist });
 };
 
 const getPlaylists = async (req, res) => {
@@ -304,7 +307,7 @@ const updatePlaylist = async (req, res) => {
     throw new ForbiddenError("You are not authorized to update this playlist");
   }
   const updateDatas = {};
-  
+
   if (title) {
     if (foundedPlaylist.title === title) {
       throw new BadRequestError("The new title of playlist is still the same");
