@@ -7,7 +7,7 @@ const {
 const { StatusCodes } = require("http-status-codes");
 
 const createPlaylist = async (req, res) => {
-  const { title, videoIdList, userId } = req.body;
+  const { title, videoIdList = [], userId, type } = req.body;
 
   if (!userId) {
     throw new BadRequestError("Please provide user create playlist id");
@@ -17,51 +17,55 @@ const createPlaylist = async (req, res) => {
     throw new BadRequestError("Please provide a playlist title");
   }
 
-  if (!videoIdList || videoIdList.length === 0) {
-    throw new BadRequestError("Please chose at least one video");
+  if (videoIdList && videoIdList.length > 0) {
+    const foundedVideos = await Video.aggregate([
+      {
+        $addFields: {
+          _idStr: { $toString: "$_id" },
+        },
+      },
+      { $match: { _idStr: { $in: videoIdList } } },
+      { $group: { _id: null, idsFound: { $push: "$_idStr" } } },
+      {
+        $project: {
+          missingIds: { $setDifference: [videoIdList, "$idsFound"] },
+        },
+      },
+    ]);
+
+    if (foundedVideos.length === 0) {
+      throw new NotFoundError(
+        `The following videos with id: ${videoIdList.join(
+          ", "
+        )} could not be found`
+      );
+    }
+
+    if (foundedVideos[0]?.missingIds?.length > 0) {
+      throw new NotFoundError(
+        `The following videos with id: ${foundedVideos[0].missingIds.join(
+          ", "
+        )} could not be found`
+      );
+    }
   }
 
-  const foundedVideos = await Video.aggregate([
-    {
-      $addFields: {
-        _idStr: { $toString: "$_id" },
-      },
-    },
-    { $match: { _idStr: { $in: videoIdList } } },
-    { $group: { _id: null, idsFound: { $push: "$_idStr" } } },
-    {
-      $project: {
-        missingIds: { $setDifference: [videoIdList, "$idsFound"] },
-      },
-    },
-  ]);
-
-  if (foundedVideos.length === 0) {
-    throw new NotFoundError(
-      `The following videos with id: ${videoIdList.join(
-        ", "
-      )} could not be found`
-    );
-  }
-
-  if (foundedVideos[0]?.missingIds?.length > 0) {
-    throw new NotFoundError(
-      `The following videos with id: ${foundedVideos[0].missingIds.join(
-        ", "
-      )} could not be found`
-    );
+  if (type && type === "personal") {
+    throw new ForbiddenError("Cannot create personal playlist");
   }
 
   const playlist = await Playlist.create({
     created_user_id: userId,
     title,
     itemList: videoIdList,
+    type,
   });
 
   res.status(StatusCodes.OK).json({ msg: "Created playlist successfully" });
 };
 
 const getPlaylists = async (req, res) => {
+  
   const limit = Number(req.query.limit) || 5;
   const page = Number(req.query.page) || 1;
 
@@ -206,7 +210,7 @@ const updatePlaylist = async (req, res) => {
     throw new BadRequestError("Please provide playlist id to update");
   }
 
-  const { videoIdList, title } = req.body;
+  const { videoIdList, title, type } = req.body;
 
   if (!videoIdList && !title) {
     throw new BadRequestError(
@@ -218,6 +222,10 @@ const updatePlaylist = async (req, res) => {
 
   if (!foundedPlaylist) {
     throw new NotFoundError("Playlist not found");
+  }
+
+  if (foundedPlaylist.type === "personal" && type && type !== "personal") {
+    throw new ForbiddenError(`You can't change personal playlist to ${type}`);
   }
 
   if (videoIdList && videoIdList.length > 0) {
@@ -289,14 +297,33 @@ const updatePlaylist = async (req, res) => {
     await Playlist.updateOne({ _id: id }, { itemList: [] });
   }
 
+  const updateDatas = {};
+
+  if (type) {
+    if (type === foundedPlaylist.type) {
+      throw new BadRequestError("The new type of playlist is still the same ");
+    } else {
+      const validateType = ["private", "public"];
+      if (!validateType.includes(type)) {
+        throw new BadRequestError("Invalid playlist type");
+      } else {
+        updateDatas.type = type;
+      }
+    }
+  }
+
   if (title) {
     if (foundedPlaylist.title === title) {
       throw new BadRequestError(
         "The new title of playlist is still the same as the old title"
       );
     } else {
-      await Playlist.updateOne({ _id: id }, { title });
+      updateDatas.title = title;
     }
+  }
+
+  if (Object.keys(updateDatas).length > 0) {
+    await Playlist.updateOne({ _id: id }, updateDatas);
   }
 
   res.status(StatusCodes.OK).json({ msg: "Playlist updated successfullly" });
@@ -305,7 +332,15 @@ const updatePlaylist = async (req, res) => {
 const deletePlaylist = async (req, res) => {
   const { id } = req.params;
 
-  await Playlist.findById(id);
+  const playlist = await Playlist.findById(id);
+
+  if (!playlist) {
+    throw new NotFoundError(`Playlist not found`);
+  }
+
+  if (playlist.type === "personal") {
+    throw new ForbiddenError("You can't delete a personal playlist");
+  }
 
   await Playlist.deleteOne({ _id: id });
 
@@ -330,6 +365,7 @@ const deleteManyPlaylist = async (req, res) => {
     {
       $project: {
         missingIds: { $setDifference: [idList, "$idsFound"] },
+        type: 1,
       },
     },
   ]);
@@ -346,6 +382,16 @@ const deleteManyPlaylist = async (req, res) => {
         ", "
       )} could not be found`
     );
+  }
+
+  const personalList = foundedPlaylists.filter((playlist) => {
+    if (playlist.type === "personal") {
+      return playlist._id.toString();
+    }
+  });
+
+  if (personalList.length > 0) {
+    throw new ForbiddenError("You can't delete personal playlists");
   }
 
   await Playlist.deleteMany({ _id: { $in: idList } });

@@ -410,6 +410,7 @@ const getRandomShort = async (req, res) => {
     ]);
     watchedIdList.push(shortId);
   }
+
   if (watchedIdList.length > 0) {
     addFieldsObj["_idStr"] = { $toString: "$_id" };
     matchObj["_idStr"] = { $nin: watchedIdList };
@@ -443,13 +444,15 @@ const getDataList = async (req, res) => {
   const {
     limit,
     page,
-    createdAt,
+    sort,
     tag,
     type,
     search,
     channelId,
     userId,
     prevPlCount = 0,
+    watchedVideoIdList = [],
+    watchedPlIdList = [],
   } = req.query;
 
   const dataLimit = Number(limit) || 16;
@@ -461,6 +464,35 @@ const getDataList = async (req, res) => {
   const channelList = [];
 
   const playlistList = [];
+
+  const sortObj = {};
+
+  const videoPipeline = [];
+
+  if (sort && Object.keys(sort).length > 0) {
+    const validSortKey = ["createdAt", "view"];
+    for (const [key, value] of Object.entries(sort)) {
+      if (
+        validSortKey.includes(key) &&
+        (Number(value) === 1 || Number(value) === -1)
+      ) {
+        sortObj[`${key}`] = Number(value);
+      }
+    }
+  } else if (watchedVideoIdList.length > 0) {
+    videoPipeline.push(
+      {
+        $addFields: {
+          _idStr: { $toString: "$_id" },
+        },
+      },
+      {
+        $match: {
+          _idStr: { $nin: watchedVideoIdList },
+        },
+      }
+    );
+  }
 
   // Get users when searching
   if (!channelId && search && page < 2) {
@@ -534,13 +566,40 @@ const getDataList = async (req, res) => {
     channelList.push(...channels);
   }
 
-  let sortNum = -1;
-  if (createdAt?.toLowerCase() === "cũ nhất") {
-    sortNum = 1;
-  }
-
   if (type !== "short" && !tag && page < 3) {
-    const playlistPipeline = [
+    const playlistPipeline = [];
+
+    if (!sortObj["createdAt"]) {
+      playlistPipeline.push(
+        { $sort: { createdAt: sortObj["createdAt"] } },
+        {
+          $skip: (dataPage - 1) * 2,
+        },
+        {
+          $limit: 2,
+        }
+      );
+    } else {
+      playlistPipeline.push(
+        {
+          $addFields: {
+            _idStr: { $toString: "$_id" },
+          },
+        },
+        {
+          $match: {
+            _idStr: { $nin: watchedPlIdList },
+          },
+        }
+      );
+    }
+
+    playlistPipeline.push(
+      {
+        $match: {
+          type: "public",
+        },
+      },
       {
         $lookup: {
           from: "users",
@@ -561,15 +620,13 @@ const getDataList = async (req, res) => {
       },
       {
         $unwind: "$user_info",
-      },
-    ];
+      }
+    );
 
     if (search) {
       playlistPipeline.push({
         $match: {
           title: { $regex: search, $options: "i" },
-          // Public only playlist
-          type: "public",
         },
       });
     }
@@ -580,16 +637,14 @@ const getDataList = async (req, res) => {
           from: "videos",
           let: { videoIdList: "$itemList" },
           pipeline: [
-            { $addFields: { _idStr: { $toString: "$_id" } } },
             {
-              $match: {
-                $expr: { $in: ["$_idStr", "$$videoIdList"] },
+              $addFields: {
+                _idStr: { $toString: "$_id" },
+                reverseIdList: { $reverseArray: "$$videoIdList" },
               },
             },
             {
-              $sort: {
-                createdAt: -1,
-              },
+              $match: { $expr: { $in: ["$_idStr", "$reverseIdList"] } },
             },
             {
               $limit: 1,
@@ -609,22 +664,11 @@ const getDataList = async (req, res) => {
           _id: 1,
           title: 1,
           user_info: 1,
-          video_list: { $ifNull: ["$video_list", null] },
+          video_list: { $ifNull: ["$video_list", []] },
           videoCount: { $size: "$itemList" },
           createdAt: 1,
           updatedAt: 1,
         },
-      },
-      {
-        $sort: {
-          createdAt: sortNum,
-        },
-      },
-      {
-        $skip: (dataPage - 1) * 2,
-      },
-      {
-        $limit: 2,
       }
     );
 
@@ -632,7 +676,7 @@ const getDataList = async (req, res) => {
     playlistList.push(...playlists);
   }
 
-  const videoPipeline = [
+  videoPipeline.push(
     {
       $lookup: {
         from: "users",
@@ -644,8 +688,8 @@ const getDataList = async (req, res) => {
     },
     {
       $unwind: "$user_info",
-    },
-  ];
+    }
+  );
 
   if (channelId) {
     videoPipeline.push(
@@ -722,27 +766,32 @@ const getDataList = async (req, res) => {
     );
   }
 
-  videoPipeline.push(
-    { $sort: { createdAt: sortNum } },
-    { $skip: skip - Number(prevPlCount) },
-    { $limit: dataLimit - playlistList.length },
-    {
-      $project: {
-        _id: 1,
-        title: 1,
-        thumb: 1,
-        duration: { $ifNull: ["$duration", 0] },
-        type: 1,
-        view: 1,
-        like: 1,
-        disLike: 1,
-        type: 1,
-        tag_info: { $ifNull: ["$tag_info", null] },
-        user_info: 1,
-        createdAt: 1,
-      },
-    }
-  );
+  if (Object.keys(sortObj).length > 0) {
+    videoPipeline.push(
+      { $sort: sortObj },
+      { $skip: skip - Number(prevPlCount) },
+      { $limit: dataLimit - playlistList.length }
+    );
+  } else {
+    videoPipeline.push({ $sample: { size: dataLimit - playlistList.length } });
+  }
+
+  videoPipeline.push({
+    $project: {
+      _id: 1,
+      title: 1,
+      thumb: 1,
+      duration: { $ifNull: ["$duration", 0] },
+      type: 1,
+      view: 1,
+      like: 1,
+      disLike: 1,
+      type: 1,
+      tag_info: { $ifNull: ["$tag_info", null] },
+      user_info: 1,
+      createdAt: 1,
+    },
+  });
 
   const videos = await Video.aggregate(videoPipeline);
 
@@ -772,6 +821,7 @@ const getDataList = async (req, res) => {
   let result = {
     data: finalData,
   };
+
   if (channelList.length > 0) {
     result.channels = channelList;
   }
@@ -952,7 +1002,7 @@ const getChannelPlaylistVideos = async (req, res) => {
       $project: {
         _id: 1,
         title: 1,
-        video_list: { $reverseArray: "$video_list" },
+        video_list: 1,
         videoCount: { $size: "$itemList" },
         createdAt: 1,
         updatedAt: 1,
@@ -1008,7 +1058,7 @@ const getVideoDetails = async (req, res) => {
               name: 1,
               email: 1,
               avatar: 1,
-              subscriber:1
+              subscriber: 1,
             },
           },
         ],

@@ -84,27 +84,40 @@ User.pre("save", async function (next) {
   next();
 });
 
-User.pre(
-  ["update", "updateOne", "findOneAndUpdate"],
-  async function (next) {
-    const update = this.getUpdate();
-    if (update.password) {
-      // Xác thực độ dài mật khẩu
-      if (update.password.length < 6) {
-        return next(new Error("Password must be at least 6 characters long"));
-      }
+User.post("save", async function (next) {
+  const Playlist = mongoose.model("Playlist");
 
-      const salt = await bcrypt.genSalt(10);
-      update.password = await bcrypt.hash(update.password, salt);
+  await Playlist.create({
+    created_user_id: this._id,
+    title: "Watch later",
+    type: "personal",
+  });
+
+  await Playlist.create({
+    created_user_id: this._id,
+    title: "History",
+    type: "personal",
+  });
+});
+
+User.pre(["update", "updateOne", "findOneAndUpdate"], async function (next) {
+  const update = this.getUpdate();
+  if (update.password) {
+    // Xác thực độ dài mật khẩu
+    if (update.password.length < 6) {
+      return next(new Error("Password must be at least 6 characters long"));
     }
-    if (update.name) {
-      if (update.name.length > 15) {
-        return next(new Error("User name cannot exceed 15 characters"));
-      }
-    }
-    next();
+
+    const salt = await bcrypt.genSalt(10);
+    update.password = await bcrypt.hash(update.password, salt);
   }
-);
+  if (update.name) {
+    if (update.name.length > 15) {
+      return next(new Error("User name cannot exceed 15 characters"));
+    }
+  }
+  next();
+});
 
 // Cascade when deleting user
 User.pre("deleteOne", async function () {

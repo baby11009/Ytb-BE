@@ -14,35 +14,41 @@ const createPlaylist = async (req, res) => {
     throw new BadRequestError("Please provide a playlist title");
   }
 
-  const foundedVideos = await Video.aggregate([
-    {
-      $addFields: {
-        _idStr: { $toString: "$_id" },
+  if (videoIdList && videoIdList.length > 0) {
+    const foundedVideos = await Video.aggregate([
+      {
+        $addFields: {
+          _idStr: { $toString: "$_id" },
+        },
       },
-    },
-    { $match: { _idStr: { $in: videoIdList } } },
-    { $group: { _id: null, idsFound: { $push: "$_idStr" } } },
-    {
-      $project: {
-        missingIds: { $setDifference: [videoIdList, "$idsFound"] },
+      { $match: { _idStr: { $in: videoIdList } } },
+      { $group: { _id: null, idsFound: { $push: "$_idStr" } } },
+      {
+        $project: {
+          missingIds: { $setDifference: [videoIdList, "$idsFound"] },
+        },
       },
-    },
-  ]);
+    ]);
 
-  if (foundedVideos.length === 0) {
-    throw new NotFoundError(
-      `The following videos with id: ${videoIdList.join(
-        ", "
-      )} could not be found`
-    );
+    if (foundedVideos.length === 0) {
+      throw new NotFoundError(
+        `The following videos with id: ${videoIdList.join(
+          ", "
+        )} could not be found`
+      );
+    }
+
+    if (foundedVideos[0]?.missingIds?.length > 0) {
+      throw new NotFoundError(
+        `The following videos with id: ${foundedVideos[0].missingIds.join(
+          ", "
+        )} could not be found`
+      );
+    }
   }
 
-  if (foundedVideos[0]?.missingIds?.length > 0) {
-    throw new NotFoundError(
-      `The following videos with id: ${foundedVideos[0].missingIds.join(
-        ", "
-      )} could not be found`
-    );
+  if (type && type === "personal") {
+    throw new ForbiddenError("Cannot create personal playlist");
   }
 
   const playlist = await Playlist.create({
@@ -65,10 +71,18 @@ const getPlaylists = async (req, res) => {
   const skip = (page - 1) * limit;
 
   const findParams = Object.keys(req.query).filter(
-    (key) => key !== "limit" && key !== "page" && key !== "sort"
+    (key) =>
+      key !== "limit" &&
+      key !== "page" &&
+      key !== "sort" &&
+      key !== "videoLimit"
   );
 
-  let findObj = {};
+  let findObj = {
+    $expr: {
+      $or: [{ $ne: ["$title", "History"] }, { $ne: ["$type", "personal"] }],
+    },
+  };
 
   findParams.forEach((item) => {
     const syntax = { $regex: req.query[item], $options: "i" };
@@ -139,6 +153,7 @@ const getPlaylists = async (req, res) => {
   ];
 
   if (videoLimit) {
+    console.log(videoLimit);
     pipeline.push({
       $lookup: {
         from: "videos",
@@ -152,7 +167,7 @@ const getPlaylists = async (req, res) => {
           },
           { $match: { $expr: { $in: ["$_idStr", "$reverseIdList"] } } },
           {
-            $limit: videoLimit,
+            $limit: Number(videoLimit),
           },
           {
             $project: {
@@ -166,7 +181,7 @@ const getPlaylists = async (req, res) => {
       },
     });
   }
-
+  console.log(pipeline);
   pipeline.push(
     {
       $project: {
@@ -306,13 +321,17 @@ const updatePlaylist = async (req, res) => {
   if (userId !== foundedPlaylist.created_user_id.toString()) {
     throw new ForbiddenError("You are not authorized to update this playlist");
   }
+
+  if (foundedPlaylist.type === "personal" && (type || title)) {
+    throw new ForbiddenError("You can't modify personal playlist");
+  }
+
   const updateDatas = {};
 
   if (title) {
     if (foundedPlaylist.title === title) {
       throw new BadRequestError("The new title of playlist is still the same");
     } else {
-      // await Playlist.updateOne({ _id: id }, { title });
       updateDatas.title = title;
     }
   }
@@ -325,7 +344,6 @@ const updatePlaylist = async (req, res) => {
       if (!validateType.includes(type)) {
         throw new BadRequestError("Invalid playlist type");
       } else {
-        // await Playlist.updateOne({ _id: id }, { type });
         updateDatas.type = type;
       }
     }
@@ -446,6 +464,10 @@ const deletePlaylist = async (req, res) => {
     throw new ForbiddenError("You are not authorized to delete this playlist");
   }
 
+  if (foundedPlaylist.type === "personal") {
+    throw new ForbiddenError("Cannot delete personal playlist");
+  }
+
   await Playlist.deleteOne({ _id: id });
 
   res.status(StatusCodes.OK).json({ msg: "Playlist deleted successfully" });
@@ -469,6 +491,7 @@ const deleteManyPlaylist = async (req, res) => {
     {
       $project: {
         missingIds: { $setDifference: [idList, "$idsFound"] },
+        type: 1,
         created_user_id: 1,
       },
     },
@@ -488,15 +511,32 @@ const deleteManyPlaylist = async (req, res) => {
     );
   }
 
-  const notBelongList = foundedPlaylists.filter((playlist) => {
-    if (playlist._id.toString() !== userId) {
-      return playlist._id.toString();
+  const notBelongList = [];
+
+  const personalList = [];
+
+  foundedPlaylists.forEach((playlist) => {
+    if (playlist.created_user_id.toString() !== userId) {
+      notBelongList.push(playlist._id.toString());
+      return;
+    }
+
+    if (playlist.type === "personal") {
+      personalList.push(playlist._id.toString());
     }
   });
 
   if (notBelongList.length > 0) {
     throw new ForbiddenError(
-      `You are not authorized to delete these playlist with id : ${notBelongList.join(
+      `You are not able to delete these playlist with id : ${notBelongList.join(
+        ", "
+      )} that the not belongs to your account`
+    );
+  }
+
+  if (personalList.length > 0) {
+    throw new ForbiddenError(
+      `Cannot delete these personal playlist with id : ${personalList.join(
         ", "
       )}`
     );
