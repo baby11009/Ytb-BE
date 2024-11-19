@@ -12,7 +12,17 @@ const getVideoList = async (req, res) => {
 
   const skip = (listPage - 1) * listLimit;
 
+  const videoAddFieldsObj = {};
+
+  const videoMatchObj = {};
+
   const pipeline = [
+    {
+      $addFields: videoAddFieldsObj,
+    },
+    {
+      $match: videoMatchObj,
+    },
     {
       $lookup: {
         from: "users",
@@ -29,85 +39,91 @@ const getVideoList = async (req, res) => {
     },
   ];
 
-  if (channelEmail) {
-    pipeline.push(
-      {
-        $addFields: {
-          email: "$user_info.email",
-        },
-      },
-      {
-        $match: {
-          email: { $eq: channelEmail },
-        },
-      }
-    );
-  }
-
-  if (search) {
-    pipeline.push({
-      $match: {
-        title: { $regex: search, $options: "i" },
-      },
-    });
-  }
-
-  if (type) {
-    pipeline.push({
-      $match: {
-        $expr: { $eq: [{ $toLower: "$type" }, type.toLowerCase()] },
-      },
-    });
-  }
-
-  if (tag) {
-    pipeline.push(
-      {
-        $lookup: {
-          from: "tags",
-          let: { tagIds: "$tag" }, // Định nghĩa biến từ `localField` (mảng `tag`)
-          pipeline: [
-            {
-              $addFields: {
-                _idStr: { $toString: "$_id" },
-              },
-            },
-            {
-              $match: {
-                $expr: { $in: ["$_idStr", "$$tagIds"] },
-              },
-            },
-            {
-              $project: {
-                _id: 1,
-                title: 1,
-                slug: 1,
-                icon: 1,
-              },
-            },
-          ],
-          as: "tag_info",
-        },
-      },
-      {
-        $match: {
-          $expr: {
-            $gt: [{ $size: "$tag_info" }, 0], // Chỉ lấy những posts có ít nhất một tag_info
+  const queryFuncObj = {
+    channelEmail: (value) => {
+      pipeline.push(
+        {
+          $addFields: {
+            email: "$user_info.email",
           },
         },
-      },
-      {
-        $addFields: {
-          matching: {
-            $filter: {
-              input: "$tag_info",
-              as: "tag",
-              cond: { $eq: ["$$tag.slug", tag] }, // So khớp slug của tag với mảng inputTags
+        {
+          $match: {
+            email: { $eq: value },
+          },
+        }
+      );
+    },
+    search: (value) => {
+      videoMatchObj["title"] = { $regex: value, $options: "i" };
+    },
+    type: (value) => {
+      videoMatchObj["type"] = value;
+    },
+    tag: (value) => {
+      pipeline.push(
+        {
+          $lookup: {
+            from: "tags",
+            let: { tagIds: "$tag" },
+            pipeline: [
+              {
+                $addFields: {
+                  _idStr: { $toString: "$_id" },
+                },
+              },
+              {
+                $match: {
+                  $expr: { $in: ["$_idStr", "$$tagIds"] },
+                },
+              },
+              {
+                $project: {
+                  _id: 1,
+                  title: 1,
+                  slug: 1,
+                  icon: 1,
+                },
+              },
+            ],
+            as: "tag_info",
+          },
+        },
+        {
+          $match: {
+            $expr: {
+              $gt: [{ $size: "$tag_info" }, 0], // Chỉ lấy những posts có ít nhất một tag_info
             },
           },
         },
-      }
-    );
+        {
+          $match: {
+            $expr: {
+              $gt: [
+                // Get this data if it exists tag having the same slug with query
+                {
+                  $size: {
+                    $filter: {
+                      // Loop tag array and get all matching data
+                      input: "$tag_info",
+                      as: "t",
+                      cond: { $eq: ["$$t.slug", value] }, // check if data have same slug with query slug
+                    },
+                  },
+                },
+                0,
+              ],
+            },
+          },
+        }
+      );
+    },
+  };
+
+  for (const [key, value] of Object.entries(req.query)) {
+    if (queryFuncObj[key] && value) {
+      queryFuncObj[key](value);
+    }
   }
 
   pipeline.push({
@@ -145,9 +161,11 @@ const getVideoList = async (req, res) => {
     }
   }
   // $sort sẽ dựa theo thứ tự điều kiện sort trong object
-  pipeline.push({
-    $sort: sortObj,
-  });
+  if (Object.keys(sortObj).length > 0) {
+    pipeline.push({
+      $sort: sortObj,
+    });
+  }
 
   pipeline.push({
     $facet: {
@@ -365,12 +383,14 @@ const getRandomShort = async (req, res) => {
   if (req.user) {
     userId = req.user.userId;
   }
+
   const { watchedIdList = [], shortId } = req.query;
   let size = 3;
   const addFieldsObj = {};
   let matchObj = {
     $expr: { $eq: [{ $toLower: "$type" }, "short"] },
   };
+
   const pipeline = [
     {
       $lookup: {
@@ -393,28 +413,44 @@ const getRandomShort = async (req, res) => {
 
     matchObj.userIdStr = { $ne: userId };
   }
-
   let foundedShort = [];
-  if (shortId) {
-    size = 2;
-    foundedShort = await Video.aggregate([
-      { $addFields: { _idStr: { $toString: "$_id" } } },
-      {
-        $match: { _idStr: shortId },
-      },
-      {
-        $project: {
-          _id: 1,
+
+  const queryFuncObj = {
+    shortId: async (value) => {
+      console.log(value);
+      size = 2;
+      foundedShort = await Video.aggregate([
+        { $addFields: { _idStr: { $toString: "$_id" } } },
+        {
+          $match: { _idStr: value },
         },
-      },
-    ]);
-    watchedIdList.push(shortId);
+        {
+          $project: {
+            _id: 1,
+          },
+        },
+      ]);
+      watchedIdList.push(value);
+    },
+    watchedIdList: (value) => {
+      if (value.length > 0) {
+        addFieldsObj["_idStr"] = { $toString: "$_id" };
+        matchObj["_idStr"] = { $nin: value };
+      }
+    },
+  };
+
+  for (const [key, value] of Object.entries(req.query)) {
+    if (queryFuncObj[key] && value) {
+      const func = queryFuncObj[key];
+      if (func.constructor.name === "AsyncFunction") {
+        await func(value);
+      } else {
+        func(value);
+      }
+    }
   }
 
-  if (watchedIdList.length > 0) {
-    addFieldsObj["_idStr"] = { $toString: "$_id" };
-    matchObj["_idStr"] = { $nin: watchedIdList };
-  }
   pipeline.push(
     {
       $addFields: addFieldsObj,
@@ -465,10 +501,15 @@ const getDataList = async (req, res) => {
 
   const playlistList = [];
 
+  const videoAddFieldsObj = {};
+
+  const videoMatchObj = {};
+
   const sortObj = {};
 
   const videoPipeline = [];
 
+  // Sorting objects
   if (sort && Object.keys(sort).length > 0) {
     const validSortKey = ["createdAt", "view"];
     for (const [key, value] of Object.entries(sort)) {
@@ -480,22 +521,12 @@ const getDataList = async (req, res) => {
       }
     }
   } else if (watchedVideoIdList.length > 0) {
-    videoPipeline.push(
-      {
-        $addFields: {
-          _idStr: { $toString: "$_id" },
-        },
-      },
-      {
-        $match: {
-          _idStr: { $nin: watchedVideoIdList },
-        },
-      }
-    );
+    videoAddFieldsObj["_idStr"] = { $toString: "$_id" };
+    videoMatchObj["_idStr"] = { $nin: watchedVideoIdList };
   }
 
   // Get users when searching
-  if (!channelId && search && page < 2) {
+  if (!channelId && search && dataPage < 2 && !tag) {
     const channelPipeline = [
       {
         $match: {
@@ -566,39 +597,28 @@ const getDataList = async (req, res) => {
     channelList.push(...channels);
   }
 
-  if (type !== "short" && !tag && page < 3) {
-    const playlistPipeline = [];
+  // Get playlist if tyoe is not short , user don't provide tag and page < 3
+  if (type !== "short" && !tag && dataPage < 3) {
+    const addFieldsObj = {};
 
-    if (!sortObj["createdAt"]) {
-      playlistPipeline.push(
-        { $sort: { createdAt: sortObj["createdAt"] } },
-        {
-          $skip: (dataPage - 1) * 2,
-        },
-        {
-          $limit: 2,
-        }
-      );
-    } else {
-      playlistPipeline.push(
-        {
-          $addFields: {
-            _idStr: { $toString: "$_id" },
-          },
-        },
-        {
-          $match: {
-            _idStr: { $nin: watchedPlIdList },
-          },
-        }
-      );
+    const matchObj = { type: "public" };
+
+    // If having sort then don't get random data
+    if (!sortObj["createdAt"] && watchedPlIdList.length > 0) {
+      addFieldsObj["_idStr"] = { $toString: "$_id" };
+      matchObj["_idStr"] = { $nin: watchedPlIdList };
     }
 
-    playlistPipeline.push(
+    if (search) {
+      matchObj["title"] = { $regex: search, $options: "i" };
+    }
+
+    const playlistPipeline = [
       {
-        $match: {
-          type: "public",
-        },
+        $addFields: addFieldsObj,
+      },
+      {
+        $match: matchObj,
       },
       {
         $lookup: {
@@ -620,18 +640,7 @@ const getDataList = async (req, res) => {
       },
       {
         $unwind: "$user_info",
-      }
-    );
-
-    if (search) {
-      playlistPipeline.push({
-        $match: {
-          title: { $regex: search, $options: "i" },
-        },
-      });
-    }
-
-    playlistPipeline.push(
+      },
       {
         $lookup: {
           from: "videos",
@@ -659,21 +668,126 @@ const getDataList = async (req, res) => {
           as: "video_list",
         },
       },
-      {
-        $project: {
-          _id: 1,
-          title: 1,
-          user_info: 1,
-          video_list: { $ifNull: ["$video_list", []] },
-          videoCount: { $size: "$itemList" },
-          createdAt: 1,
-          updatedAt: 1,
+    ];
+
+    if (sortObj["createdAt"]) {
+      playlistPipeline.push(
+        { $sort: { createdAt: sortObj["createdAt"] } },
+        {
+          $skip: (dataPage - 1) * 2,
         },
-      }
-    );
+        {
+          $limit: 2,
+        }
+      );
+    } else {
+      playlistPipeline.push({ $sample: { size: 2 } });
+    }
+
+    playlistPipeline.push({
+      $project: {
+        _id: 1,
+        title: 1,
+        user_info: 1,
+        video_list: { $ifNull: ["$video_list", []] },
+        videoCount: { $size: "$itemList" },
+        createdAt: 1,
+        updatedAt: 1,
+      },
+    });
 
     const playlists = await Playlist.aggregate(playlistPipeline);
+
     playlistList.push(...playlists);
+  }
+
+  const queryFuncObj = {
+    channelId: (value) => {
+      videoAddFieldsObj["_userIdStr"] = { $toString: "user_id" };
+      videoMatchObj["_userIdStr"] = { _userIdStr: value };
+    },
+    search: (value) => {
+      videoMatchObj["title"] = { $regex: value, $options: "i" };
+    },
+    type: (value) => {
+      videoMatchObj["type"] = value;
+    },
+    tag: (value) => {
+      videoPipeline.push(
+        {
+          $lookup: {
+            from: "tags",
+            let: { tagIds: "$tag" },
+            pipeline: [
+              {
+                $addFields: {
+                  _idStr: { $toString: "$_id" },
+                },
+              },
+              {
+                $match: {
+                  $expr: { $in: ["$_idStr", "$$tagIds"] },
+                },
+              },
+              {
+                $project: {
+                  _id: 1,
+                  title: 1,
+                  slug: 1,
+                  icon: 1,
+                },
+              },
+            ],
+            as: "tag_info",
+          },
+        },
+        {
+          $match: {
+            $expr: {
+              $gt: [{ $size: "$tag_info" }, 0], // Get data if it's have more than one tag
+            },
+          },
+        },
+        {
+          $match: {
+            $expr: {
+              $gt: [
+                // Get this data if it exists tag having the same slug with query
+                {
+                  $size: {
+                    $filter: {
+                      // Loop tag array and get all matching data
+                      input: "$tag_info",
+                      as: "t",
+                      cond: { $eq: ["$$t.slug", value] }, // check if data have same slug with query slug
+                    },
+                  },
+                },
+                0,
+              ],
+            },
+          },
+        }
+      );
+    },
+  };
+
+  for (const [key, value] of Object.entries(req.query)) {
+    if (queryFuncObj[key] && value) {
+      queryFuncObj[key](value);
+    }
+  }
+
+  if (Object.keys(videoAddFieldsObj).length > 0) {
+    videoPipeline.push({
+      $addFields: videoAddFieldsObj,
+    });
+  }
+
+  if (Object.keys(videoMatchObj).length > 0) {
+    videoPipeline.push({
+      $match: videoMatchObj,
+    });
   }
 
   videoPipeline.push(
@@ -690,81 +804,6 @@ const getDataList = async (req, res) => {
       $unwind: "$user_info",
     }
   );
-
-  if (channelId) {
-    videoPipeline.push(
-      { $addFields: { _userIdStr: { $toString: "user_id" } } },
-      {
-        $match: { _userIdStr: channelId },
-      }
-    );
-  }
-
-  if (search) {
-    videoPipeline.push({
-      $match: {
-        title: { $regex: search, $options: "i" },
-      },
-    });
-  }
-
-  if (type) {
-    videoPipeline.push({
-      $match: {
-        type,
-      },
-    });
-  }
-
-  if (tag) {
-    videoPipeline.push(
-      {
-        $lookup: {
-          from: "tags",
-          let: { tagIds: "$tag" },
-          pipeline: [
-            {
-              $addFields: {
-                _idStr: { $toString: "$_id" },
-              },
-            },
-            {
-              $match: {
-                $expr: { $in: ["$_idStr", "$$tagIds"] },
-              },
-            },
-            {
-              $project: {
-                _id: 1,
-                title: 1,
-                slug: 1,
-                icon: 1,
-              },
-            },
-          ],
-          as: "tag_info",
-        },
-      },
-      {
-        $match: {
-          $expr: {
-            $gt: [{ $size: "$tag_info" }, 0], // Chỉ lấy những posts có ít nhất một tag_info
-          },
-        },
-      },
-      {
-        $addFields: {
-          matching: {
-            $filter: {
-              input: "$tag_info",
-              as: "tag",
-              cond: { $eq: ["$$tag.slug", tag] }, // So khớp slug của tag với mảng inputTags
-            },
-          },
-        },
-      }
-    );
-  }
 
   if (Object.keys(sortObj).length > 0) {
     videoPipeline.push(
@@ -993,9 +1032,11 @@ const getChannelPlaylistVideos = async (req, res) => {
   }
 
   // $sort sẽ dựa theo thứ tự điều kiện sort trong object
-  pipeline.push({
-    $sort: sortObj,
-  });
+  if (Object.keys(sortObj).length > 0) {
+    pipeline.push({
+      $sort: sortObj,
+    });
+  }
 
   pipeline.push(
     {
@@ -1079,7 +1120,6 @@ const getVideoDetails = async (req, res) => {
           videoOwnerId: "$user_id",
           subscriberId: new mongoose.Types.ObjectId(userId),
         },
-        // pipeline để so sánh dữ liệu
         pipeline: [
           {
             $match: {

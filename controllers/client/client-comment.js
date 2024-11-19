@@ -1,6 +1,5 @@
 const { User, Video, Comment, CmtReact } = require("../../models");
 const { StatusCodes } = require("http-status-codes");
-const mongoose = require("mongoose");
 const { getIo } = require("../../socket.js");
 
 const {
@@ -13,6 +12,7 @@ const createCmt = async (req, res) => {
   const { userId } = req.user;
 
   const { videoId, cmtText, replyId } = req.body;
+
   const neededKeys = ["videoId", "cmtText"];
 
   const io = getIo();
@@ -158,15 +158,24 @@ const getCmts = async (req, res) => {
 
   let findObj = {};
 
+  const findFuncObj = {
+    videoId: (value) => {
+      findObj["video_info._id"] = { $regex: value, $options: "i" };
+    },
+    reply: (value) => {
+      findObj["replied_cmt_id"] = { $exists: JSON.parse(value) };
+    },
+    id: (value) => {
+      findObj["_idStr"] = { $regex: value, $options: "i" };
+    },
+    text: (value) => {
+      findObj["cmtText"] = { $regex: value, $options: "i" };
+    },
+  };
+
   findParams.forEach((item) => {
-    if (item === "videoId") {
-      findObj["video_info._id"] = { $regex: req.query[item], $options: "i" };
-    } else if (item === "reply") {
-      findObj["replied_cmt_id"] = { $exists: JSON.parse(req.query[item]) };
-    } else if (item === "id") {
-      findObj["_idStr"] = { $regex: req.query[item], $options: "i" };
-    } else if (item === "text") {
-      findObj["cmtText"] = { $regex: req.query[item], $options: "i" };
+    if (findFuncObj[item]) {
+      findFuncObj[item](req.query[item]);
     }
   });
 
@@ -297,24 +306,26 @@ const getVideoComments = async (req, res) => {
 
   const findObj = {};
 
-  const findKeys = ["text", "videoId"];
-
   const findQueryKey = Object.keys(req.query).filter(
     (key) => key !== "sort" && key !== "limit" && key !== "page"
   );
+  const findKeys = ["text", "videoId"];
+
+  const findFuncObj = {
+    text: (syntax) => {
+      findObj["cmtText"] = syntax;
+    },
+    videoId: (syntax) => {
+      findObj["videoIdStr"] = syntax;
+    },
+  };
 
   findQueryKey.forEach((key) => {
-    if (findKeys.includes(key) && req.query[key]) {
-      switch (key) {
-        case "text":
-          findObj["cmtText"] = { $regex: req.query[key], $options: "i" };
-          break;
-        case "videoId":
-          findObj["videoIdStr"] = { $regex: req.query[key], $options: "i" };
-          break;
-        default:
-          findObj[key] = { $regex: req.query[key], $options: "i" };
-      }
+    const syntax = { $regex: req.query[key], $options: "i" };
+    if (findFuncObj[key] && req.query[key]) {
+      findFuncObj[key](syntax);
+    } else if (req.query[key]) {
+      findObj[key] = syntax;
     }
   });
 
@@ -501,7 +512,7 @@ const updateCmt = async (req, res) => {
 
   const { userId } = req.user;
 
-  if (id === "" || id === ":id") {
+  if (!id || id === "" || id === ":id") {
     throw new BadRequestError(`Please provide comment id`);
   }
 
@@ -517,7 +528,15 @@ const updateCmt = async (req, res) => {
     );
   }
 
-  const updatedKey = ["cmtText"];
+  const updateFuncObj = {
+    cmtText: (value) => {
+      if (value === "") {
+        emptyList.push("cmtText");
+      } else {
+        updateData["cmtText"] = value;
+      }
+    },
+  };
 
   let updateData = {};
 
@@ -526,12 +545,8 @@ const updateCmt = async (req, res) => {
   let notAllowValue = [];
 
   for (const [key, value] of Object.entries(req.body)) {
-    if (updatedKey.includes(key)) {
-      if (value === "") {
-        emptyList.push(key);
-      } else {
-        updateData[key] = value;
-      }
+    if (updateFuncObj[key]) {
+      updateFuncObj[key](value);
     } else {
       notAllowValue.push(key);
     }

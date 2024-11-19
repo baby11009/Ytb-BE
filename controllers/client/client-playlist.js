@@ -84,13 +84,20 @@ const getPlaylists = async (req, res) => {
     },
   };
 
+  const findFuncObj = {
+    id: (syntax) => {
+      findObj["_idStr"] = syntax;
+    },
+    email: (syntax) => {
+      findObj["user_info.email"] = syntax;
+    },
+  };
+
   findParams.forEach((item) => {
     const syntax = { $regex: req.query[item], $options: "i" };
-    if (item === "id") {
-      findObj["_idStr"] = syntax;
-    } else if (item === "email") {
-      findObj["user_info.email"] = syntax;
-    } else {
+    if (findFuncObj[item] && req.query[item]) {
+      findFuncObj[item](syntax);
+    } else if (req.query[item]) {
       findObj[item] = syntax;
     }
   });
@@ -153,7 +160,6 @@ const getPlaylists = async (req, res) => {
   ];
 
   if (videoLimit) {
-    console.log(videoLimit);
     pipeline.push({
       $lookup: {
         from: "videos",
@@ -181,7 +187,7 @@ const getPlaylists = async (req, res) => {
       },
     });
   }
-  console.log(pipeline);
+
   pipeline.push(
     {
       $project: {

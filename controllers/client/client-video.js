@@ -21,6 +21,7 @@ const upLoadVideo = async (req, res) => {
   const { userId } = req.user;
 
   const { type, title, tag = [], description = "" } = req.body;
+
   const videoPath = path.join(asssetPath, "videos", video[0].filename);
 
   try {

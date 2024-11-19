@@ -1,4 +1,4 @@
-const { User, Video, Comment, CmtReact } = require("../../models");
+const { User, Video } = require("../../models");
 const mongoose = require("mongoose");
 
 const { StatusCodes } = require("http-status-codes");
@@ -79,31 +79,72 @@ const upLoadVideo = async (req, res) => {
 };
 
 const getVideos = async (req, res) => {
+  const { sort } = req.query;
+
   let limit = Number(req.query.limit) || 5;
   let page = Number(req.query.page) || 1;
 
   let skip = (page - 1) * limit;
 
   const findParams = Object.keys(req.query).filter(
-    (key) => key !== "limit" && key !== "page" && key !== "createdAt"
+    (key) => key !== "limit" && key !== "page" && key !== "sort"
   );
 
   let findObj = {};
 
+  const findFuncObj = {
+    email: (syntax) => {
+      findObj["user_info.email"] = syntax;
+    },
+    id: (syntax) => {
+      findObj["_idStr"] = syntax;
+    },
+  };
+
   findParams.forEach((item) => {
-    if (item === "email") {
-      findObj["user_info.email"] = { $regex: req.query[item], $options: "i" };
-    } else if (item === "id" && item !== "") {
-      findObj["_idStr"] = { $regex: req.query[item], $options: "i" };
-    } else {
-      findObj[item] = { $regex: req.query[item], $options: "i" };
+    const syntax = { $regex: req.query[item], $options: "i" };
+    if (req.query[item]) {
+      if (findFuncObj[item]) {
+        findFuncObj[item](syntax);
+      } else {
+        findObj[item] = syntax;
+      }
     }
   });
-  let sortNum = -1;
 
-  if (req.query.createdAt === "cũ nhất") {
-    sortNum = 1;
+  const sortObj = {};
+
+  let sortDateObj = {};
+
+  const uniqueSortKeys = [];
+
+  const sortKeys = ["createdAt"];
+
+  if (Object.keys(sort).length > 0) {
+    let unique = [];
+    let uniqueValue;
+    for (const [key, value] of Object.entries(sort)) {
+      if (sortKeys.includes(key)) {
+        sortDateObj[key] = Number(value);
+      } else if (uniqueSortKeys.includes(key)) {
+        unique.push(key);
+        uniqueValue = Number(value);
+      }
+    }
+
+    if (unique.length > 1) {
+      throw new BadRequestError(
+        `Only one sort key in ${uniqueSortKeys.join(", ")} is allowed`
+      );
+    } else if (unique.length > 0) {
+      sortObj[unique[0]] = uniqueValue;
+    }
+  } else {
+    sortDateObj = {
+      createdAt: -1,
+    };
   }
+  const combinedSort = { ...sortObj, ...sortDateObj };
 
   const pipeline = [
     {
@@ -143,9 +184,7 @@ const getVideos = async (req, res) => {
       },
     },
     {
-      $sort: {
-        createdAt: sortNum,
-      },
+      $sort: combinedSort,
     },
     {
       $facet: {

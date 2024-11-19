@@ -118,12 +118,11 @@ const getAccountSubscribedChannel = async (req, res) => {
 
 const settingAccount = async (req, res) => {
   const id = req.user.userId;
+
   const { ...data } = req.body;
 
   try {
-    const dataFields = Object.keys(data);
-
-    if (dataFields.length === 0 && !req.files) {
+    if (Object.keys(data).length === 0 && !req.files) {
       throw new BadRequestError("No data provided to update");
     }
 
@@ -135,33 +134,48 @@ const settingAccount = async (req, res) => {
       throw new NotFoundError("User not found");
     }
 
-    const validateFields = ["name", "password", "description"];
-
     const notValidateFields = [];
 
     const finalObject = {};
 
     const sameValueFields = [];
 
-    for (const field of dataFields) {
-      if (!validateFields.includes(field)) {
-        notValidateFields.push(field);
-        continue;
-      }
+    const queryFuncObj = {
+      name: (value) => {
+        if (foundedUser.name === value) {
+          sameValueFields.push("name");
+          return;
+        }
+        finalObject["name"] = value;
+      },
+      password: async (value) => {
+        const samePassword = await foundedUser.comparePassword(value);
+        if (samePassword) {
+          sameValueFields.push("password");
+        } else {
+          finalObject["password"] = value;
+        }
+      },
+      description: (value) => {
+        if (foundedUser.description === value) {
+          sameValueFields.push("description");
+          return;
+        }
+        finalObject["description"] = value;
+      },
+    };
 
-      if (foundedUser[field] === data[field]) {
-        sameValueFields.push(field);
-        continue;
+    for (const [key, value] of Object.entries(data)) {
+      if (queryFuncObj[key]) {
+        const func = queryFuncObj[key];
+        if (func.constructor.name === "AsyncFunction") {
+          await func(value);
+        } else {
+          func(value);
+        }
+      } else {
+        notValidateFields.push(key);
       }
-
-      if (
-        field === "password" &&
-        (await foundedUser.comparePassword(data[field]))
-      ) {
-        sameValueFields.push(field);
-      }
-
-      finalObject[field] = data[field];
     }
 
     if (notValidateFields.length > 0) {

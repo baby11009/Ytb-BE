@@ -1,7 +1,6 @@
 const { CmtReact, Comment } = require("../../models");
 const { BadRequestError, NotFoundError } = require("../../errors");
 const { StatusCodes } = require("http-status-codes");
-const cmtReact = require("../../models/cmtReact");
 const { getIo } = require("../../socket");
 const mongoose = require("mongoose");
 
