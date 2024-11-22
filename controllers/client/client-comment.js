@@ -333,11 +333,10 @@ const getVideoComments = async (req, res) => {
 
   let sortDateObj = {};
 
-  const uniqueSortKeys = [];
+  if (sort && Object.keys(sort).length > 0) {
+    const uniqueSortKeys = [];
 
-  const sortKeys = ["createdAt"];
-
-  if (Object.keys(sort).length > 0) {
+    const sortKeys = ["createdAt"];
     let unique = [];
     let uniqueValue;
     for (const [key, value] of Object.entries(sort)) {
@@ -543,12 +542,13 @@ const updateCmt = async (req, res) => {
   let emptyList = [];
 
   let notAllowValue = [];
-
-  for (const [key, value] of Object.entries(req.body)) {
-    if (updateFuncObj[key]) {
-      updateFuncObj[key](value);
-    } else {
-      notAllowValue.push(key);
+  if (Object.keys(req.body).length > 0) {
+    for (const [key, value] of Object.entries(req.body)) {
+      if (updateFuncObj[key]) {
+        updateFuncObj[key](value);
+      } else {
+        notAllowValue.push(key);
+      }
     }
   }
 

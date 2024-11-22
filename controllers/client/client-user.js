@@ -2,8 +2,7 @@ const { StatusCodes } = require("http-status-codes");
 const { BadRequestError } = require("../../errors");
 const { deleteFile } = require("../../utils/file");
 const path = require("path");
-const mongoose = require("mongoose");
-const { Subscribe, User } = require("../../models");
+const { Subscribe, User, Video } = require("../../models");
 const avatarPath = path.join(__dirname, "../../assets/user avatar");
 
 const getAccountInfo = async (req, res) => {
@@ -75,47 +74,6 @@ const getAccountInfo = async (req, res) => {
   res.status(StatusCodes.OK).json({ data: user[0] });
 };
 
-const getAccountSubscribedChannel = async (req, res) => {
-  const id = req.user.userId;
-
-  const pipline = [
-    {
-      $match: { subscriber_id: new mongoose.Types.ObjectId(id) },
-    },
-    {
-      $lookup: {
-        from: "users",
-        localField: "channel_id",
-        foreignField: "_id",
-        as: "channels_info",
-      },
-    },
-    {
-      $unwind: "$channels_info",
-    },
-    {
-      $project: {
-        notify: 1,
-        channels_info: {
-          _id: 1,
-          avatar: 1,
-          name: 1,
-          email: 1,
-        },
-      },
-    },
-  ];
-
-  const channels = await Subscribe.aggregate(pipline);
-
-  res.status(StatusCodes.OK).json({
-    data: {
-      channels: channels,
-      qtt: channels.length,
-    },
-  });
-};
-
 const settingAccount = async (req, res) => {
   const id = req.user.userId;
 
@@ -164,17 +122,18 @@ const settingAccount = async (req, res) => {
         finalObject["description"] = value;
       },
     };
-
-    for (const [key, value] of Object.entries(data)) {
-      if (queryFuncObj[key]) {
-        const func = queryFuncObj[key];
-        if (func.constructor.name === "AsyncFunction") {
-          await func(value);
+    if (Object.keys(data).lenght > 0) {
+      for (const [key, value] of Object.entries(data)) {
+        if (queryFuncObj[key]) {
+          const func = queryFuncObj[key];
+          if (func.constructor.name === "AsyncFunction") {
+            await func(value);
+          } else {
+            func(value);
+          }
         } else {
-          func(value);
+          notValidateFields.push(key);
         }
-      } else {
-        notValidateFields.push(key);
       }
     }
 
@@ -221,8 +180,289 @@ const settingAccount = async (req, res) => {
   }
 };
 
+const getSubscribedChannels = async (req, res) => {
+  try {
+    const { userId } = req.user;
+    const { page, limit, sort } = req.query;
+    const dataPage = Number(page) || 1;
+    const dataLimit = Number(limit) || 12;
+    const skip = (dataPage - 1) * dataLimit;
+    const pipeline = [
+      {
+        $addFields: {
+          subscriber_idStr: { $toString: "$subscriber_id" },
+        },
+      },
+    ];
+
+    // Handle addfields if available or to extend the project
+    const addFieldsObj = {
+      subscriber_idStr: { $toString: "$subscriber_id" },
+    };
+
+    pipeline.push({
+      $addFields: addFieldsObj,
+    });
+
+    // Handle match object if available or to extend the project
+    const matchObj = {
+      subscriber_idStr: userId,
+    };
+
+    pipeline.push({
+      $match: matchObj,
+    });
+
+    pipeline.push(
+      {
+        $lookup: {
+          from: "users",
+          localField: "channel_id",
+          foreignField: "_id",
+          pipeline: [
+            {
+              $project: {
+                _id: 1,
+                email: 1,
+                name: 1,
+                avatar: 1,
+                subscriber: 1,
+                description: 1,
+              },
+            },
+          ],
+          as: "channel_info",
+        },
+      },
+      {
+        $unwind: "$channel_info",
+      }
+    );
+
+    const sortObj = {};
+    if (sort && Object.keys(sort).length > 0) {
+      const sortEntries = {
+        createdAt: [1, -1],
+      };
+      for (const [key, value] of Object.entries(sort)) {
+        if (sortEntries[key] && sortEntries[key].includes(value)) {
+          sortObj[key] = value;
+        }
+      }
+    }
+
+    if (Object.keys(sortObj).length < 1) {
+      sortObj["createdAt"] = -1; // Set default sort by createdAt if no sort field provided
+    }
+
+    pipeline.push(
+      {
+        $sort: sortObj,
+      },
+      {
+        $project: {
+          _id: 0,
+          channel_id: 1,
+          name: "$channel_info.name",
+          email: "$channel_info.email",
+          avatar: "$channel_info.avatar",
+          subscriber: "$channel_info.subscriber",
+          description: "$channel_info.description",
+          notify: 1,
+          createdAt: 1,
+        },
+      },
+      {
+        $facet: {
+          totalFound: [{ $count: "count" }],
+          paginationData: [{ $skip: skip }, { $limit: dataLimit }],
+        },
+      },
+      {
+        $project: {
+          totalFound: { $arrayElemAt: ["$totalFound.count", 0] }, // Tổng số bản ghi tìm thấy
+          totalReturned: { $size: "$paginationData" }, // Tổng số trả về thực tế
+          data: "$paginationData",
+        },
+      }
+    );
+
+    const channels = await Subscribe.aggregate(pipeline);
+
+    res.status(StatusCodes.OK).json({
+      data: channels[0].data,
+      qtt: channels[0].totalReturned,
+      totalQtt: channels[0].totalFound,
+      currPage: dataPage,
+      totalPage: Math.ceil(channels[0].totalFound / dataLimit),
+    });
+  } catch (error) {
+    console.error(error);
+    throw error;
+  }
+};
+
+const getSubscribedChannelsVideos = async (req, res) => {
+  try {
+    const { userId } = req.user;
+
+    const { page, limit, sort } = req.query;
+
+    const dataPage = Number(page) || 1;
+    const dataLimit = Number(limit) || 12;
+    const skip = (dataPage - 1) * dataLimit;
+
+    const channels = await Subscribe.aggregate([
+      {
+        $addFields: {
+          subscriber_idStr: { $toString: "$subscriber_id" },
+        },
+      },
+      {
+        $match: {
+          subscriber_idStr: userId,
+        },
+      },
+      {
+        $project: {
+          channel_id: 1,
+        },
+      },
+    ]);
+
+    const resturnData = {
+      data: [],
+      qtt: 0,
+      totalQtt: 0,
+      currPage: dataPage,
+      totalPage: 0,
+    };
+
+    if (channels.length > 0) {
+      const channelIdList = channels.map((ch) => ch.channel_id);
+
+      const pipeline = [];
+      const matchQuery = Object.keys(req.query).filter(
+        (key) => key !== "page" && key !== "limit" && key !== "sort"
+      );
+      // handle addFields
+
+      // handle match
+      const matchObj = {
+        type: "video",
+        user_id: { $in: channelIdList },
+      };
+
+      if (matchQuery.length > 0) {
+        const matchFuncObj = {
+          type: (value) => {
+            const validValues = new Set(["short", "video"]);
+            console.log("🚀 ~  validValues:", [...validValues]);
+            if (validValues.has(value)) {
+              matchObj["type"] = value;
+            }
+          },
+        };
+      }
+
+      pipeline.push({
+        $match: matchObj,
+      });
+
+      const sortObj = {};
+      // handle sort
+      if (sort && Object.keys(sort).length > 0) {
+        const sortEntries = {
+          createdAt: [1, -1],
+        };
+
+        for (const [key, value] of Object.entries(sort)) {
+          if (sortEntries[key] && sortEntries[key].includes(value)) {
+            sortObj[key] = value;
+          }
+        }
+      }
+
+      if (Object.keys(sortObj).length < 1) {
+        sortObj.createdAt = -1;
+      }
+
+      pipeline.push(
+        {
+          $sort: sortObj,
+        },
+        {
+          $lookup: {
+            from: "users",
+            localField: "user_id",
+            foreignField: "_id",
+            pipeline: [
+              {
+                $project: {
+                  email: 1,
+                  name: 1,
+                  avatar: 1,
+                  subscriber: 1,
+                  description: 1,
+                },
+              },
+            ],
+            as: "user_info",
+          },
+        },
+        {
+          $unwind: "$user_info",
+        },
+        {
+          $project: {
+            _id: 0,
+            title: 1,
+            thumb: 1,
+            user_info: 1,
+            createdAt: 1,
+            like: 1,
+            dislike: 1,
+            type: 1,
+            comment: 1,
+            view: 1,
+            duration: 1,
+            description: 1,
+            createdAt: 1,
+          },
+        },
+        {
+          $facet: {
+            totalFound: [{ $count: "count" }],
+            paginationData: [{ $skip: skip }, { $limit: dataLimit }],
+          },
+        },
+        {
+          $project: {
+            totalFound: { $arrayElemAt: ["$totalFound.count", 0] }, // Tổng số bản ghi tìm thấy
+            totalReturned: { $size: "$paginationData" }, // Tổng số trả về thực tế
+            data: "$paginationData",
+          },
+        }
+      );
+
+      const videos = await Video.aggregate(pipeline);
+
+      resturnData.data = videos[0].data;
+      resturnData.qtt = videos[0].totalReturned;
+      resturnData.totalQtt = videos[0].totalFound;
+      resturnData.totalPage = Math.ceil(videos[0].totalFound / dataLimit) || 0;
+    }
+
+    res.status(StatusCodes.OK).json(resturnData);
+  } catch (error) {
+    console.error(error);
+    throw error;
+  }
+};
+
 module.exports = {
   getAccountInfo,
-  getAccountSubscribedChannel,
+  getSubscribedChannels,
   settingAccount,
+  getSubscribedChannelsVideos,
 };

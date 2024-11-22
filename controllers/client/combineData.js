@@ -440,13 +440,16 @@ const getRandomShort = async (req, res) => {
     },
   };
 
-  for (const [key, value] of Object.entries(req.query)) {
-    if (queryFuncObj[key] && value) {
-      const func = queryFuncObj[key];
-      if (func.constructor.name === "AsyncFunction") {
-        await func(value);
-      } else {
-        func(value);
+  const queryKeys = Object.keys(req.query);
+  if (queryKeys.length > 0) {
+    for (const [key, value] of Object.entries(req.query)) {
+      if (queryFuncObj[key] && value) {
+        const func = queryFuncObj[key];
+        if (func.constructor.name === "AsyncFunction") {
+          await func(value);
+        } else {
+          func(value);
+        }
       }
     }
   }
@@ -771,10 +774,11 @@ const getDataList = async (req, res) => {
       );
     },
   };
-
-  for (const [key, value] of Object.entries(req.query)) {
-    if (queryFuncObj[key] && value) {
-      queryFuncObj[key](value);
+  if (Object.keys(req.query).length > 0) {
+    for (const [key, value] of Object.entries(req.query)) {
+      if (queryFuncObj[key] && value) {
+        queryFuncObj[key](value);
+      }
     }
   }
 

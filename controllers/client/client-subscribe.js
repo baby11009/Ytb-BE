@@ -122,4 +122,8 @@ const getSubscriptionState = async (req, res) => {
   res.status(StatusCodes.OK).json({ data: result });
 };
 
-module.exports = { toggleSubscribe, modifySubscribe, getSubscriptionState };
+module.exports = {
+  toggleSubscribe,
+  modifySubscribe,
+  getSubscriptionState,
+};

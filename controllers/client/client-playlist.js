@@ -106,11 +106,9 @@ const getPlaylists = async (req, res) => {
 
   let sortDateObj = {};
 
-  const uniqueSortKeys = ["size"];
-
-  const sortKeys = ["createdAt", "title", "updatedAt"];
-
-  if (Object.keys(sort).length > 0) {
+  if (sort && Object.keys(sort).length > 0) {
+    const uniqueSortKeys = ["size"];
+    const sortKeys = ["createdAt", "title", "updatedAt"];
     let unique = [];
     let uniqueValue;
     for (const [key, value] of Object.entries(sort)) {

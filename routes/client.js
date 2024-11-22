@@ -3,11 +3,13 @@ const {
   createMulterUpload,
   multerErrorHandling,
   fileLimitSizeMiddleware,
+  getAccountInfoMiddleware,
 } = require("../middlewares");
 const {
   getAccountInfo,
-  getAccountSubscribedChannel,
+  getSubscribedChannels,
   settingAccount,
+  getSubscribedChannelsVideos,
 } = require("../controllers/client/client-user");
 const {
   upLoadVideo,
@@ -62,7 +64,8 @@ router
     },
     settingAccount
   );
-router.get("/user/subscribe-channels", getAccountSubscribedChannel);
+router.get("/user/subscribed-channels", getSubscribedChannels);
+router.get("/user/subscribed-channels-videos", getSubscribedChannelsVideos);
 
 // video
 router.post(

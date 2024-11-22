@@ -1,4 +1,4 @@
-const { User, Video, Comment, CmtReact } = require("../../models");
+const { User, Video, Subscribe } = require("../../models");
 const mongoose = require("mongoose");
 
 const { StatusCodes } = require("http-status-codes");
@@ -116,7 +116,7 @@ const getVideos = async (req, res) => {
 
   const sortKeys = ["createdAt"];
 
-  if (Object.keys(sort).length > 0) {
+  if (sort && Object.keys(sort).length > 0) {
     let unique = [];
     let uniqueValue;
     for (const [key, value] of Object.entries(sort)) {
