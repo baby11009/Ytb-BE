@@ -15,7 +15,7 @@ const auth = async (req, res, next) => {
     const payload = jwt.verify(token, process.env.JWT_SECRET);
 
     const user = await User.findById(payload.userId).select("-password");
-
+    
     if (user.confirmed === false) {
       return next(new BadRequestError("Account not confirmed"));
     }
@@ -29,7 +29,6 @@ const auth = async (req, res, next) => {
       name: payload.username,
       role: user.role,
     };
-
 
     next();
   } catch (error) {

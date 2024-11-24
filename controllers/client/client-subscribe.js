@@ -28,21 +28,23 @@ const toggleSubscribe = async (req, res) => {
 
   let msg;
   let count = 1;
-
+  let data;
   if (existingSubscibe) {
     await Subscribe.deleteOne({ _id: existingSubscibe._id });
     count = -1;
     msg = "Successfully unsubscribed channel";
+    data = { notify: 0 };
   } else {
-    await Subscribe.create(finalData);
+    const subscribe = await Subscribe.create(finalData);
     msg = "Successfully subscribed channel";
+    data = subscribe;
   }
 
   const user = await User.findByIdAndUpdate(channelId, {
     $inc: { subscriber: count },
   });
 
-  res.status(StatusCodes.OK).json({ msg });
+  res.status(StatusCodes.OK).json({ msg, data });
 };
 
 const modifySubscribe = async (req, res) => {
@@ -51,6 +53,7 @@ const modifySubscribe = async (req, res) => {
   const { id } = req.params;
 
   const { notify } = req.body;
+  console.log("🚀 ~ notify:", notify);
 
   const notifyCode = {
     1: "No notification",
@@ -78,14 +81,16 @@ const modifySubscribe = async (req, res) => {
     { notify },
     { returnDocument: "after" }
   );
+  console.log("🚀 ~ subscribeModify:", subscribeModify);
 
   if (!subscribeModify) {
     throw new BadRequestError(`Not found subscribe with id ${id}`);
   }
 
-  res
-    .status(StatusCodes.OK)
-    .json({ msg: `Notify changed to ${notifyCode[notify]}` });
+  res.status(StatusCodes.OK).json({
+    msg: `Notify changed to ${notifyCode[notify]}`,
+    data: subscribeModify,
+  });
 };
 
 const getSubscriptionState = async (req, res) => {

@@ -184,6 +184,7 @@ const getSubscribedChannels = async (req, res) => {
   try {
     const { userId } = req.user;
     const { page, limit, sort } = req.query;
+
     const dataPage = Number(page) || 1;
     const dataLimit = Number(limit) || 12;
     const skip = (dataPage - 1) * dataLimit;
@@ -226,8 +227,10 @@ const getSubscribedChannels = async (req, res) => {
                 email: 1,
                 name: 1,
                 avatar: 1,
+                totalVids: 1,
                 subscriber: 1,
                 description: 1,
+                updatedAt: 1,
               },
             },
           ],
@@ -243,10 +246,12 @@ const getSubscribedChannels = async (req, res) => {
     if (sort && Object.keys(sort).length > 0) {
       const sortEntries = {
         createdAt: [1, -1],
+        name: [1, -1],
+        newAct: [-1, 1],
       };
       for (const [key, value] of Object.entries(sort)) {
-        if (sortEntries[key] && sortEntries[key].includes(value)) {
-          sortObj[key] = value;
+        if (sortEntries[key] && sortEntries[key].includes(Number(value))) {
+          sortObj[key] = Number(value);
         }
       }
     }
@@ -257,20 +262,23 @@ const getSubscribedChannels = async (req, res) => {
 
     pipeline.push(
       {
-        $sort: sortObj,
-      },
-      {
         $project: {
           _id: 0,
+          subcription_id: "$_id",
           channel_id: 1,
           name: "$channel_info.name",
           email: "$channel_info.email",
           avatar: "$channel_info.avatar",
           subscriber: "$channel_info.subscriber",
           description: "$channel_info.description",
+          totalVids: "$channel_info.totalVids",
+          channel_updatedAt: "$channel_info.updatedAt",
           notify: 1,
           createdAt: 1,
         },
+      },
+      {
+        $sort: sortObj,
       },
       {
         $facet: {
