@@ -245,13 +245,31 @@ const getSubscribedChannels = async (req, res) => {
     const sortObj = {};
     if (sort && Object.keys(sort).length > 0) {
       const sortEntries = {
-        createdAt: [1, -1],
-        name: [1, -1],
-        newAct: [-1, 1],
+        createdAt: {
+          value: [1, -1],
+          cb: (value) => {
+            sortObj["createdAt"] = Number(value);
+          },
+        },
+        name: {
+          value: [1, -1],
+          cb: (value) => {
+            sortObj["name"] = Number(value);
+          },
+        },
+        newAct: {
+          value: [-1, 1],
+          cb: (value) => {
+            sortObj["channel_updatedAt"] = Number(value);
+          },
+        },
       };
       for (const [key, value] of Object.entries(sort)) {
-        if (sortEntries[key] && sortEntries[key].includes(Number(value))) {
-          sortObj[key] = Number(value);
+        if (
+          sortEntries[key] &&
+          sortEntries[key].value.includes(Number(value))
+        ) {
+          sortEntries[key].cb(Number(value));
         }
       }
     }
@@ -350,7 +368,7 @@ const getSubscribedChannelsVideos = async (req, res) => {
       const channelIdList = channels.map((ch) => ch.channel_id);
 
       const pipeline = [];
-      const matchQuery = Object.keys(req.query).filter(
+      const matchQueriese = Object.keys(req.query).filter(
         (key) => key !== "page" && key !== "limit" && key !== "sort"
       );
       // handle addFields
@@ -361,16 +379,22 @@ const getSubscribedChannelsVideos = async (req, res) => {
         user_id: { $in: channelIdList },
       };
 
-      if (matchQuery.length > 0) {
+      if (matchQueriese.length > 0) {
         const matchFuncObj = {
           type: (value) => {
             const validValues = new Set(["short", "video"]);
-            console.log("🚀 ~  validValues:", [...validValues]);
+
             if (validValues.has(value)) {
               matchObj["type"] = value;
             }
           },
         };
+
+        matchQueriese.forEach((query) => {
+          if (matchFuncObj[query]) {
+            matchFuncObj[query](req.query[query]);
+          }
+        });
       }
 
       pipeline.push({
@@ -423,7 +447,7 @@ const getSubscribedChannelsVideos = async (req, res) => {
         },
         {
           $project: {
-            _id: 0,
+            _id: 1,
             title: 1,
             thumb: 1,
             user_info: 1,
