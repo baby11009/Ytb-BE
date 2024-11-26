@@ -2,7 +2,7 @@ const { StatusCodes } = require("http-status-codes");
 const { BadRequestError } = require("../../errors");
 const { deleteFile } = require("../../utils/file");
 const path = require("path");
-const { Subscribe, User, Video } = require("../../models");
+const { Subscribe, User, Video, Playlist } = require("../../models");
 const avatarPath = path.join(__dirname, "../../assets/user avatar");
 
 const getAccountInfo = async (req, res) => {
@@ -492,9 +492,114 @@ const getSubscribedChannelsVideos = async (req, res) => {
   }
 };
 
+const getWatchLaterDetails = async (req, res) => {
+  try {
+    const { userId } = req.user;
+
+    const { page, limit = 12, type } = req.query;
+
+    const dataPage = Number(page) || 1;
+    const dataLimit = Number(limit) || 12;
+    const skip = (dataPage - 1) * dataLimit;
+
+    const matchObj = {};
+
+    const matchType = ["video", "short"];
+
+    if (matchType.includes(type)) {
+      matchObj.type = type;
+    }
+
+    const pipeline = [
+      {
+        $addFields: {
+          created_user_idStr: { $toString: "$created_user_id" },
+        },
+      },
+      {
+        $match: {
+          created_user_idStr: userId,
+          title: "Watch later",
+          type: "personal",
+        },
+      },
+      {
+        $lookup: {
+          from: "videos",
+          let: { videoIdList: "$itemList" },
+          pipeline: [
+            {
+              $addFields: {
+                _idStr: { $toString: "$_id" },
+                reverseIdList: { $reverseArray: "$$videoIdList" },
+              },
+            },
+            {
+              $match: {
+                $expr: { $in: ["$_idStr", "$reverseIdList"] },
+                ...matchObj,
+              },
+            },
+            {
+              $skip: skip,
+            },
+            {
+              $limit: dataLimit,
+            },
+            {
+              $lookup: {
+                from: "users",
+                localField: "user_id",
+                foreignField: "_id",
+                pipeline: [{ $project: { name: 1, email: 1, avatar: 1 } }],
+                as: "channel_info",
+              },
+            },
+            {
+              $unwind: "$channel_info",
+            },
+            {
+              $project: {
+                _id: 1,
+                thumb: 1,
+                title: 1,
+                view: 1,
+                type: 1,
+                createdAt: 1,
+                duration: 1,
+                channel_info: 1,
+              },
+            },
+          ],
+          as: "video_list",
+        },
+      },
+      {
+        $project: {
+          _id: 1,
+          created_user_id: 1,
+          title: 1,
+          itemList: 1,
+          updatedAt: 1,
+          video_list: "$video_list",
+          size: { $size: "$itemList" },
+        },
+      },
+    ];
+
+    const playlist = await Playlist.aggregate(pipeline);
+
+    res.status(StatusCodes.OK).json({ data: playlist[0] });
+  } catch (error) {
+    console.error(error);
+    throw error;
+  }
+};
+
 module.exports = {
   getAccountInfo,
   getSubscribedChannels,
   settingAccount,
   getSubscribedChannelsVideos,
+  getWatchLaterDetails,
 };

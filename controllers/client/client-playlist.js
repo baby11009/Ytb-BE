@@ -308,12 +308,10 @@ const updatePlaylist = async (req, res) => {
     throw new BadRequestError("Please provide playlist id to update");
   }
 
-  const { videoIdList, title, type } = req.body;
+  const { videoIdList, ...restData } = req.body;
 
-  if (!videoIdList && !title && !type) {
-    throw new BadRequestError(
-      "Please provide atleast videoIdList or title to update playlist"
-    );
+  if (Object.keys(req.body).length === 0) {
+    throw new BadRequestError("Please provide atleast one data to update");
   }
 
   const foundedPlaylist = await Playlist.findById(id);
@@ -326,31 +324,54 @@ const updatePlaylist = async (req, res) => {
     throw new ForbiddenError("You are not authorized to update this playlist");
   }
 
-  if (foundedPlaylist.type === "personal" && (type || title)) {
-    throw new ForbiddenError("You can't modify personal playlist");
-  }
+  const notAllowData = [];
 
   const updateDatas = {};
 
-  if (title) {
-    if (foundedPlaylist.title === title) {
-      throw new BadRequestError("The new title of playlist is still the same");
+  const updateFuncObj = {
+    title: (value) => {
+      if (foundedPlaylist.title === value) {
+        throw new BadRequestError(
+          "The new title of playlist is still the same"
+        );
+      } else {
+        updateDatas.title = value;
+      }
+    },
+    type: (value) => {
+      if (value === foundedPlaylist.type) {
+        throw new BadRequestError(
+          "The new type of playlist is still the same "
+        );
+      } else {
+        const validateType = ["private", "public"];
+        if (!validateType.includes(value)) {
+          throw new BadRequestError("Invalid playlist type");
+        } else {
+          updateDatas.type = value;
+        }
+      }
+    },
+  };
+
+  if (Object.keys(restData).length > 0) {
+    if (foundedPlaylist.type !== "personal") {
+      for (const [key, value] of Object.entries(restData)) {
+        if (updateFuncObj[key]) {
+          updateFuncObj[key](value);
+        } else {
+          notAllowData.push(key);
+        }
+      }
     } else {
-      updateDatas.title = title;
+      throw new ForbiddenError("You can't modify personal playlist");
     }
   }
 
-  if (type) {
-    if (type === foundedPlaylist.type) {
-      throw new BadRequestError("The new type of playlist is still the same ");
-    } else {
-      const validateType = ["private", "public"];
-      if (!validateType.includes(type)) {
-        throw new BadRequestError("Invalid playlist type");
-      } else {
-        updateDatas.type = type;
-      }
-    }
+  if (notAllowData.length > 0) {
+    throw new BadRequestError(
+      "You can't update these fields: " + notAllowData.join(", ")
+    );
   }
 
   if (Object.keys(updateDatas).length > 0) {
