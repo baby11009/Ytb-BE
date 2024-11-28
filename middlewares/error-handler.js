@@ -15,7 +15,9 @@ const errorHandlerMiddleware = (err, req, res, next) => {
       if (err[1].kind === "required") {
         requiredErrKeys.push(err[0]);
       } else {
-        const msg = err[1].properties?.message || `${err[0]} just accepted ${err[1].kind}`
+        const msg =
+          err[1].properties?.message ||
+          `${err[0]} just accepted ${err[1].kind}`;
         otherErrs.push(msg);
       }
     });

@@ -514,6 +514,13 @@ const getWatchLaterDetails = async (req, res) => {
       {
         $addFields: {
           created_user_idStr: { $toString: "$created_user_id" },
+          objectIdVideoList: {
+            $map: {
+              input: "$itemList",
+              as: "id",
+              in: { $toObjectId: "$$id" },
+            },
+          },
         },
       },
       {
@@ -526,18 +533,25 @@ const getWatchLaterDetails = async (req, res) => {
       {
         $lookup: {
           from: "videos",
-          let: { videoIdList: "$itemList" },
+          let: { videoIdList: "$objectIdVideoList" },
           pipeline: [
             {
               $addFields: {
-                _idStr: { $toString: "$_id" },
-                reverseIdList: { $reverseArray: "$$videoIdList" },
+                videoIdList: "$$videoIdList",
+                order: {
+                  $indexOfArray: ["$$videoIdList", "$_id"],
+                },
               },
             },
             {
               $match: {
-                $expr: { $in: ["$_idStr", "$reverseIdList"] },
+                $expr: { $in: ["$_id", "$videoIdList"] },
                 ...matchObj,
+              },
+            },
+            {
+              $sort: {
+                order: -1, // Sắp xếp theo thứ tự tăng dần của `order`
               },
             },
             {
@@ -562,6 +576,7 @@ const getWatchLaterDetails = async (req, res) => {
               $project: {
                 _id: 1,
                 thumb: 1,
+                order: 1,
                 title: 1,
                 view: 1,
                 type: 1,
@@ -583,6 +598,7 @@ const getWatchLaterDetails = async (req, res) => {
           updatedAt: 1,
           video_list: "$video_list",
           size: { $size: "$itemList" },
+          objectIdVideoList: 1,
         },
       },
     ];

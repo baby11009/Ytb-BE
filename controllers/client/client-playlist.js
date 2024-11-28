@@ -299,7 +299,7 @@ const getPlaylistDetails = async (req, res) => {
   });
 };
 
-const updatePlaylist = async (req, res) => {
+const updatePlaylist = async (req, res, next) => {
   const { userId } = req.user;
 
   const { id } = req.params;
@@ -330,15 +330,21 @@ const updatePlaylist = async (req, res) => {
 
   const updateFuncObj = {
     title: (value) => {
+      if (foundedPlaylist.type === "personal")
+        return next(new ForbiddenError("You can't modify personal playlist"));
+      if (typeof value !== "string")
+        return next(new ForbiddenError("Data type must be a string"));
       if (foundedPlaylist.title === value) {
-        throw new BadRequestError(
-          "The new title of playlist is still the same"
+        return next(
+          new BadRequestError("The new title of playlist is still the same")
         );
       } else {
         updateDatas.title = value;
       }
     },
     type: (value) => {
+      if (foundedPlaylist.type === "personal")
+        throw new ForbiddenError("You can't modify personal playlist");
       if (value === foundedPlaylist.type) {
         throw new BadRequestError(
           "The new type of playlist is still the same "
@@ -346,25 +352,51 @@ const updatePlaylist = async (req, res) => {
       } else {
         const validateType = ["private", "public"];
         if (!validateType.includes(value)) {
-          throw new BadRequestError("Invalid playlist type");
+          return next(new BadRequestError("Invalid playlist type"));
         } else {
           updateDatas.type = value;
         }
       }
     },
+    move: async (value) => {
+      if (typeof value !== "object")
+        return next(
+          new BadRequestError(
+            "Data type must be an object with following properties from :(nummber > 0) ,  to : (number < list length )"
+          )
+        );
+
+      // Must reverse because we are display data in reverse order of itemList indexes
+      const vidList = [...foundedPlaylist.itemList];
+      console.log("🚀 ~ vidList:", vidList);
+      const { from, to } = value;
+
+      const fromValue = vidList[from];
+      const toValue = vidList[to];
+      if (fromValue && toValue) {
+        vidList[from] = toValue;
+        vidList[to] = fromValue;
+      } else {
+        return next(new BadRequestError("Invalid move action"));
+      }
+      foundedPlaylist.itemList = vidList;
+
+      const data = await foundedPlaylist.save();
+      console.log("🚀 ~ data:", data);
+    },
   };
 
   if (Object.keys(restData).length > 0) {
-    if (foundedPlaylist.type !== "personal") {
-      for (const [key, value] of Object.entries(restData)) {
-        if (updateFuncObj[key]) {
-          updateFuncObj[key](value);
-        } else {
-          notAllowData.push(key);
+    for (const [key, value] of Object.entries(restData)) {
+      if (updateFuncObj[key]) {
+        const result = updateFuncObj[key](value);
+
+        if (result instanceof Promise) {
+          return;
         }
+      } else {
+        notAllowData.push(key);
       }
-    } else {
-      throw new ForbiddenError("You can't modify personal playlist");
     }
   }
 
@@ -473,7 +505,7 @@ const updatePlaylist = async (req, res) => {
 
   const playlist = await Playlist.aggregate(pipeline);
 
-  res
+  return res
     .status(StatusCodes.OK)
     .json({ msg: "Playlist updated successfullly", data: playlist[0] });
 };
