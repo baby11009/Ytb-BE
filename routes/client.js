@@ -11,6 +11,7 @@ const {
   settingAccount,
   getSubscribedChannelsVideos,
   getWatchLaterDetails,
+  getLikedVideoList,
 } = require("../controllers/client/client-user");
 const {
   upLoadVideo,
@@ -68,6 +69,7 @@ router
 router.get("/user/subscribed-channels", getSubscribedChannels);
 router.get("/user/subscribed-channels-videos", getSubscribedChannelsVideos);
 router.get("/user/watchlater", getWatchLaterDetails);
+router.get("/user/likedvideos", getLikedVideoList);
 
 // video
 router.post(

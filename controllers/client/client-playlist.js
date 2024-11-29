@@ -367,8 +367,8 @@ const updatePlaylist = async (req, res, next) => {
         );
 
       // Must reverse because we are display data in reverse order of itemList indexes
-      const vidList = [...foundedPlaylist.itemList];
-      console.log("🚀 ~ vidList:", vidList);
+      const vidList = [...foundedPlaylist.itemList].reverse();
+
       const { from, to } = value;
 
       const fromValue = vidList[from];
@@ -379,10 +379,13 @@ const updatePlaylist = async (req, res, next) => {
       } else {
         return next(new BadRequestError("Invalid move action"));
       }
-      foundedPlaylist.itemList = vidList;
 
-      const data = await foundedPlaylist.save();
-      console.log("🚀 ~ data:", data);
+      vidList.reverse();
+
+      await Playlist.updateOne(
+        { _id: foundedPlaylist._id },
+        { itemList: vidList }
+      );
     },
   };
 

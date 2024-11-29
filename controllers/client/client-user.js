@@ -2,7 +2,7 @@ const { StatusCodes } = require("http-status-codes");
 const { BadRequestError } = require("../../errors");
 const { deleteFile } = require("../../utils/file");
 const path = require("path");
-const { Subscribe, User, Video, Playlist } = require("../../models");
+const { Subscribe, User, Video, Playlist, React } = require("../../models");
 const avatarPath = path.join(__dirname, "../../assets/user avatar");
 
 const getAccountInfo = async (req, res) => {
@@ -549,6 +549,34 @@ const getWatchLaterDetails = async (req, res) => {
                 ...matchObj,
               },
             },
+          ],
+          as: "videos",
+        },
+      },
+      {
+        $addFields: {
+          count: { $size: "$videos" },
+        },
+      },
+      {
+        $lookup: {
+          from: "videos",
+          let: { videoIdList: "$objectIdVideoList" },
+          pipeline: [
+            {
+              $addFields: {
+                videoIdList: "$$videoIdList",
+                order: {
+                  $indexOfArray: ["$$videoIdList", "$_id"],
+                },
+              },
+            },
+            {
+              $match: {
+                $expr: { $in: ["$_id", "$videoIdList"] },
+                ...matchObj,
+              },
+            },
             {
               $sort: {
                 order: -1, // Sắp xếp theo thứ tự tăng dần của `order`
@@ -576,7 +604,6 @@ const getWatchLaterDetails = async (req, res) => {
               $project: {
                 _id: 1,
                 thumb: 1,
-                order: 1,
                 title: 1,
                 view: 1,
                 type: 1,
@@ -592,22 +619,135 @@ const getWatchLaterDetails = async (req, res) => {
       {
         $project: {
           _id: 1,
-          created_user_id: 1,
           title: 1,
-          itemList: 1,
           updatedAt: 1,
           video_list: "$video_list",
           size: { $size: "$itemList" },
-          objectIdVideoList: 1,
+          count: 1,
         },
       },
     ];
 
     const playlist = await Playlist.aggregate(pipeline);
 
-    res.status(StatusCodes.OK).json({ data: playlist[0] });
+    res.status(StatusCodes.OK).json({
+      data: playlist[0],
+      currPage: dataPage,
+      totalPage: Math.ceil(playlist[0].count / dataLimit),
+    });
   } catch (error) {
     console.error(error);
+    throw error;
+  }
+};
+
+const getLikedVideoList = async (req, res) => {
+  try {
+    const { userId } = req.user;
+
+    const { page, limit, type = "all" } = req.query;
+
+    const dataPage = Number(page) || 1;
+
+    const dataLimit = Number(limit) || 12;
+
+    const skip = (dataPage - 1) * dataLimit;
+
+    const matchObj = {};
+
+    const matchType = ["video", "short"];
+
+    if (matchType.includes(type)) {
+      matchObj.type = type;
+    }
+
+    const videoPipeline = [
+      { $match: matchObj },
+      {
+        $lookup: {
+          from: "users",
+          localField: "user_id",
+          foreignField: "_id",
+          pipeline: [{ $project: { name: 1, email: 1, avatar: 1 } }],
+          as: "channel_info",
+        },
+      },
+      {
+        $unwind: "$channel_info",
+      },
+      {
+        $project: {
+          _id: 1,
+          thumb: 1,
+          order: 1,
+          title: 1,
+          view: 1,
+          type: 1,
+          createdAt: 1,
+          duration: 1,
+          channel_info: 1,
+        },
+      },
+    ];
+
+    const likedVideoList = await React.aggregate([
+      { $addFields: { user_idStr: { $toString: "$user_id" } } },
+      {
+        $match: {
+          user_idStr: userId,
+        },
+      },
+      {
+        $sort: {
+          createdAt: -1,
+        },
+      },
+      {
+        $skip: skip,
+      },
+      {
+        $limit: dataLimit,
+      },
+      {
+        $lookup: {
+          from: "videos",
+          localField: "video_id",
+          foreignField: "_id",
+          pipeline: videoPipeline,
+          as: "video_info",
+        },
+      },
+      {
+        $unwind: "$video_info",
+      },
+      {
+        $replaceRoot: {
+          newRoot: {
+            $mergeObjects: [
+              "$video_info",
+              {
+                updatedAt: "$$ROOT.createdAt",
+              },
+            ], //Replace the root with the new root is video info and merge with the old root createdAt property
+          },
+        },
+      },
+    ]);
+
+    const totalVideos = await React.countDocuments({ user_id: userId });
+
+    const data = {
+      data: {
+        title: "Liked videos",
+        video_list: likedVideoList,
+        size: totalVideos,
+      },
+      currPage: dataPage,
+      totalPage: Math.ceil(likedVideoList.length / dataLimit),
+    };
+
+    res.status(StatusCodes.OK).json(data);
+  } catch (error) {
     throw error;
   }
 };
@@ -618,4 +758,5 @@ module.exports = {
   settingAccount,
   getSubscribedChannelsVideos,
   getWatchLaterDetails,
+  getLikedVideoList,
 };
