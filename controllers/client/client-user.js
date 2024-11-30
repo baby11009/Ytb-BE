@@ -703,12 +703,6 @@ const getLikedVideoList = async (req, res) => {
         },
       },
       {
-        $skip: skip,
-      },
-      {
-        $limit: dataLimit,
-      },
-      {
         $lookup: {
           from: "videos",
           localField: "video_id",
@@ -727,9 +721,16 @@ const getLikedVideoList = async (req, res) => {
               "$video_info",
               {
                 updatedAt: "$$ROOT.createdAt",
+                liked_id: "$$ROOT._id",
               },
             ], //Replace the root with the new root is video info and merge with the old root createdAt property
           },
+        },
+      },
+      {
+        $facet: {
+          totalFound: [{ $count: "count" }],
+          paginationData: [{ $skip: skip }, { $limit: dataLimit }],
         },
       },
     ]);
@@ -739,11 +740,11 @@ const getLikedVideoList = async (req, res) => {
     const data = {
       data: {
         title: "Liked videos",
-        video_list: likedVideoList,
+        video_list: likedVideoList[0].paginationData,
         size: totalVideos,
       },
       currPage: dataPage,
-      totalPage: Math.ceil(likedVideoList.length / dataLimit),
+      totalPage: Math.ceil(likedVideoList[0].totalFound[0].count / dataLimit),
     };
 
     res.status(StatusCodes.OK).json(data);

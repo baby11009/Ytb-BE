@@ -22,22 +22,32 @@ const toggleReact = async (req, res) => {
 
   const exitsingReact = await React.findOne(finalData);
 
-  let msg;
+  let result = {};
   let likeCount = 0;
   let dislikeCount = 0;
 
   if (exitsingReact) {
     if (type === exitsingReact.type) {
-      await React.deleteOne({ _id: exitsingReact._id });
-      msg = `Successfully un${type}d video`;
+      const data = await React.findOneAndDelete({ _id: exitsingReact._id });
+      result = {
+        msg: `Successfully un${type}d video`,
+        type: "DELETE",
+        data: data,
+      };
+
       if (type === "like") {
         likeCount = -1;
       } else {
         dislikeCount = -1;
       }
     } else {
-      await React.findOneAndUpdate(finalData, { type: type });
-      msg = `Successfully change video react to ${type}`;
+      const data = await React.findOneAndUpdate(finalData, { type: type });
+
+      result = {
+        msg: `Successfully change video react to ${type}`,
+        type: "UPDATE",
+        data: data,
+      };
       if (type === "like") {
         likeCount = 1;
         dislikeCount = -1;
@@ -47,8 +57,14 @@ const toggleReact = async (req, res) => {
       }
     }
   } else {
-    await React.create({ ...finalData, type });
-    msg = `Successfully ${type}d video`;
+    const data = await React.create({ ...finalData, type });
+
+    result = {
+      msg: `Successfully ${type}d video`,
+      type: "CREATE",
+      data: data,
+    };
+
     if (type === "like") {
       likeCount = 1;
     } else {
@@ -60,7 +76,7 @@ const toggleReact = async (req, res) => {
     $inc: { like: likeCount, dislike: dislikeCount },
   });
 
-  res.status(StatusCodes.OK).json({ msg });
+  res.status(StatusCodes.OK).json(result);
 };
 
 const getVideotReactState = async (req, res) => {

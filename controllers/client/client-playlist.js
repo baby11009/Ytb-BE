@@ -392,7 +392,7 @@ const updatePlaylist = async (req, res, next) => {
   if (Object.keys(restData).length > 0) {
     for (const [key, value] of Object.entries(restData)) {
       if (updateFuncObj[key]) {
-        const result = updateFuncObj[key](value);
+        const result = await updateFuncObj[key](value);
 
         if (result instanceof Promise) {
           return;
@@ -508,7 +508,7 @@ const updatePlaylist = async (req, res, next) => {
 
   const playlist = await Playlist.aggregate(pipeline);
 
-  return res
+  res
     .status(StatusCodes.OK)
     .json({ msg: "Playlist updated successfullly", data: playlist[0] });
 };
