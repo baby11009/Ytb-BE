@@ -801,11 +801,11 @@ const getDataList = async (req, res) => {
         localField: "user_id",
         foreignField: "_id",
         pipeline: [{ $project: { _id: 1, name: 1, email: 1, avatar: 1 } }],
-        as: "user_info",
+        as: "channel_info",
       },
     },
     {
-      $unwind: "$user_info",
+      $unwind: "$channel_info",
     }
   );
 
@@ -831,7 +831,7 @@ const getDataList = async (req, res) => {
       disLike: 1,
       type: 1,
       tag_info: { $ifNull: ["$tag_info", null] },
-      user_info: 1,
+      channel_info: 1,
       createdAt: 1,
     },
   });
