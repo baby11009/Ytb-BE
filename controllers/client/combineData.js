@@ -51,7 +51,7 @@ const getVideoList = async (req, res) => {
           $match: {
             email: { $eq: value },
           },
-        }
+        },
       );
     },
     search: (value) => {
@@ -115,7 +115,7 @@ const getVideoList = async (req, res) => {
               ],
             },
           },
-        }
+        },
       );
     },
   };
@@ -466,7 +466,7 @@ const getRandomShort = async (req, res) => {
       $project: {
         _id: 1,
       },
-    }
+    },
   );
   const shorts = await Video.aggregate(pipeline);
 
@@ -571,7 +571,7 @@ const getDataList = async (req, res) => {
             path: "$subcribe_info",
             preserveNullAndEmptyArrays: true,
           },
-        }
+        },
       );
     }
     channelPipeline.push(
@@ -593,7 +593,7 @@ const getDataList = async (req, res) => {
       },
       {
         $limit: 2,
-      }
+      },
     );
     const channels = await User.aggregate(channelPipeline);
 
@@ -681,7 +681,7 @@ const getDataList = async (req, res) => {
         },
         {
           $limit: 2,
-        }
+        },
       );
     } else {
       playlistPipeline.push({ $sample: { size: 2 } });
@@ -770,7 +770,7 @@ const getDataList = async (req, res) => {
               ],
             },
           },
-        }
+        },
       );
     },
   };
@@ -806,14 +806,14 @@ const getDataList = async (req, res) => {
     },
     {
       $unwind: "$channel_info",
-    }
+    },
   );
 
   if (Object.keys(sortObj).length > 0) {
     videoPipeline.push(
       { $sort: sortObj },
       { $skip: skip - Number(prevPlCount) },
-      { $limit: dataLimit - playlistList.length }
+      { $limit: dataLimit - playlistList.length },
     );
   } else {
     videoPipeline.push({ $sample: { size: dataLimit - playlistList.length } });
@@ -907,7 +907,7 @@ const getChannelInfo = async (req, res) => {
           path: "$subscription_info",
           preserveNullAndEmptyArrays: true,
         },
-      }
+      },
     );
   }
 
@@ -1063,7 +1063,7 @@ const getChannelPlaylistVideos = async (req, res) => {
         totalCount: [{ $count: "total" }],
         data: [{ $skip: skip }, { $limit: dataLimit }],
       },
-    }
+    },
   );
   const playlists = await Playlist.aggregate(pipeline);
 
@@ -1237,7 +1237,7 @@ const getVideoDetails = async (req, res) => {
         react_info: { $ifNull: ["$react_info", null] },
         tag_info: { $ifNull: ["$tag_info", []] },
       },
-    }
+    },
   );
 
   const video = await Video.aggregate(pipeline);
@@ -1267,7 +1267,7 @@ const getVideoCmts = async (req, res) => {
   let skip = (page - 1) * limit;
 
   const findParams = Object.keys(req.query).filter(
-    (key) => key !== "limit" && key !== "page" && key !== "replyId"
+    (key) => key !== "limit" && key !== "page" && key !== "replyId",
   );
 
   const pipeline = [
@@ -1357,7 +1357,7 @@ const getVideoCmts = async (req, res) => {
           path: "$react_info",
           preserveNullAndEmptyArrays: true, // Ensure video is returned even if no subscription exists
         },
-      }
+      },
     );
   }
 
@@ -1449,7 +1449,7 @@ const getVideoCmts = async (req, res) => {
         totalCount: [{ $count: "total" }],
         data: [{ $skip: skip }, { $limit: limit }],
       },
-    }
+    },
   );
 
   let result = Comment.aggregate(pipeline);
