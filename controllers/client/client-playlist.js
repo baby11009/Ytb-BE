@@ -33,16 +33,16 @@ const createPlaylist = async (req, res) => {
     if (foundedVideos.length === 0) {
       throw new NotFoundError(
         `The following videos with id: ${videoIdList.join(
-          ", "
-        )} could not be found`
+          ", ",
+        )} could not be found`,
       );
     }
 
     if (foundedVideos[0]?.missingIds?.length > 0) {
       throw new NotFoundError(
         `The following videos with id: ${foundedVideos[0].missingIds.join(
-          ", "
-        )} could not be found`
+          ", ",
+        )} could not be found`,
       );
     }
   }
@@ -75,7 +75,7 @@ const getPlaylists = async (req, res) => {
       key !== "limit" &&
       key !== "page" &&
       key !== "sort" &&
-      key !== "videoLimit"
+      key !== "videoLimit",
   );
 
   let findObj = {
@@ -122,7 +122,7 @@ const getPlaylists = async (req, res) => {
 
     if (unique.length > 1) {
       throw new BadRequestError(
-        `Only one sort key in ${uniqueSortKeys.join(", ")} is allowed`
+        `Only one sort key in ${uniqueSortKeys.join(", ")} is allowed`,
       );
     } else if (unique.length > 0) {
       sortObj[unique[0]] = uniqueValue;
@@ -205,7 +205,7 @@ const getPlaylists = async (req, res) => {
         totalCount: [{ $count: "total" }],
         data: [{ $skip: skip }, { $limit: limit }],
       },
-    }
+    },
   );
 
   const playlists = await Playlist.aggregate(pipeline);
@@ -225,6 +225,12 @@ const getPlaylistDetails = async (req, res) => {
   const { id } = req.params;
 
   const { videoLimit = 8, videoPage = 1 } = req.query;
+
+  const foundedPlaylist = await Playlist.findOne({ _id: id });
+  
+  if (!foundedPlaylist) {
+    throw new NotFoundError("Playlist not found");
+  }
 
   const pipeline = [
     {
@@ -336,7 +342,7 @@ const updatePlaylist = async (req, res, next) => {
         return next(new ForbiddenError("Data type must be a string"));
       if (foundedPlaylist.title === value) {
         return next(
-          new BadRequestError("The new title of playlist is still the same")
+          new BadRequestError("The new title of playlist is still the same"),
         );
       } else {
         updateDatas.title = value;
@@ -347,7 +353,7 @@ const updatePlaylist = async (req, res, next) => {
         throw new ForbiddenError("You can't modify personal playlist");
       if (value === foundedPlaylist.type) {
         throw new BadRequestError(
-          "The new type of playlist is still the same "
+          "The new type of playlist is still the same ",
         );
       } else {
         const validateType = ["private", "public"];
@@ -362,8 +368,8 @@ const updatePlaylist = async (req, res, next) => {
       if (typeof value !== "object")
         return next(
           new BadRequestError(
-            "Data type must be an object with following properties from :(nummber > 0) ,  to : (number < list length )"
-          )
+            "Data type must be an object with following properties from :(nummber > 0) ,  to : (number < list length )",
+          ),
         );
 
       // Must reverse because we are display data in reverse order of itemList indexes
@@ -384,7 +390,7 @@ const updatePlaylist = async (req, res, next) => {
 
       await Playlist.updateOne(
         { _id: foundedPlaylist._id },
-        { itemList: vidList }
+        { itemList: vidList },
       );
     },
   };
@@ -405,7 +411,7 @@ const updatePlaylist = async (req, res, next) => {
 
   if (notAllowData.length > 0) {
     throw new BadRequestError(
-      "You can't update these fields: " + notAllowData.join(", ")
+      "You can't update these fields: " + notAllowData.join(", "),
     );
   }
 
@@ -434,16 +440,16 @@ const updatePlaylist = async (req, res, next) => {
     if (foundedVideos.length === 0) {
       throw new NotFoundError(
         `The following videos with id: ${videoIdList.join(
-          ", "
-        )} could not be found`
+          ", ",
+        )} could not be found`,
       );
     }
 
     if (foundedVideos[0]?.missingIds?.length > 0) {
       throw new NotFoundError(
         `The following videos with id: ${foundedVideos[0].missingIds.join(
-          ", "
-        )} could not be found`
+          ", ",
+        )} could not be found`,
       );
     }
 
@@ -459,7 +465,7 @@ const updatePlaylist = async (req, res, next) => {
     if (alreadyInPlaylistVideosId.length > 0) {
       await Playlist.updateOne(
         { _id: id },
-        { $pullAll: { itemList: alreadyInPlaylistVideosId } }
+        { $pullAll: { itemList: alreadyInPlaylistVideosId } },
       );
 
       notInplaylistVideosId = videoIdList.reduce((acc, item) => {
@@ -475,7 +481,7 @@ const updatePlaylist = async (req, res, next) => {
     if (notInplaylistVideosId.length > 0) {
       await Playlist.updateOne(
         { _id: id },
-        { $addToSet: { itemList: { $each: notInplaylistVideosId } } }
+        { $addToSet: { itemList: { $each: notInplaylistVideosId } } },
       );
     }
   } else if (videoIdList && videoIdList.length === 0) {
@@ -559,15 +565,15 @@ const deleteManyPlaylist = async (req, res) => {
 
   if (foundedPlaylists.length === 0) {
     throw new NotFoundError(
-      `The following playlists with id: ${idList.join(", ")}could not be found`
+      `The following playlists with id: ${idList.join(", ")}could not be found`,
     );
   }
 
   if (foundedPlaylists[0]?.missingIds?.length > 0) {
     throw new NotFoundError(
       `The following playlists with id: ${foundedPlaylists[0].missingIds.join(
-        ", "
-      )} could not be found`
+        ", ",
+      )} could not be found`,
     );
   }
 
@@ -589,16 +595,16 @@ const deleteManyPlaylist = async (req, res) => {
   if (notBelongList.length > 0) {
     throw new ForbiddenError(
       `You are not able to delete these playlist with id : ${notBelongList.join(
-        ", "
-      )} that the not belongs to your account`
+        ", ",
+      )} that the not belongs to your account`,
     );
   }
 
   if (personalList.length > 0) {
     throw new ForbiddenError(
       `Cannot delete these personal playlist with id : ${personalList.join(
-        ", "
-      )}`
+        ", ",
+      )}`,
     );
   }
 
@@ -606,7 +612,7 @@ const deleteManyPlaylist = async (req, res) => {
 
   res.status(StatusCodes.OK).json({
     msg: `Successfully deleted playlist with following id: ${idList.join(
-      ", "
+      ", ",
     )}`,
   });
 };

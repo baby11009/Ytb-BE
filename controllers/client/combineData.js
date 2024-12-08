@@ -1,6 +1,10 @@
 const { Video, Playlist, User, Comment } = require("../../models");
 const { StatusCodes } = require("http-status-codes");
-const { BadRequestError, NotFoundError } = require("../../errors");
+const {
+  BadRequestError,
+  NotFoundError,
+  ForbiddenError,
+} = require("../../errors");
 const mongoose = require("mongoose");
 
 const getVideoList = async (req, res) => {
@@ -1478,6 +1482,122 @@ const getVideoCmts = async (req, res) => {
   });
 };
 
+const getPlaylistDetails = async (req, res) => {
+  const { userId } = req.user;
+
+  const { id } = req.params;
+
+  const { videoLimit = 8, videoPage = 1 } = req.query;
+
+  const foundedPlaylist = await Playlist.findOne({ _id: id });
+
+  if (!foundedPlaylist) {
+    throw new NotFoundError("Playlist not found");
+  }
+
+  if (
+    foundedPlaylist.type !== "public" &&
+    foundedPlaylist.created_user_id.toString() !== userId
+  ) {
+    throw new ForbiddenError("you cannot access this playlist ");
+  }
+
+  const pipeline = [
+    {
+      $addFields: {
+        _idStr: { $toString: "$_id" },
+      },
+    },
+    {
+      $match: { _idStr: id },
+    },
+    {
+      $lookup: {
+        from: "users",
+        localField: "created_user_id",
+        foreignField: "_id",
+        pipeline: [{ $project: { name: 1, email: 1, avatar: 1 } }],
+        as: "channel_info",
+      },
+    },
+    {
+      $unwind: "$channel_info",
+    },
+  ];
+
+  if (videoLimit && videoLimit > 0) {
+    pipeline.push({
+      $lookup: {
+        from: "videos",
+        let: { videoIdList: "$itemList" },
+        pipeline: [
+          {
+            $addFields: {
+              _idStr: { $toString: "$_id" },
+              reverseIdList: { $reverseArray: "$$videoIdList" },
+            },
+          },
+          { $match: { $expr: { $in: ["$_idStr", "$reverseIdList"] } } },
+          {
+            $skip: (Number(videoPage) - 1) * Number(videoLimit),
+          },
+          {
+            $limit: Number(videoLimit),
+          },
+          {
+            $lookup: {
+              from: "users",
+              localField: "user_id",
+              foreignField: "_id",
+              pipeline: [{ $project: { name: 1, email: 1, avatar: 1 } }],
+              as: "channel_info",
+            },
+          },
+          {
+            $unwind: "$channel_info",
+          },
+          {
+            $project: {
+              _id: 1,
+              thumb: 1,
+              title: 1,
+              createdAt: 1,
+              channel_info: 1,
+            },
+          },
+        ],
+        as: "video_list",
+      },
+    });
+  }
+
+  pipeline.push({
+    $project: {
+      _id: 1,
+      channel_info: 1,
+      title: 1,
+      createdAt: 1,
+      type: 1,
+      video_list: "$video_list",
+      size: { $size: "$itemList" },
+    },
+  });
+
+  const playlist = await Playlist.aggregate(pipeline);
+
+  if (playlist.length === 0) {
+    throw new NotFoundError("Playlist not found");
+  }
+
+  res.status(StatusCodes.OK).json({
+    data: playlist[0],
+    qtt: playlist[0].size,
+    videoLimit,
+    currPage: videoPage,
+    totalPages: Math.floor(playlist[0].size / Number(videoLimit)),
+  });
+};
+
 module.exports = {
   getVideoList,
   getDataList,
@@ -1486,4 +1606,5 @@ module.exports = {
   getVideoDetails,
   getVideoCmts,
   getRandomShort,
+  getPlaylistDetails,
 };

@@ -8,6 +8,7 @@ const {
   getVideoDetails,
   getVideoCmts,
   getRandomShort,
+  getPlaylistDetails,
 } = require("../controllers/client/combineData");
 
 const router = express.Router();
@@ -17,6 +18,8 @@ router.route("/all").get(getDataList);
 router.route("/videos").get(getVideoList);
 
 router.route("/playlists").get(getChannelPlaylistVideos);
+
+router.route("/playlist/:id").get(getPlaylistDetails);
 
 router.route("/channels/:email").get(getChannelInfo);
 
