@@ -7,7 +7,7 @@ const helmet = require("helmet");
 const cors = require("cors");
 const connectDb = require("./db/connect");
 const { init } = require("./socket");
-
+const { User, Playlist } = require("./models");
 const {
   authMiddleware,
   notFoundMiddleware,
@@ -58,7 +58,7 @@ app.use(
   "/api/v1/playlist",
   authMiddleware,
   permissionMiddleware,
-  playlistRouter
+  playlistRouter,
 );
 
 app.use(notFoundMiddleware);
@@ -74,7 +74,7 @@ const start = async () => {
     init(httpServer);
     // io.use(cors());
     httpServer.listen(port, () =>
-      console.log(`Server is listening on ${port}....`)
+      console.log(`Server is listening on ${port}....`),
     );
     // app.listen(port, () => console.log(`Server is listening on ${port}....`));
   } catch (error) {

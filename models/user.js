@@ -75,7 +75,7 @@ const User = new mongoose.Schema(
       type: mongoose.Types.ObjectId,
     },
   },
-  { timestamps: true }
+  { timestamps: true },
 );
 
 User.pre("save", async function (next) {
@@ -96,6 +96,12 @@ User.post("save", async function (next) {
   await Playlist.create({
     created_user_id: this._id,
     title: "History",
+    type: "personal",
+  });
+
+  await Playlist.create({
+    created_user_id: this._id,
+    title: "Liked videos",
     type: "personal",
   });
 });
@@ -162,7 +168,7 @@ User.pre("deleteOne", async function () {
     foundedSubscribes1.forEach(async (subscribe) => {
       await User.updateOne(
         { _id: subscribe.channel_id },
-        { $inc: { subscriber: -1 } }
+        { $inc: { subscriber: -1 } },
       );
     });
   }
@@ -211,7 +217,7 @@ User.methods.createJwt = function () {
     process.env.JWT_SECRET,
     {
       expiresIn: process.env.JWT_LIFETIME,
-    }
+    },
   );
 };
 

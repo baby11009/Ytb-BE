@@ -227,7 +227,7 @@ const getPlaylistDetails = async (req, res) => {
   const { videoLimit = 8, videoPage = 1 } = req.query;
 
   const foundedPlaylist = await Playlist.findOne({ _id: id });
-  
+
   if (!foundedPlaylist) {
     throw new NotFoundError("Playlist not found");
   }
@@ -504,9 +504,8 @@ const updatePlaylist = async (req, res, next) => {
         created_user_id: 1,
         title: 1,
         itemList: 1,
-        createdAt: 1,
+        updatedAt: 1,
         type: 1,
-        video_list: "$video_list",
         size: { $size: "$itemList" },
       },
     },

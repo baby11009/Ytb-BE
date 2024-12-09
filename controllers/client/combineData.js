@@ -231,7 +231,7 @@ const getVideoList = async (req, res) => {
 //   ];
 
 //   if (userId) {
-//     console.log("🚀 ~ userId:", userId);
+//
 //     addFieldsObj.userIdStr = { $toString: "$channel_info._id" };
 //     // pipeline.push(
 //     //   {
@@ -372,7 +372,7 @@ const getVideoList = async (req, res) => {
 
 //   let finalData = [...shorts];
 //   if (foundedShort.length > 0) {
-//     console.log("🚀 ~ foundedShort:", foundedShort);
+//
 //     finalData = [...foundedShort, ...finalData];
 //   }
 //   res.status(StatusCodes.OK).json({
@@ -421,7 +421,6 @@ const getRandomShort = async (req, res) => {
 
   const queryFuncObj = {
     shortId: async (value) => {
-      console.log(value);
       size = 2;
       foundedShort = await Video.aggregate([
         { $addFields: { _idStr: { $toString: "$_id" } } },
@@ -1592,9 +1591,9 @@ const getPlaylistDetails = async (req, res) => {
   res.status(StatusCodes.OK).json({
     data: playlist[0],
     qtt: playlist[0].size,
-    videoLimit,
-    currPage: videoPage,
-    totalPages: Math.floor(playlist[0].size / Number(videoLimit)),
+    videoLimit: Number(videoLimit),
+    currPage: Number(videoPage),
+    totalPages: Math.max(Math.ceil(playlist[0].size / Number(videoLimit)), 1),
   });
 };
 

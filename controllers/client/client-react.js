@@ -1,5 +1,5 @@
 const { BadRequestError, NotFoundError } = require("../../errors");
-const { React, Video } = require("../../models");
+const { React, Video, Playlist } = require("../../models");
 const { StatusCodes } = require("http-status-codes");
 
 const toggleReact = async (req, res) => {
@@ -26,9 +26,32 @@ const toggleReact = async (req, res) => {
   let likeCount = 0;
   let dislikeCount = 0;
 
+  const addItem = async () => {
+    await Playlist.updateOne(
+      {
+        created_user_id: userId,
+        title: "Liked videos",
+        type: "personal",
+      },
+      { $push: { itemList: videoId } },
+    );
+  };
+
+  const removeItem = async () => {
+    await Playlist.updateOne(
+      {
+        created_user_id: userId,
+        title: "Liked videos",
+        type: "personal",
+      },
+      { $pull: { itemList: videoId } },
+    );
+  };
+
   if (exitsingReact) {
     if (type === exitsingReact.type) {
       const data = await React.findOneAndDelete({ _id: exitsingReact._id });
+
       result = {
         msg: `Successfully un${type}d video`,
         type: "DELETE",
@@ -37,12 +60,12 @@ const toggleReact = async (req, res) => {
 
       if (type === "like") {
         likeCount = -1;
+        await removeItem();
       } else {
         dislikeCount = -1;
       }
     } else {
       const data = await React.findOneAndUpdate(finalData, { type: type });
-
       result = {
         msg: `Successfully change video react to ${type}`,
         type: "UPDATE",
@@ -51,9 +74,11 @@ const toggleReact = async (req, res) => {
       if (type === "like") {
         likeCount = 1;
         dislikeCount = -1;
+        await addItem();
       } else {
         likeCount = -1;
         dislikeCount = 1;
+        await removeItem();
       }
     }
   } else {
@@ -67,6 +92,7 @@ const toggleReact = async (req, res) => {
 
     if (type === "like") {
       likeCount = 1;
+      await addItem();
     } else {
       dislikeCount = 1;
     }

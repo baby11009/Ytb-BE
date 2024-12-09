@@ -85,7 +85,7 @@ const settingAccount = async (req, res) => {
     }
 
     const foundedUser = await User.findOne({ _id: id }).select(
-      "name password role confirmed subscriber totalVids banner avatar description"
+      "name password role confirmed subscriber totalVids banner avatar description",
     );
 
     if (!foundedUser) {
@@ -139,13 +139,13 @@ const settingAccount = async (req, res) => {
 
     if (notValidateFields.length > 0) {
       throw new BadRequestError(
-        `Not accepted theses fields: ${notValidateFields.join(", ")}`
+        `Not accepted theses fields: ${notValidateFields.join(", ")}`,
       );
     }
 
     if (sameValueFields.length > 0) {
       throw new BadRequestError(
-        `These fields's value is still the same: ${sameValueFields.join(", ")}`
+        `These fields's value is still the same: ${sameValueFields.join(", ")}`,
       );
     }
 
@@ -239,7 +239,7 @@ const getSubscribedChannels = async (req, res) => {
       },
       {
         $unwind: "$channel_info",
-      }
+      },
     );
 
     const sortObj = {};
@@ -310,7 +310,7 @@ const getSubscribedChannels = async (req, res) => {
           totalReturned: { $size: "$paginationData" }, // Tổng số trả về thực tế
           data: "$paginationData",
         },
-      }
+      },
     );
 
     const channels = await Subscribe.aggregate(pipeline);
@@ -369,7 +369,7 @@ const getSubscribedChannelsVideos = async (req, res) => {
 
       const pipeline = [];
       const matchQueriese = Object.keys(req.query).filter(
-        (key) => key !== "page" && key !== "limit" && key !== "sort"
+        (key) => key !== "page" && key !== "limit" && key !== "sort",
       );
       // handle addFields
 
@@ -474,7 +474,7 @@ const getSubscribedChannelsVideos = async (req, res) => {
             totalReturned: { $size: "$paginationData" }, // Tổng số trả về thực tế
             data: "$paginationData",
           },
-        }
+        },
       );
 
       const videos = await Video.aggregate(pipeline);
@@ -641,16 +641,129 @@ const getWatchLaterDetails = async (req, res) => {
   }
 };
 
+// Get liked videos by using react data
+// const getLikedVideoList = async (req, res) => {
+//   try {
+//     const { userId } = req.user;
+
+//     const { page, limit, type = "all" } = req.query;
+
+//     const dataPage = Number(page) || 1;
+
+//     const dataLimit = Number(limit) || 12;
+
+//     const skip = (dataPage - 1) * dataLimit;
+
+//     const matchObj = {};
+
+//     const matchType = ["video", "short"];
+
+//     if (matchType.includes(type)) {
+//       matchObj.type = type;
+//     }
+
+//     const videoPipeline = [
+//       { $match: matchObj },
+//       {
+//         $lookup: {
+//           from: "users",
+//           localField: "user_id",
+//           foreignField: "_id",
+//           pipeline: [{ $project: { name: 1, email: 1, avatar: 1 } }],
+//           as: "channel_info",
+//         },
+//       },
+//       {
+//         $unwind: "$channel_info",
+//       },
+//       {
+//         $project: {
+//           _id: 1,
+//           thumb: 1,
+//           order: 1,
+//           title: 1,
+//           view: 1,
+//           type: 1,
+//           createdAt: 1,
+//           duration: 1,
+//           channel_info: 1,
+//         },
+//       },
+//     ];
+
+//     const likedVideoList = await React.aggregate([
+//       { $addFields: { user_idStr: { $toString: "$user_id" } } },
+//       {
+//         $match: {
+//           user_idStr: userId,
+//         },
+//       },
+//       {
+//         $sort: {
+//           createdAt: -1,
+//         },
+//       },
+//       {
+//         $lookup: {
+//           from: "videos",
+//           localField: "video_id",
+//           foreignField: "_id",
+//           pipeline: videoPipeline,
+//           as: "video_info",
+//         },
+//       },
+//       {
+//         $unwind: "$video_info",
+//       },
+//       {
+//         $replaceRoot: {
+//           newRoot: {
+//             $mergeObjects: [
+//               "$video_info",
+//               {
+//                 updatedAt: "$$ROOT.createdAt",
+//                 liked_id: "$$ROOT._id",
+//               },
+//             ], //Replace the root with the new root is video info and merge with the old root createdAt property
+//           },
+//         },
+//       },
+//       {
+//         $facet: {
+//           totalFound: [{ $count: "count" }],
+//           paginationData: [{ $skip: skip }, { $limit: dataLimit }],
+//         },
+//       },
+//     ]);
+
+//     const totalVideos = await React.countDocuments({ user_id: userId });
+
+//     const data = {
+//       data: {
+//         title: "Liked videos",
+//         video_list: likedVideoList[0].paginationData,
+//         size: totalVideos,
+//       },
+//       currPage: dataPage,
+//       totalPage:
+//         Math.ceil(likedVideoList[0]?.totalFound[0]?.count / dataLimit) || 1,
+//     };
+
+//     res.status(StatusCodes.OK).json(data);
+//   } catch (error) {
+//     throw error;
+//   }
+// };
+
+// Get liked vidoe by using  liked videos playlist
 const getLikedVideoList = async (req, res) => {
   try {
     const { userId } = req.user;
 
-    const { page, limit, type = "all" } = req.query;
+    const { page, limit = 12, type } = req.query;
 
     const dataPage = Number(page) || 1;
-
     const dataLimit = Number(limit) || 12;
-
     const skip = (dataPage - 1) * dataLimit;
 
     const matchObj = {};
@@ -661,94 +774,133 @@ const getLikedVideoList = async (req, res) => {
       matchObj.type = type;
     }
 
-    const videoPipeline = [
-      { $match: matchObj },
+    const pipeline = [
       {
-        $lookup: {
-          from: "users",
-          localField: "user_id",
-          foreignField: "_id",
-          pipeline: [{ $project: { name: 1, email: 1, avatar: 1 } }],
-          as: "channel_info",
+        $addFields: {
+          created_user_idStr: { $toString: "$created_user_id" },
+          objectIdVideoList: {
+            $map: {
+              input: "$itemList",
+              as: "id",
+              in: { $toObjectId: "$$id" },
+            },
+          },
         },
       },
-      {
-        $unwind: "$channel_info",
-      },
-      {
-        $project: {
-          _id: 1,
-          thumb: 1,
-          order: 1,
-          title: 1,
-          view: 1,
-          type: 1,
-          createdAt: 1,
-          duration: 1,
-          channel_info: 1,
-        },
-      },
-    ];
-
-    const likedVideoList = await React.aggregate([
-      { $addFields: { user_idStr: { $toString: "$user_id" } } },
       {
         $match: {
-          user_idStr: userId,
-        },
-      },
-      {
-        $sort: {
-          createdAt: -1,
+          created_user_idStr: userId,
+          title: "Liked videos",
+          type: "personal",
         },
       },
       {
         $lookup: {
           from: "videos",
-          localField: "video_id",
-          foreignField: "_id",
-          pipeline: videoPipeline,
-          as: "video_info",
-        },
-      },
-      {
-        $unwind: "$video_info",
-      },
-      {
-        $replaceRoot: {
-          newRoot: {
-            $mergeObjects: [
-              "$video_info",
-              {
-                updatedAt: "$$ROOT.createdAt",
-                liked_id: "$$ROOT._id",
+          let: { videoIdList: "$objectIdVideoList" },
+          pipeline: [
+            {
+              $addFields: {
+                videoIdList: "$$videoIdList",
+                order: {
+                  $indexOfArray: ["$$videoIdList", "$_id"],
+                },
               },
-            ], //Replace the root with the new root is video info and merge with the old root createdAt property
-          },
+            },
+            {
+              $match: {
+                $expr: { $in: ["$_id", "$videoIdList"] },
+                ...matchObj,
+              },
+            },
+          ],
+          as: "videos",
         },
       },
       {
-        $facet: {
-          totalFound: [{ $count: "count" }],
-          paginationData: [{ $skip: skip }, { $limit: dataLimit }],
+        $addFields: {
+          count: { $size: "$videos" },
         },
       },
-    ]);
-
-    const totalVideos = await React.countDocuments({ user_id: userId });
-
-    const data = {
-      data: {
-        title: "Liked videos",
-        video_list: likedVideoList[0].paginationData,
-        size: totalVideos,
+      {
+        $lookup: {
+          from: "videos",
+          let: { videoIdList: "$objectIdVideoList" },
+          pipeline: [
+            {
+              $addFields: {
+                videoIdList: "$$videoIdList",
+                order: {
+                  $indexOfArray: ["$$videoIdList", "$_id"],
+                },
+              },
+            },
+            {
+              $match: {
+                $expr: { $in: ["$_id", "$videoIdList"] },
+                ...matchObj,
+              },
+            },
+            {
+              $sort: {
+                order: -1, // Sắp xếp theo thứ tự tăng dần của `order`
+              },
+            },
+            {
+              $skip: skip,
+            },
+            {
+              $limit: dataLimit,
+            },
+            {
+              $lookup: {
+                from: "users",
+                localField: "user_id",
+                foreignField: "_id",
+                pipeline: [{ $project: { name: 1, email: 1, avatar: 1 } }],
+                as: "channel_info",
+              },
+            },
+            {
+              $unwind: "$channel_info",
+            },
+            {
+              $project: {
+                _id: 1,
+                thumb: 1,
+                title: 1,
+                view: 1,
+                type: 1,
+                createdAt: 1,
+                duration: 1,
+                channel_info: 1,
+              },
+            },
+          ],
+          as: "video_list",
+        },
       },
-      currPage: dataPage,
-      totalPage: Math.ceil(likedVideoList[0].totalFound[0].count / dataLimit),
-    };
+      {
+        $project: {
+          _id: 1,
+          title: 1,
+          updatedAt: 1,
+          video_list: "$video_list",
+          size: { $size: "$itemList" },
+          count: 1,
+        },
+      },
+    ];
 
-    res.status(StatusCodes.OK).json(data);
+    const playlist = await Playlist.aggregate(pipeline);
+
+    res.status(StatusCodes.OK).json({
+      data: playlist[0],
+      currPage: dataPage,
+      totalPage: Math.ceil(playlist[0].count / dataLimit),
+    });
   } catch (error) {
+    console.error(error);
     throw error;
   }
 };
