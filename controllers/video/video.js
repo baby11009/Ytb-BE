@@ -1,6 +1,9 @@
 const { User, Video } = require("../../models");
 const mongoose = require("mongoose");
 
+const fluentFFmpeg = require("fluent-ffmpeg");
+const fs = require("fs");
+
 const { StatusCodes } = require("http-status-codes");
 
 const { BadRequestError, NotFoundError } = require("../../errors");
@@ -14,68 +17,125 @@ const asssetPath = path.join(__dirname, "../../assets");
 const upLoadVideo = async (req, res) => {
   const { image, video } = req.files;
 
-  const {
-    userId,
-    type,
-    title,
-    tag = [],
-    view = 0,
-    like = 0,
-    dislike = 0,
-  } = req.body;
-
-  try {
-    const fileErr = [];
-
-    if (!video || video.length === 0) {
-      fileErr.push("video");
-    }
-
-    if (!image || image.length === 0) {
-      fileErr.push("image");
-    }
-
-    if (fileErr.length > 0) {
-      throw new BadRequestError(`Please provide ${fileErr.join(", ")}`);
-    }
-
-    if (!userId) {
-      throw new BadRequestError("Please provide user id");
-    }
-
-    const foundedUser = await User.findById(userId);
-
-    if (!foundedUser) {
-      throw new NotFoundError(`Not found user with id ${userId}`);
-    }
-
-    const videoDuration = await getVideoDuration(video[0].path);
-
-    const data = {
-      user_id: userId,
-      type: type,
-      title: title,
-      video: video[0].filename,
-      thumb: image[0].filename,
-      duration: videoDuration,
-      tag: tag,
-      view,
-      like,
-      dislike,
-    };
-
-    await Video.create(data);
-
-    res.status(StatusCodes.CREATED).json({ msg: "Upload video successfully" });
-  } catch (error) {
-    if (video && video[0]) {
-      deleteFile(video[0].path);
-    }
-    if (image && image[0]) {
-      deleteFile(image[0].path);
-    }
-    throw error;
+  const videoPath = req.file.path; // Đường dẫn đến video vừa upload
+  const outputDir = "segments/";
+  if (!fs.existsSync(outputDir)) {
+    fs.mkdirSync(outputDir);
   }
+
+  // Tiến hành chia video thành các segment
+  fluentFFmpeg(videoPath);
+  fluentFFmpeg(videoPath)
+    .output(path.join(asssetPath, outputDir, "720p/output.m3u8"))
+    .videoFilters("scale=640:360")
+    .outputOptions([
+      "-f hls",
+      "-hls_time 10",
+      "-hls_list_size 0",
+      "-start_number 1",
+    ])
+    .output(path.join(outputDir, "720p/output.m3u8"))
+    .videoFilters("scale=854:480")
+    .outputOptions([
+      "-f hls",
+      "-hls_time 10",
+      "-hls_list_size 0",
+      "-start_number 1",
+    ])
+    .output(path.join(outputDir, "1080p/output.m3u8"))
+    .videoFilters("1280:720")
+    .outputOptions([
+      "-f hls",
+      "-hls_time 10",
+      "-hls_list_size 0",
+      "-start_number 1",
+    ])
+    .output(path.join(outputDir, "1080p/output.m3u8"))
+    .videoFilters("1920:1080")
+    .outputOptions([
+      "-f hls",
+      "-hls_time 10",
+      "-hls_list_size 0",
+      "-start_number 1",
+    ])
+    .on("end", () => {
+      fs.unlink(outputPath, (err) => {
+        if (err) {
+          console.error("Lỗi khi xóa tệp:", err);
+        } else {
+          console.log("Tệp đã được xóa!");
+        }
+      });
+    })
+    .on("error", (err) => {
+      console.error("Lỗi khi xử lý video:", err);
+    })
+    .run();
+
+  // const {
+  //   userId,
+  //   type,
+  //   title,
+  //   tag = [],
+  //   view = 0,
+  //   like = 0,
+  //   dislike = 0,
+  // } = req.body;
+
+  // try {
+  //   const fileErr = [];
+
+  //   if (!video || video.length === 0) {
+  //     fileErr.push("video");
+  //   }
+
+  //   if (!image || image.length === 0) {
+  //     fileErr.push("image");
+  //   }
+
+  //   if (fileErr.length > 0) {
+  //     throw new BadRequestError(`Please provide ${fileErr.join(", ")}`);
+  //   }
+
+  //   if (!userId) {
+  //     throw new BadRequestError("Please provide user id");
+  //   }
+
+  //   const foundedUser = await User.findById(userId);
+
+  //   if (!foundedUser) {
+  //     throw new NotFoundError(`Not found user with id ${userId}`);
+  //   }
+
+  //   const videoDuration = await getVideoDuration(video[0].path);
+
+  //   const data = {
+  //     user_id: userId,
+  //     type: type,
+  //     title: title,
+  //     video: video[0].filename,
+  //     thumb: image[0].filename,
+  //     duration: videoDuration,
+  //     tag: tag,
+  //     view,
+  //     like,
+  //     dislike,
+  //   };
+
+  //   await Video.create(data);
+
+  //   res.status(StatusCodes.CREATED).json({ msg: "Upload video successfully" });
+  // } catch (error) {
+  //   if (video && video[0]) {
+  //     deleteFile(video[0].path);
+  //   }
+  //   if (image && image[0]) {
+  //     deleteFile(image[0].path);
+  //   }
+  //   throw error;
+  // }
+
+  res.send("OK");
 };
 
 const getVideos = async (req, res) => {
@@ -87,7 +147,7 @@ const getVideos = async (req, res) => {
   let skip = (page - 1) * limit;
 
   const findParams = Object.keys(req.query).filter(
-    (key) => key !== "limit" && key !== "page" && key !== "sort"
+    (key) => key !== "limit" && key !== "page" && key !== "sort",
   );
 
   let findObj = {};
@@ -134,7 +194,7 @@ const getVideos = async (req, res) => {
 
     if (unique.length > 1) {
       throw new BadRequestError(
-        `Only one sort key in ${uniqueSortKeys.join(", ")} is allowed`
+        `Only one sort key in ${uniqueSortKeys.join(", ")} is allowed`,
       );
     } else if (unique.length > 0) {
       sortObj[unique[0]] = uniqueValue;
@@ -316,8 +376,8 @@ const updateVideo = async (req, res) => {
   if (notAllowValue.length > 0) {
     throw new BadRequestError(
       `The comment cannot contain the following fields: ${notAllowValue.join(
-        ", "
-      )}`
+        ", ",
+      )}`,
     );
   }
 
@@ -375,7 +435,7 @@ const deleteManyVideos = async (req, res) => {
         return id;
       }
       return null;
-    })
+    }),
   );
 
   notFoundedVideos = notFoundedVideos.filter((id) => id !== null);
@@ -383,8 +443,8 @@ const deleteManyVideos = async (req, res) => {
   if (notFoundedVideos.length > 0) {
     throw new NotFoundError(
       `The following video IDs could not be found: ${notFoundedVideos.join(
-        ", "
-      )}`
+        ", ",
+      )}`,
     );
   }
 
