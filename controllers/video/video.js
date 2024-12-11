@@ -17,60 +17,143 @@ const asssetPath = path.join(__dirname, "../../assets");
 const upLoadVideo = async (req, res) => {
   const { image, video } = req.files;
 
-  const videoPath = req.file.path; // Đường dẫn đến video vừa upload
-  const outputDir = "segments/";
-  if (!fs.existsSync(outputDir)) {
-    fs.mkdirSync(outputDir);
+  const {
+    userId,
+    type,
+    title,
+    tag = [],
+    view = 0,
+    like = 0,
+    dislike = 0,
+  } = req.body;
+
+  const videoPath = video[0].path; // Đường dẫn đến video vừa upload
+
+  const filename = video[0].filename.split(".")[0];
+
+  const resolutions = [
+    {
+      reso: 1080,
+      scaleVideo: "scale=1920:1080",
+      scaleShort: "scale=1080:1920",
+    },
+    {
+      reso: 720,
+      scaleVideo: "scale=1280:720",
+      scaleShort: "scale=720:1280",
+    },
+    // {
+    //   reso: 480,
+    //   scaleVideo: "scale=854:480",
+    //   scaleShort: "scale=480:854",
+    // },
+    // {
+    //   reso: 360,
+    //   scaleVideo: "scale=640:360",
+    //   scaleShort: "scale=360:640",
+    // },
+  ];
+
+  const outputDir = "video segments";
+  // create output folder if not exists
+  // if (!fs.existsSync(path.join(asssetPath, outputDir))) {
+  //   fs.mkdirSync(outputDir);
+  // }
+
+  const videoSegmentInfos = [];
+
+  resolutions.forEach((resolution) => {
+    const folderPath = path.join(
+      asssetPath,
+      outputDir,
+      `${resolution.reso}p`,
+      filename,
+    );
+
+    const filePath = path.join(folderPath, "hsl_output.m3u8");
+    let result = { folderPath, filePath };
+    switch (type) {
+      case "video":
+        result = { ...result, scale: resolution.scaleVideo };
+        break;
+      case "short":
+        result = { ...result, scale: resolution.scaleShort };
+        break;
+      default:
+        throw new BadRequestError("Invalid video type");
+    }
+    videoSegmentInfos.push(result);
+  });
+
+  let ffmpeg = fluentFFmpeg(videoPath);
+  let ffmpeg2 = fluentFFmpeg(videoPath);
+
+  try {
+    for (const videoSegmentInfo of videoSegmentInfos) {
+      fs.mkdirSync(videoSegmentInfo.folderPath);
+      const fd = fs.openSync(videoSegmentInfo.filePath, "w+");
+      fs.closeSync(fd);
+      if (videoSegmentInfos.indexOf(videoSegmentInfo) !== 0) {
+        ffmpeg2
+          .output(videoSegmentInfo.filePath)
+          .videoFilters(videoSegmentInfo.scale)
+          .outputOptions([
+            "-f hls",
+            "-hls_time 10",
+            "-hls_list_size 0",
+            "-start_number 1",
+          ]);
+      }
+    }
+
+    // Creating default resolution
+    await new Promise((resolve, reject) => {
+      ffmpeg
+        .output(videoSegmentInfos[0].filePath)
+        .videoFilters(videoSegmentInfos[0].scale)
+        .outputOptions([
+          "-f hls",
+          "-hls_time 10",
+          "-hls_list_size 0",
+          "-start_number 1",
+        ])
+        .on("stderr", (stderr) => {
+          console.error("FFmpeg stderr:", stderr);
+        })
+        .on("stdout", (stdout) => {
+          console.log("FFmpeg stdout:", stdout);
+        })
+        .on("end", () => {
+          resolve();
+        })
+        .on("error", (err) => {
+          reject(err);
+        })
+        .run();
+    }).catch((error) => {
+      throw error;
+    });
+
+    ffmpeg2
+      .on("stderr", (stderr) => {
+        console.error("FFmpeg stderr:", stderr);
+      })
+      .on("stdout", (stdout) => {
+        console.log("FFmpeg stdout:", stdout);
+      })
+      .on("end", () => {})
+      .on("error", (err) => {
+        throw err;
+      })
+      .run();
+  } catch (error) {
+    console.error("Lỗi khi tạo file:", error);
+    throw error;
   }
 
+  //  if video segments is not exited then create video segments
+
   // Tiến hành chia video thành các segment
-  fluentFFmpeg(videoPath);
-  fluentFFmpeg(videoPath)
-    .output(path.join(asssetPath, outputDir, "720p/output.m3u8"))
-    .videoFilters("scale=640:360")
-    .outputOptions([
-      "-f hls",
-      "-hls_time 10",
-      "-hls_list_size 0",
-      "-start_number 1",
-    ])
-    .output(path.join(outputDir, "720p/output.m3u8"))
-    .videoFilters("scale=854:480")
-    .outputOptions([
-      "-f hls",
-      "-hls_time 10",
-      "-hls_list_size 0",
-      "-start_number 1",
-    ])
-    .output(path.join(outputDir, "1080p/output.m3u8"))
-    .videoFilters("1280:720")
-    .outputOptions([
-      "-f hls",
-      "-hls_time 10",
-      "-hls_list_size 0",
-      "-start_number 1",
-    ])
-    .output(path.join(outputDir, "1080p/output.m3u8"))
-    .videoFilters("1920:1080")
-    .outputOptions([
-      "-f hls",
-      "-hls_time 10",
-      "-hls_list_size 0",
-      "-start_number 1",
-    ])
-    .on("end", () => {
-      fs.unlink(outputPath, (err) => {
-        if (err) {
-          console.error("Lỗi khi xóa tệp:", err);
-        } else {
-          console.log("Tệp đã được xóa!");
-        }
-      });
-    })
-    .on("error", (err) => {
-      console.error("Lỗi khi xử lý video:", err);
-    })
-    .run();
 
   // const {
   //   userId,

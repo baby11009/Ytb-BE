@@ -61,10 +61,14 @@ const Video = new mongoose.Schema(
       type: String,
       default: "",
     },
+    stream: {
+      type: String,
+      default: "",
+    },
   },
   {
     timestamps: true,
-  }
+  },
 );
 
 // Update links data when create video
