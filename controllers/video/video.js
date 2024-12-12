@@ -33,22 +33,22 @@ const upLoadVideo = async (req, res) => {
 
   const resolutions = [
     {
-      reso: 1080,
+      quality: 1080,
       scaleVideo: "scale=1920:1080",
       scaleShort: "scale=1080:1920",
     },
-    {
-      reso: 720,
-      scaleVideo: "scale=1280:720",
-      scaleShort: "scale=720:1280",
-    },
     // {
-    //   reso: 480,
-    //   scaleVideo: "scale=854:480",
-    //   scaleShort: "scale=480:854",
+    //   quality: 720,
+    //   scaleVideo: "scale=1280:720",
+    //   scaleShort: "scale=720:1280",
     // },
     // {
-    //   reso: 360,
+    //   quality: 480,
+    //   scaleVideo: "scale=854:480",
+    //   scaleShort: "scale=480:854",q
+    // },
+    // {
+    //   quality: 360,
     //   scaleVideo: "scale=640:360",
     //   scaleShort: "scale=360:640",
     // },
@@ -66,12 +66,12 @@ const upLoadVideo = async (req, res) => {
     const folderPath = path.join(
       asssetPath,
       outputDir,
-      `${resolution.reso}p`,
+      `${resolution.quality}p`,
       filename,
     );
 
     const filePath = path.join(folderPath, "hsl_output.m3u8");
-    let result = { folderPath, filePath };
+    let result = { folderPath, filePath, quality: resolution.quality };
     switch (type) {
       case "video":
         result = { ...result, scale: resolution.scaleVideo };
@@ -89,11 +89,27 @@ const upLoadVideo = async (req, res) => {
   let ffmpeg2 = fluentFFmpeg(videoPath);
 
   try {
+    const masterFolderPath = path.join(
+      asssetPath,
+      outputDir,
+      "master",
+      filename,
+    );
+
+    const masterFilePath = path.join(masterFolderPath, "master.m3u8");
+
+    fs.mkdirSync(masterFolderPath);
+    const fd = fs.openSync(masterFilePath, "w+");
+    fs.closeSync(fd);
+
     for (const videoSegmentInfo of videoSegmentInfos) {
       fs.mkdirSync(videoSegmentInfo.folderPath);
       const fd = fs.openSync(videoSegmentInfo.filePath, "w+");
       fs.closeSync(fd);
-      if (videoSegmentInfos.indexOf(videoSegmentInfo) !== 0) {
+      if (
+        videoSegmentInfos.indexOf(videoSegmentInfo) !== 0 &&
+        videoSegmentInfos.length > 1
+      ) {
         ffmpeg2
           .output(videoSegmentInfo.filePath)
           .videoFilters(videoSegmentInfo.scale)
@@ -102,9 +118,19 @@ const upLoadVideo = async (req, res) => {
             "-hls_time 10",
             "-hls_list_size 0",
             "-start_number 1",
+            // `-hls_base_url ${safeBaseUrl}`,
           ]);
       }
     }
+
+    const videoBaseUrl = "http://localhost:3000/api/v1/file/video/";
+
+    const segmentBaseUrl = "http://localhost:3000/api/v1/file/segment/";
+    const segmentSafeBaseUrl = encodeURI(
+      segmentBaseUrl +
+        filename +
+        `?resolution=${videoSegmentInfos[0].quality}&hsl=`,
+    );
 
     // Creating default resolution
     await new Promise((resolve, reject) => {
@@ -116,6 +142,7 @@ const upLoadVideo = async (req, res) => {
           "-hls_time 10",
           "-hls_list_size 0",
           "-start_number 1",
+          `-hls_base_url ${segmentSafeBaseUrl}`,
         ])
         .on("stderr", (stderr) => {
           console.error("FFmpeg stderr:", stderr);
@@ -124,7 +151,31 @@ const upLoadVideo = async (req, res) => {
           console.log("FFmpeg stdout:", stdout);
         })
         .on("end", () => {
-          resolve();
+          try {
+            const resolution = videoSegmentInfos[0].scale
+              .split("=")[1]
+              .split(":")
+              .join("x");
+
+            let masterPlaylistContent =
+              "#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:10\n#EXT-X-MEDIA-SEQUENCE:1\n";
+
+            const playlistUrl = encodeURI(
+              videoBaseUrl +
+                filename +
+                "?type=stream&resolution=" +
+                videoSegmentInfos[0].quality,
+            );
+
+            masterPlaylistContent += `#EXT-X-STREAM-INF:RESOLUTION=${resolution}\n${playlistUrl}\n`;
+
+            // Ghi nội dung vào file master.m3u8
+            fs.writeFileSync(masterFilePath, masterPlaylistContent);
+
+            resolve();
+          } catch (error) {
+            throw error;
+          }
         })
         .on("error", (err) => {
           reject(err);
@@ -134,18 +185,18 @@ const upLoadVideo = async (req, res) => {
       throw error;
     });
 
-    ffmpeg2
-      .on("stderr", (stderr) => {
-        console.error("FFmpeg stderr:", stderr);
-      })
-      .on("stdout", (stdout) => {
-        console.log("FFmpeg stdout:", stdout);
-      })
-      .on("end", () => {})
-      .on("error", (err) => {
-        throw err;
-      })
-      .run();
+    // ffmpeg2
+    //   .on("stderr", (stderr) => {
+    //     console.error("FFmpeg stderr:", stderr);
+    //   })
+    //   .on("stdout", (stdout) => {
+    //     console.log("FFmpeg stdout:", stdout);
+    //   })
+    //   .on("end", () => {})
+    //   .on("error", (err) => {
+    //     throw err;
+    //   })
+    //   .run();
   } catch (error) {
     console.error("Lỗi khi tạo file:", error);
     throw error;

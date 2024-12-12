@@ -4,7 +4,9 @@ const router = express.Router();
 
 const {
   handleViewImage,
-  handleViewVideo,
+  handleStreamVideoOptions,
+  handleStreamVideo,
+  handleStreamVideoSegment,
 } = require("../controllers/file/file");
 
 router.route("/avatar/:name").get(async (req, res) => {
@@ -15,9 +17,25 @@ router.route("/avatar/:name").get(async (req, res) => {
   }
 });
 
+router.route("/videomaster/:name").get(async (req, res, next) => {
+  try {
+    await handleStreamVideoOptions(req, res, next);
+  } catch (error) {
+    throw error;
+  }
+});
+
 router.route("/video/:name").get(async (req, res, next) => {
   try {
-    await handleViewVideo(req, res, next);
+    await handleStreamVideo(req, res, next);
+  } catch (error) {
+    throw error;
+  }
+});
+
+router.route("/segment/:name").get(async (req, res, next) => {
+  try {
+    await handleStreamVideoSegment(req, res, next);
   } catch (error) {
     throw error;
   }

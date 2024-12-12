@@ -25,11 +25,33 @@ const handleViewImage = async (req, res, fileFolder = "") => {
   }
 };
 
-const handleViewVideo = async (req, res, next) => {
+const handleStreamVideoOptions = async (req, res, next) => {
+  const { name } = req.params;
+
+  try {
+    // Đường dẫn đến file master.m3u8 cho video cụ thể
+    const masterFilePath = path.join(
+      assetsPath,
+      "video segments",
+      "master",
+      name,
+      "master.m3u8",
+    );
+
+    // Kiểm tra xem file có tồn tại không
+    await fs.promises.access(masterFilePath, fs.constants.F_OK);
+    res.setHeader("Content-Type", "application/vnd.apple.mpegurl");
+    fs.createReadStream(masterFilePath).pipe(res); // Trả về file master.m3u8 trực tiếp
+  } catch (error) {
+    next(error);
+  }
+};
+
+const handleStreamVideo = async (req, res, next) => {
   const { name } = req.params;
 
   const { type, resolution } = req.query;
-  console.log(type);
+
   try {
     if (!name) {
       throw new BadRequestError("Please provide a name");
@@ -52,16 +74,9 @@ const handleViewVideo = async (req, res, next) => {
       ); // Đường dẫn tới file .m3u8
 
       // Kiểm tra xem file .m3u8 có tồn tại không
-      fs.access(m3u8Path, fs.constants.F_OK, (err) => {
-        if (err) {
-          // Nếu không tồn tại, trả về lỗi
-          return next(new Error(`M3U8 file not found: ${name}`));
-        }
-
-        // Nếu tồn tại, đọc và gửi file .m3u8
-        res.setHeader("Content-Type", "application/vnd.apple.mpegurl");
-        res.sendFile(m3u8Path);
-      });
+      await fs.promises.access(m3u8Path, fs.constants.F_OK);
+      res.setHeader("Content-Type", "application/vnd.apple.mpegurl");
+      res.sendFile(m3u8Path);
     } else {
       const videoPath = path.join(assetsPath, "videos", name);
       await fs.promises.access(videoPath, fs.constants.F_OK);
@@ -104,7 +119,44 @@ const handleViewVideo = async (req, res, next) => {
   }
 };
 
+const handleStreamVideoSegment = async (req, res, next) => {
+  try {
+    const { name } = req.params;
+    const { hsl, resolution } = req.query;
+
+    if (!name) {
+      throw new NotFoundError(`Not found file with name ${name}`);
+    }
+    if (!hsl) {
+      throw new BadRequestError("Please provide a hsl value");
+    }
+
+    if (!resolution) {
+      throw new BadRequestError("Please provide a streaming resolution");
+    }
+
+    const hslPath = path.join(
+      assetsPath,
+      "video segments",
+      `${resolution}p`,
+      name,
+      hsl,
+    );
+    // check if file is exited
+    await fs.promises.access(hslPath, fs.constants.F_OK);
+
+    // create streaming
+    res.setHeader("Content-Type", "video/MP2T");
+    const fileStream = fs.createReadStream(hslPath);
+    fileStream.pipe(res);
+  } catch (error) {
+    throw error;
+  }
+};
+
 module.exports = {
   handleViewImage,
-  handleViewVideo,
+  handleStreamVideoOptions,
+  handleStreamVideo,
+  handleStreamVideoSegment,
 };
