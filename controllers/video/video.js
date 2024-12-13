@@ -3,14 +3,14 @@ const mongoose = require("mongoose");
 
 const fluentFFmpeg = require("fluent-ffmpeg");
 const fs = require("fs");
+const path = require("path");
 
 const { StatusCodes } = require("http-status-codes");
 
 const { BadRequestError, NotFoundError } = require("../../errors");
 
 const { deleteFile, getVideoDuration } = require("../../utils/file");
-
-const path = require("path");
+const { createHls } = require("../../utils/createhls");
 
 const asssetPath = path.join(__dirname, "../../assets");
 
@@ -31,215 +31,44 @@ const upLoadVideo = async (req, res) => {
 
   const filename = video[0].filename.split(".")[0];
 
-  const resolutions = [
-    {
-      quality: 1080,
-      scaleVideo: "scale=1920:1080",
-      scaleShort: "scale=1080:1920",
-    },
-    // {
-    //   quality: 720,
-    //   scaleVideo: "scale=1280:720",
-    //   scaleShort: "scale=720:1280",
-    // },
-    // {
-    //   quality: 480,
-    //   scaleVideo: "scale=854:480",
-    //   scaleShort: "scale=480:854",q
-    // },
-    // {
-    //   quality: 360,
-    //   scaleVideo: "scale=640:360",
-    //   scaleShort: "scale=360:640",
-    // },
-  ];
-
-  const outputDir = "video segments";
-  // create output folder if not exists
-  // if (!fs.existsSync(path.join(asssetPath, outputDir))) {
-  //   fs.mkdirSync(outputDir);
-  // }
-
-  const videoSegmentInfos = [];
-
-  resolutions.forEach((resolution) => {
-    const folderPath = path.join(
-      asssetPath,
-      outputDir,
-      `${resolution.quality}p`,
-      filename,
-    );
-
-    const filePath = path.join(folderPath, "hsl_output.m3u8");
-    let result = { folderPath, filePath, quality: resolution.quality };
-    switch (type) {
-      case "video":
-        result = { ...result, scale: resolution.scaleVideo };
-        break;
-      case "short":
-        result = { ...result, scale: resolution.scaleShort };
-        break;
-      default:
-        throw new BadRequestError("Invalid video type");
-    }
-    videoSegmentInfos.push(result);
-  });
-
-  let ffmpeg = fluentFFmpeg(videoPath);
-  let ffmpeg2 = fluentFFmpeg(videoPath);
-
   try {
-    const masterFolderPath = path.join(
-      asssetPath,
-      outputDir,
-      "master",
-      filename,
-    );
+    const fileErr = [];
 
-    const masterFilePath = path.join(masterFolderPath, "master.m3u8");
+    // if (!video || video.length === 0) {
+    //   fileErr.push("video");
+    // }
 
-    fs.mkdirSync(masterFolderPath);
-    const fd = fs.openSync(masterFilePath, "w+");
-    fs.closeSync(fd);
+    // if (!image || image.length === 0) {
+    //   fileErr.push("image");
+    // }
 
-    for (const videoSegmentInfo of videoSegmentInfos) {
-      fs.mkdirSync(videoSegmentInfo.folderPath);
-      const fd = fs.openSync(videoSegmentInfo.filePath, "w+");
-      fs.closeSync(fd);
-      if (
-        videoSegmentInfos.indexOf(videoSegmentInfo) !== 0 &&
-        videoSegmentInfos.length > 1
-      ) {
-        ffmpeg2
-          .output(videoSegmentInfo.filePath)
-          .videoFilters(videoSegmentInfo.scale)
-          .outputOptions([
-            "-f hls",
-            "-hls_time 10",
-            "-hls_list_size 0",
-            "-start_number 1",
-            // `-hls_base_url ${safeBaseUrl}`,
-          ]);
-      }
-    }
+    // if (fileErr.length > 0) {
+    //   throw new BadRequestError(`Please provide ${fileErr.join(", ")}`);
+    // }
 
-    const videoBaseUrl = "http://localhost:3000/api/v1/file/video/";
+    // if (!userId) {
+    //   throw new BadRequestError("Please provide user id");
+    // }
 
-    const segmentBaseUrl = "http://localhost:3000/api/v1/file/segment/";
-    const segmentSafeBaseUrl = encodeURI(
-      segmentBaseUrl +
-        filename +
-        `?resolution=${videoSegmentInfos[0].quality}&hsl=`,
-    );
+    // const foundedUser = await User.findById(userId);
 
-    // Creating default resolution
-    await new Promise((resolve, reject) => {
-      ffmpeg
-        .output(videoSegmentInfos[0].filePath)
-        .videoFilters(videoSegmentInfos[0].scale)
-        .outputOptions([
-          "-f hls",
-          "-hls_time 10",
-          "-hls_list_size 0",
-          "-start_number 1",
-          `-hls_base_url ${segmentSafeBaseUrl}`,
-        ])
-        .on("stderr", (stderr) => {
-          console.error("FFmpeg stderr:", stderr);
-        })
-        .on("stdout", (stdout) => {
-          console.log("FFmpeg stdout:", stdout);
-        })
-        .on("end", () => {
-          try {
-            const resolution = videoSegmentInfos[0].scale
-              .split("=")[1]
-              .split(":")
-              .join("x");
+    // if (!foundedUser) {
+    //   throw new NotFoundError(`Not found user with id ${userId}`);
+    // }
 
-            let masterPlaylistContent =
-              "#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:10\n#EXT-X-MEDIA-SEQUENCE:1\n";
-
-            const playlistUrl = encodeURI(
-              videoBaseUrl +
-                filename +
-                "?type=stream&resolution=" +
-                videoSegmentInfos[0].quality,
-            );
-
-            masterPlaylistContent += `#EXT-X-STREAM-INF:RESOLUTION=${resolution}\n${playlistUrl}\n`;
-
-            // Ghi nội dung vào file master.m3u8
-            fs.writeFileSync(masterFilePath, masterPlaylistContent);
-
-            resolve();
-          } catch (error) {
-            throw error;
-          }
-        })
-        .on("error", (err) => {
-          reject(err);
-        })
-        .run();
-    }).catch((error) => {
-      throw error;
-    });
-
-    // ffmpeg2
-    //   .on("stderr", (stderr) => {
-    //     console.error("FFmpeg stderr:", stderr);
-    //   })
-    //   .on("stdout", (stdout) => {
-    //     console.log("FFmpeg stdout:", stdout);
-    //   })
-    //   .on("end", () => {})
-    //   .on("error", (err) => {
-    //     throw err;
-    //   })
-    //   .run();
+    await createHls(filename, videoPath, type);
+    
   } catch (error) {
-    console.error("Lỗi khi tạo file:", error);
+    if (video && video[0]) {
+      deleteFile(video[0].path);
+    }
+    if (image && image[0]) {
+      deleteFile(image[0].path);
+    }
     throw error;
   }
 
-  //  if video segments is not exited then create video segments
-
-  // Tiến hành chia video thành các segment
-
-  // const {
-  //   userId,
-  //   type,
-  //   title,
-  //   tag = [],
-  //   view = 0,
-  //   like = 0,
-  //   dislike = 0,
-  // } = req.body;
-
   // try {
-  //   const fileErr = [];
-
-  //   if (!video || video.length === 0) {
-  //     fileErr.push("video");
-  //   }
-
-  //   if (!image || image.length === 0) {
-  //     fileErr.push("image");
-  //   }
-
-  //   if (fileErr.length > 0) {
-  //     throw new BadRequestError(`Please provide ${fileErr.join(", ")}`);
-  //   }
-
-  //   if (!userId) {
-  //     throw new BadRequestError("Please provide user id");
-  //   }
-
-  //   const foundedUser = await User.findById(userId);
-
-  //   if (!foundedUser) {
-  //     throw new NotFoundError(`Not found user with id ${userId}`);
-  //   }
 
   //   const videoDuration = await getVideoDuration(video[0].path);
 
@@ -260,12 +89,7 @@ const upLoadVideo = async (req, res) => {
 
   //   res.status(StatusCodes.CREATED).json({ msg: "Upload video successfully" });
   // } catch (error) {
-  //   if (video && video[0]) {
-  //     deleteFile(video[0].path);
-  //   }
-  //   if (image && image[0]) {
-  //     deleteFile(image[0].path);
-  //   }
+
   //   throw error;
   // }
 
