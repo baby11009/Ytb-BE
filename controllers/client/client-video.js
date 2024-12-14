@@ -1,5 +1,4 @@
-const { User, Video, Subscribe } = require("../../models");
-const mongoose = require("mongoose");
+const { User, Video } = require("../../models");
 
 const { StatusCodes } = require("http-status-codes");
 
@@ -10,6 +9,8 @@ const {
 } = require("../../errors");
 
 const { deleteFile, getVideoDuration } = require("../../utils/file");
+const { createHls } = require("../../utils/createhls");
+const { clearUploadedVideoFiles } = require("../../utils/clear");
 
 const path = require("path");
 
@@ -21,8 +22,6 @@ const upLoadVideo = async (req, res) => {
   const { userId } = req.user;
 
   const { type, title, tag = [], description = "" } = req.body;
-
-  const videoPath = path.join(asssetPath, "videos", video[0].filename);
 
   try {
     const fileErr = [];
@@ -49,6 +48,11 @@ const upLoadVideo = async (req, res) => {
       throw new NotFoundError(`Not found user with id ${userId}`);
     }
 
+    const videoPath = video[0].path; // Đường dẫn đến video vừa upload
+    const filename = video[0].filename.split(".")[0];
+
+    await createHls(filename, videoPath, type);
+
     const videoDuration = await getVideoDuration(videoPath);
 
     const data = {
@@ -56,6 +60,7 @@ const upLoadVideo = async (req, res) => {
       type: type,
       title: title,
       video: video[0].filename,
+      stream: filename,
       thumb: image[0].filename,
       duration: videoDuration,
       tag: tag,
@@ -66,14 +71,15 @@ const upLoadVideo = async (req, res) => {
 
     res.status(StatusCodes.CREATED).json({ msg: "Upload video successfully" });
   } catch (error) {
-    if (image && image[0]) {
-      const imagePath = path.join(asssetPath, "video thumb", image[0].filename);
-      deleteFile(imagePath);
+    let args = {};
+    if (video & video[0]) {
+      args.videoPath = video[0].path;
     }
 
-    if (video && video[0]) {
-      deleteFile(videoPath);
+    if (image & image[0]) {
+      args.imagePath = image[0].path;
     }
+    await clearUploadedVideoFiles(args);
     throw error;
   }
 };
@@ -89,7 +95,7 @@ const getVideos = async (req, res) => {
   const { sort } = req.query;
 
   const findParams = Object.keys(req.query).filter(
-    (key) => key !== "limit" && key !== "page" && key !== "sort"
+    (key) => key !== "limit" && key !== "page" && key !== "sort",
   );
 
   let findObj = {};
@@ -130,7 +136,7 @@ const getVideos = async (req, res) => {
 
     if (unique.length > 1) {
       throw new BadRequestError(
-        `Only one sort key in ${uniqueSortKeys.join(", ")} is allowed`
+        `Only one sort key in ${uniqueSortKeys.join(", ")} is allowed`,
       );
     } else if (unique.length > 0) {
       sortObj[unique[0]] = uniqueValue;
@@ -182,6 +188,14 @@ const getVideos = async (req, res) => {
         "user_info.avatar": 1,
         "user_info.name": 1,
         thumb: 1,
+        video: 1,
+        stream: {
+          $cond: {
+            if: { $ne: ["$stream", null] }, // Check if `stream` exists and is not null
+            then: "$stream", // Keep the `stream` value if it exists
+            else: null, // Set it to null if it doesn't exist
+          },
+        },
         duration: { $ifNull: ["$duration", 0] },
         type: 1,
         view: 1,
@@ -282,7 +296,6 @@ const getVideoDetails = async (req, res) => {
 
 const updateVideo = async (req, res) => {
   const { id } = req.params;
-  console.log("🚀 ~ id:", id);
 
   const { userId } = req.user;
 
@@ -334,8 +347,8 @@ const updateVideo = async (req, res) => {
   if (notAllowValue.length > 0) {
     throw new BadRequestError(
       `The comment cannot contain the following fields: ${notAllowValue.join(
-        ", "
-      )}`
+        ", ",
+      )}`,
     );
   }
 
@@ -350,7 +363,7 @@ const updateVideo = async (req, res) => {
   const video = await Video.findByIdAndUpdate(id, updateData);
   if (!video) {
     throw new InternalServerError(
-      "These something went wrong with the server please try again later"
+      "These something went wrong with the server please try again later",
     );
   }
 
@@ -379,7 +392,7 @@ const deleteVideo = async (req, res) => {
 
   if (userId !== foundedVideo.user_id.toString()) {
     throw new BadRequestError(
-      `Video with id ${id} does not belong to your account`
+      `Video with id ${id} does not belong to your account`,
     );
   }
 
@@ -415,7 +428,7 @@ const deleteManyVideos = async (req, res) => {
       }
 
       return null;
-    })
+    }),
   );
 
   notFoundedVideos = notFoundedVideos.filter((id) => id !== null);
@@ -423,16 +436,16 @@ const deleteManyVideos = async (req, res) => {
   if (notFoundedVideos.length > 0) {
     throw new NotFoundError(
       `The following video IDs could not be found: ${notFoundedVideos.join(
-        ", "
-      )}`
+        ", ",
+      )}`,
     );
   }
 
   if (notBelongsToList.length > 0) {
     throw new BadRequestError(
       `The following video IDs : ${notBelongsToList.join(
-        ", "
-      )}. Does not belong to you `
+        ", ",
+      )}. Does not belong to you `,
     );
   }
 

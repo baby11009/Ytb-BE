@@ -3,7 +3,7 @@ const User = require("./user");
 const path = require("path");
 const asssetPath = path.join(__dirname, "../assets");
 const { deleteFile } = require("../utils/file");
-const user = require("./user");
+const { clearUploadedVideoFiles } = require("../utils/clear");
 
 const Video = new mongoose.Schema(
   {
@@ -20,6 +20,9 @@ const Video = new mongoose.Schema(
     video: {
       type: String,
       required: [true, "Please provide video"],
+    },
+    stream: {
+      type: String,
     },
     duration: {
       type: Number,
@@ -61,10 +64,6 @@ const Video = new mongoose.Schema(
       type: String,
       default: "",
     },
-    stream: {
-      type: String,
-      default: "",
-    },
   },
   {
     timestamps: true,
@@ -92,11 +91,16 @@ Video.pre("deleteOne", async function () {
   const video = await Video.findOne({ _id: _id });
 
   // Delete video and thumbnail belong to this video
-  const videoPath = path.join(asssetPath, "videos", video.video);
-  deleteFile(videoPath);
 
-  const thumbPath = path.join(asssetPath, "video thumb", video.thumb);
-  deleteFile(thumbPath);
+  const videoPath = path.join(asssetPath, "videos", video.video);
+
+  const imagePath = path.join(asssetPath, "video thumb", video.thumb);
+  let args = { videoPath, imagePath };
+
+  if (video?.stream) {
+    args.streamFolderName = video.stream;
+  }
+  await clearUploadedVideoFiles(args);
 
   // Update user total uploaded video
   await User.updateOne({ _id: video.user_id }, { $inc: { totalVids: -1 } });
@@ -128,10 +132,15 @@ Video.pre("deleteMany", async function () {
   // Deleting all the comments that belong to this video
   foundedVideos.map(async (video) => {
     // Delete video and thumbnail belong to this video
-    const imgPath = path.join(asssetPath, "video thumb", video.thumb);
-    deleteFile(imgPath);
     const videoPath = path.join(asssetPath, "videos", video.video);
-    deleteFile(videoPath);
+    const imagePath = path.join(asssetPath, "video thumb", video.thumb);
+
+    let args = { videoPath, imagePath };
+
+    if (video?.stream) {
+      args.streamFolderName = video.stream;
+    }
+    await clearUploadedVideoFiles(args);
 
     // Delete all the React belong to videos
     await React.deleteMany({ video_id: video._id });

@@ -139,6 +139,14 @@ const getVideoList = async (req, res) => {
       "user_info.avatar": 1,
       "user_info.name": 1,
       tag_info: 1,
+      video: 1,
+      stream: {
+        $cond: {
+          if: { $ne: ["$stream", null] }, // Check if `stream` exists and is not null
+          then: "$stream", // Keep the `stream` value if it exists
+          else: null, // Set it to null if it doesn't exist
+        },
+      },
       tag: 1,
       thumb: 1,
       duration: { $ifNull: ["$duration", 0] },
@@ -388,7 +396,7 @@ const getRandomShort = async (req, res) => {
     userId = req.user.userId;
   }
 
-  const { watchedIdList = [], shortId } = req.query;
+  const { watchedIdList = [] } = req.query;
   let size = 3;
   const addFieldsObj = {};
   let matchObj = {
@@ -468,6 +476,14 @@ const getRandomShort = async (req, res) => {
     {
       $project: {
         _id: 1,
+        video: 1,
+        stream: {
+          $cond: {
+            if: { $ne: ["$stream", null] }, // Check if `stream` exists and is not null
+            then: "$stream", // Keep the `stream` value if it exists
+            else: null, // Set it to null if it doesn't exist
+          },
+        },
       },
     },
   );
@@ -668,6 +684,14 @@ const getDataList = async (req, res) => {
               $project: {
                 _id: 1,
                 thumb: 1,
+                video: 1,
+                stream: {
+                  $cond: {
+                    if: { $ne: ["$stream", null] }, // Check if `stream` exists and is not null
+                    then: "$stream", // Keep the `stream` value if it exists
+                    else: null, // Set it to null if it doesn't exist
+                  },
+                },
               },
             },
           ],
@@ -827,6 +851,14 @@ const getDataList = async (req, res) => {
       _id: 1,
       title: 1,
       thumb: 1,
+      video: 1,
+      stream: {
+        $cond: {
+          if: { $ne: ["$stream", null] }, // Check if `stream` exists and is not null
+          then: "$stream", // Keep the `stream` value if it exists
+          else: null, // Set it to null if it doesn't exist
+        },
+      },
       duration: { $ifNull: ["$duration", 0] },
       type: 1,
       view: 1,
@@ -1011,6 +1043,14 @@ const getChannelPlaylistVideos = async (req, res) => {
             $project: {
               _id: 1,
               thumb: 1,
+              video: 1,
+              stream: {
+                $cond: {
+                  if: { $ne: ["$stream", null] }, // Check if `stream` exists and is not null
+                  then: "$stream", // Keep the `stream` value if it exists
+                  else: null, // Set it to null if it doesn't exist
+                },
+              },
               duration: { $ifNull: ["$duration", null] },
               view: 1,
               user_info: 1,
@@ -1229,6 +1269,13 @@ const getVideoDetails = async (req, res) => {
         channel_info: { $ifNull: ["$channel_info", null] },
         thumb: 1,
         video: 1,
+        stream: {
+          $cond: {
+            if: { $ne: ["$stream", null] }, // Check if `stream` exists and is not null
+            then: "$stream", // Keep the `stream` value if it exists
+            else: null, // Set it to null if it doesn't exist
+          },
+        },
         type: 1,
         view: 1,
         like: 1,
@@ -1559,6 +1606,15 @@ const getPlaylistDetails = async (req, res) => {
             $project: {
               _id: 1,
               thumb: 1,
+              video: 1,
+              stream: {
+                $cond: {
+                  if: { $ne: ["$stream", null] }, // Check if `stream` exists and is not null
+                  then: "$stream", // Keep the `stream` value if it exists
+                  else: null, // Set it to null if it doesn't exist
+                },
+              },
+              duration: { $ifNull: ["$duration", 0] },
               title: 1,
               createdAt: 1,
               channel_info: 1,

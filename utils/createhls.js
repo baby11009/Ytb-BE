@@ -1,6 +1,7 @@
 const fluentFFmpeg = require("fluent-ffmpeg");
 const fs = require("fs");
 const path = require("path");
+const { clearUploadedVideoFiles } = require("./clear");
 
 const asssetPath = path.join(__dirname, "../assets");
 
@@ -78,6 +79,8 @@ async function createHls(filename, videoPath, type) {
 
   const outputDir = "video segments";
 
+  let streamInfo = {};
+
   const videoSegmentInfos = [];
 
   resolutions.forEach((resolution) => {
@@ -118,6 +121,8 @@ async function createHls(filename, videoPath, type) {
     videoSegmentInfos.push(result);
   });
 
+  streamInfo.videoSegmentInfos = videoSegmentInfos;
+
   let ffmpeg = fluentFFmpeg(videoPath);
   let ffmpeg2 = fluentFFmpeg(videoPath);
 
@@ -127,64 +132,113 @@ async function createHls(filename, videoPath, type) {
 
   const masterFilePath = path.join(masterFolderPath, "master.m3u8");
 
-  for (const videoSegmentInfo of videoSegmentInfos) {
-    fs.mkdirSync(videoSegmentInfo.folderPath);
-    const fd = fs.openSync(videoSegmentInfo.filePath, "w+");
-    fs.closeSync(fd);
-    if (
-      videoSegmentInfos.indexOf(videoSegmentInfo) !== 0 &&
-      videoSegmentInfos.length > 1
-    ) {
-      const segmentSafeBaseUrl = encodeURI(
-        segmentBaseUrl +
-          filename +
-          `?resolution=${videoSegmentInfo.quality}&hsl=`,
-      );
-      ffmpeg2
-        .output(videoSegmentInfo.filePath) //scale=480:854
+  try {
+    for (const videoSegmentInfo of videoSegmentInfos) {
+      fs.mkdirSync(videoSegmentInfo.folderPath);
+      const fd = fs.openSync(videoSegmentInfo.filePath, "w+");
+      fs.closeSync(fd);
+      if (
+        videoSegmentInfos.indexOf(videoSegmentInfo) !== 0 &&
+        videoSegmentInfos.length > 1
+      ) {
+        const segmentSafeBaseUrl = encodeURI(
+          segmentBaseUrl +
+            filename +
+            `?resolution=${videoSegmentInfo.quality}&hsl=`,
+        );
+        ffmpeg2
+          .output(videoSegmentInfo.filePath) //scale=480:854
+          .videoFilters(
+            `scale=${videoSegmentInfo.width + ":" + videoSegmentInfo.height}`,
+          )
+          .outputOptions([
+            "-f hls",
+            `-b:v ${videoSegmentInfo.bitrate}k`, // Set average bitrate
+            `-maxrate ${videoSegmentInfo.maxrate}k`, // Set max bitrate
+            `-bufsize ${videoSegmentInfo.bufsize}k`, // Set buffer size
+            "-hls_time 10",
+            "-hls_list_size 0",
+            "-start_number 1",
+            `-hls_base_url ${segmentSafeBaseUrl}`,
+          ]);
+      }
+    }
+
+    const videoBaseUrl = "http://localhost:3000/api/v1/file/video/";
+
+    const segmentSafeBaseUrl = encodeURI(
+      segmentBaseUrl +
+        filename +
+        `?resolution=${videoSegmentInfos[0].quality}&hsl=`,
+    );
+
+    // Creating default resolution
+    await new Promise((resolve, reject) => {
+      ffmpeg
+        .output(videoSegmentInfos[0].filePath)
         .videoFilters(
-          `scale=${videoSegmentInfo.width + ":" + videoSegmentInfo.height}`,
+          `scale=${
+            videoSegmentInfos[0].width + ":" + videoSegmentInfos[0].height
+          }`,
         )
         .outputOptions([
           "-f hls",
-          `-b:v ${videoSegmentInfo.bitrate}k`, // Set average bitrate
-          `-maxrate ${videoSegmentInfo.maxrate}k`, // Set max bitrate
-          `-bufsize ${videoSegmentInfo.bufsize}k`, // Set buffer size
+          `-b:v ${videoSegmentInfos[0].bitrate}k`, // Set average bitrate
+          `-maxrate ${videoSegmentInfos[0].maxrate}k`, // Set max bitrate
+          `-bufsize ${videoSegmentInfos[0].bufsize}k`, // Set buffer size
           "-hls_time 10",
           "-hls_list_size 0",
           "-start_number 1",
           `-hls_base_url ${segmentSafeBaseUrl}`,
-        ]);
-    }
-  }
+        ])
+        .on("stderr", (stderr) => {
+          console.error("FFmpeg stderr:", stderr);
+        })
+        .on("stdout", (stdout) => {
+          console.log("FFmpeg stdout:", stdout);
+        })
+        .on("end", () => {
+          try {
+            fs.mkdirSync(masterFolderPath);
+            const fd = fs.openSync(masterFilePath, "w+");
+            fs.closeSync(fd);
+            streamInfo.masterFolderPath = masterFolderPath;
 
-  const videoBaseUrl = "http://localhost:3000/api/v1/file/video/";
+            let masterPlaylistContent =
+              "#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-MEDIA-SEQUENCE:1\n";
 
-  const segmentSafeBaseUrl = encodeURI(
-    segmentBaseUrl +
-      filename +
-      `?resolution=${videoSegmentInfos[0].quality}&hsl=`,
-  );
+            const playlistUrl = encodeURI(
+              videoBaseUrl +
+                filename +
+                "?type=stream&resolution=" +
+                videoSegmentInfos[0].quality,
+            );
 
-  // Creating default resolution
-  await new Promise((resolve, reject) => {
-    ffmpeg
-      .output(videoSegmentInfos[0].filePath)
-      .videoFilters(
-        `scale=${
-          videoSegmentInfos[0].width + ":" + videoSegmentInfos[0].height
-        }`,
-      )
-      .outputOptions([
-        "-f hls",
-        `-b:v ${videoSegmentInfos[0].bitrate}k`, // Set average bitrate
-        `-maxrate ${videoSegmentInfos[0].maxrate}k`, // Set max bitrate
-        `-bufsize ${videoSegmentInfos[0].bufsize}k`, // Set buffer size
-        "-hls_time 10",
-        "-hls_list_size 0",
-        "-start_number 1",
-        `-hls_base_url ${segmentSafeBaseUrl}`,
-      ])
+            masterPlaylistContent += `#EXT-X-STREAM-INF:AVERAGE-BANDWIDTH=${
+              parseInt(videoSegmentInfos[0].bitrate) * 1000
+            },BANDWIDTH=${
+              parseInt(videoSegmentInfos[0].maxrate) * 1000
+            },RESOLUTION=${
+              videoSegmentInfos[0].width + "x" + videoSegmentInfos[0].height
+            }\n${playlistUrl}\n`;
+
+            // Ghi nội dung vào file master.m3u8
+            fs.writeFileSync(masterFilePath, masterPlaylistContent);
+
+            resolve();
+          } catch (error) {
+            reject(error);
+          }
+        })
+        .on("error", (err) => {
+          reject(err);
+        })
+        .run();
+    }).catch((error) => {
+      throw error;
+    });
+
+    ffmpeg2
       .on("stderr", (stderr) => {
         console.error("FFmpeg stderr:", stderr);
       })
@@ -193,89 +247,41 @@ async function createHls(filename, videoPath, type) {
       })
       .on("end", () => {
         try {
-          fs.mkdirSync(masterFolderPath);
-          const fd = fs.openSync(masterFilePath, "w+");
-          fs.closeSync(fd);
+          let masterContent = videoSegmentInfos
+            .slice(1)
+            .map((info) => {
+              const playlistUrl = encodeURI(
+                videoBaseUrl +
+                  filename +
+                  "?type=stream&resolution=" +
+                  info.quality,
+              );
 
-          let masterPlaylistContent =
-            "#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-MEDIA-SEQUENCE:1\n";
+              return `#EXT-X-STREAM-INF:AVERAGE-BANDWIDTH=${
+                parseInt(info.maxrate) * 1000
+              },BANDWIDTH=${parseInt(info.bitrate) * 1000},RESOLUTION=${
+                info.width
+              }x${info.height}\n${playlistUrl}`;
+            })
+            .join("\n");
 
-          const playlistUrl = encodeURI(
-            videoBaseUrl +
-              filename +
-              "?type=stream&resolution=" +
-              videoSegmentInfos[0].quality,
-          );
-
-          masterPlaylistContent += `#EXT-X-STREAM-INF:AVERAGE-BANDWIDTH=${
-            parseInt(videoSegmentInfos[0].bitrate) * 1000
-          },BANDWIDTH=${
-            parseInt(videoSegmentInfos[0].maxrate) * 1000
-          },RESOLUTION=${
-            videoSegmentInfos[0].width + "x" + videoSegmentInfos[0].height
-          }\n${playlistUrl}\n`;
-
-          // Ghi nội dung vào file master.m3u8
-          fs.writeFileSync(masterFilePath, masterPlaylistContent);
-
-          resolve();
+          if (fs.existsSync(masterFilePath)) {
+            fs.appendFileSync(masterFilePath, masterContent);
+          } else {
+            console.error("File does not exist");
+          }
         } catch (error) {
-          throw error;
+          console.log(error);
         }
       })
       .on("error", (err) => {
-        for (const videoSegmentInfo of videoSegmentInfos) {
-          fs.rmSync(videoSegmentInfo.folderPath, {
-            recursive: true,
-            force: true,
-          });
-        }
-        reject(err);
+        console.log(err);
       })
       .run();
-  }).catch((error) => {
+  } catch (error) {
+    await clearUploadedVideoFiles({ streamInfo });
     throw error;
-  });
-
-  ffmpeg2
-    .on("stderr", (stderr) => {
-      console.error("FFmpeg stderr:", stderr);
-    })
-    .on("stdout", (stdout) => {
-      console.log("FFmpeg stdout:", stdout);
-    })
-    .on("end", () => {
-      try {
-        let masterContent = videoSegmentInfos
-          .slice(1)
-          .map((info) => {
-            const playlistUrl = encodeURI(
-              videoBaseUrl +
-                filename +
-                "?type=stream&resolution=" +
-                info.quality,
-            );
-
-            return `#EXT-X-STREAM-INF:AVERAGE-BANDWIDTH=${
-              parseInt(info.maxrate) * 1000
-            },BANDWIDTH=${parseInt(info.bitrate) * 1000},RESOLUTION=${
-              info.width
-            }x${info.height}\n${playlistUrl}`;
-          })
-          .join("\n");
-        if (fs.existsSync(masterFilePath)) {
-          fs.appendFileSync(masterFilePath, masterContent);
-        } else {
-          console.error("File does not exist");
-        }
-      } catch (error) {
-        console.log(error);
-      }
-    })
-    .on("error", (err) => {
-      throw err;
-    })
-    .run();
+  }
 }
 
 module.exports = {

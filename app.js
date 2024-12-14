@@ -52,8 +52,7 @@ app.use("/api/v1/data", getAccountInfoMiddleware, combineRouter);
 // Admin site
 app.use("/api/v1/user", authMiddleware, permissionMiddleware, userRouter);
 app.use("/api/v1/tag", authMiddleware, permissionMiddleware, tagRouter);
-// app.use("/api/v1/video", authMiddleware, permissionMiddleware, videoRouter);
-app.use("/api/v1/video", videoRouter);
+app.use("/api/v1/video", authMiddleware, permissionMiddleware, videoRouter);
 app.use("/api/v1/comment", authMiddleware, permissionMiddleware, commentRouter);
 app.use(
   "/api/v1/playlist",

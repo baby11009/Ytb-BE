@@ -7,7 +7,7 @@ let io;
 module.exports = {
   init: (httpServer) => {
     io = new Server(httpServer, {
-      cors: { origin: "http://localhost:5173/" },
+      cors: { origin: process.env.FE_URI },
     });
     io.use(async (socket, next) => {
       const token = socket.handshake.auth.token;

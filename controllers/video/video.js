@@ -1,8 +1,6 @@
 const { User, Video } = require("../../models");
 const mongoose = require("mongoose");
 
-const fluentFFmpeg = require("fluent-ffmpeg");
-const fs = require("fs");
 const path = require("path");
 
 const { StatusCodes } = require("http-status-codes");
@@ -11,6 +9,7 @@ const { BadRequestError, NotFoundError } = require("../../errors");
 
 const { deleteFile, getVideoDuration } = require("../../utils/file");
 const { createHls } = require("../../utils/createhls");
+const { clearUploadedVideoFiles } = require("../../utils/clear");
 
 const asssetPath = path.join(__dirname, "../../assets");
 
@@ -27,78 +26,72 @@ const upLoadVideo = async (req, res) => {
     dislike = 0,
   } = req.body;
 
-  const videoPath = video[0].path; // Đường dẫn đến video vừa upload
-
-  const filename = video[0].filename.split(".")[0];
-
   try {
     const fileErr = [];
 
-    // if (!video || video.length === 0) {
-    //   fileErr.push("video");
-    // }
+    if (!video || video.length === 0) {
+      fileErr.push("video");
+    }
 
-    // if (!image || image.length === 0) {
-    //   fileErr.push("image");
-    // }
+    if (!image || image.length === 0) {
+      fileErr.push("image");
+    }
 
-    // if (fileErr.length > 0) {
-    //   throw new BadRequestError(`Please provide ${fileErr.join(", ")}`);
-    // }
+    if (fileErr.length > 0) {
+      throw new BadRequestError(`Please provide ${fileErr.join(", ")}`);
+    }
 
-    // if (!userId) {
-    //   throw new BadRequestError("Please provide user id");
-    // }
+    if (!userId) {
+      throw new BadRequestError("Please provide user id");
+    }
 
-    // const foundedUser = await User.findById(userId);
+    const foundedUser = await User.findById(userId);
 
-    // if (!foundedUser) {
-    //   throw new NotFoundError(`Not found user with id ${userId}`);
-    // }
+    if (!foundedUser) {
+      throw new NotFoundError(`Not found user with id ${userId}`);
+    }
+
+    const videoPath = video[0].path; // Đường dẫn đến video vừa upload
+    const filename = video[0].filename.split(".")[0];
 
     await createHls(filename, videoPath, type);
-    
+
+    const videoDuration = await getVideoDuration(video[0].path);
+
+    const data = {
+      user_id: userId,
+      type: type,
+      title: title,
+      video: video[0].filename,
+      stream: filename,
+      thumb: image[0].filename,
+      duration: videoDuration,
+      tag: tag,
+      view,
+      like,
+      dislike,
+    };
+
+    await Video.create(data);
+
+    res.status(StatusCodes.CREATED).json({ msg: "Upload video successfully" });
   } catch (error) {
-    if (video && video[0]) {
-      deleteFile(video[0].path);
+    let args = {};
+    if (video & video[0]) {
+      args.videoPath = video[0].path;
     }
-    if (image && image[0]) {
-      deleteFile(image[0].path);
+
+    if (image & image[0]) {
+      args.imagePath = image[0].path;
     }
+    await clearUploadedVideoFiles(args);
+
     throw error;
   }
-
-  // try {
-
-  //   const videoDuration = await getVideoDuration(video[0].path);
-
-  //   const data = {
-  //     user_id: userId,
-  //     type: type,
-  //     title: title,
-  //     video: video[0].filename,
-  //     thumb: image[0].filename,
-  //     duration: videoDuration,
-  //     tag: tag,
-  //     view,
-  //     like,
-  //     dislike,
-  //   };
-
-  //   await Video.create(data);
-
-  //   res.status(StatusCodes.CREATED).json({ msg: "Upload video successfully" });
-  // } catch (error) {
-
-  //   throw error;
-  // }
-
-  res.send("OK");
 };
 
 const getVideos = async (req, res) => {
   const { sort } = req.query;
-
   let limit = Number(req.query.limit) || 5;
   let page = Number(req.query.page) || 1;
 
@@ -138,7 +131,7 @@ const getVideos = async (req, res) => {
 
   const sortKeys = ["createdAt"];
 
-  if (Object.keys(sort).length > 0) {
+  if (sort && Object.keys(sort).length > 0) {
     let unique = [];
     let uniqueValue;
     for (const [key, value] of Object.entries(sort)) {
@@ -193,6 +186,14 @@ const getVideos = async (req, res) => {
         "user_info.avatar": 1,
         "user_info.name": 1,
         thumb: 1,
+        video: 1,
+        // stream: {
+        //   $cond: {
+        //     if: { $ne: ["$stream", null] }, // Check if `stream` exists and is not null
+        //     then: "$stream", // Keep the `stream` value if it exists
+        //     else: null, // Set it to null if it doesn't exist
+        //   },
+        // },
         duration: { $ifNull: ["$duration", 0] },
         type: 1,
         view: 1,
@@ -278,6 +279,13 @@ const getVideoDetails = async (req, res) => {
         tag_info: { $ifNull: ["$tag_info", []] },
         thumb: 1,
         video: 1,
+        stream: {
+          $cond: {
+            if: { $ne: ["$stream", null] }, // Check if `stream` exists and is not null
+            then: "$stream", // Keep the `stream` value if it exists
+            else: null, // Set it to null if it doesn't exist
+          },
+        },
         type: 1,
         view: 1,
         like: 1,
