@@ -177,6 +177,14 @@ const getPlaylists = async (req, res) => {
             $project: {
               _id: 1,
               thumb: 1,
+              video: 1,
+              stream: {
+                $cond: {
+                  if: { $ne: ["$stream", null] }, // Check if `stream` exists and is not null
+                  then: "$stream", // Keep the `stream` value if it exists
+                  else: null, // Set it to null if it doesn't exist
+                },
+              },
               createdAt: 1,
             },
           },
@@ -268,6 +276,14 @@ const getPlaylistDetails = async (req, res) => {
               _id: 1,
               thumb: 1,
               title: 1,
+              stream: {
+                $cond: {
+                  if: { $ne: ["$stream", null] }, // Check if `stream` exists and is not null
+                  then: "$stream", // Keep the `stream` value if it exists
+                  else: null, // Set it to null if it doesn't exist
+                },
+              },
+              video: 1,
               createdAt: 1,
             },
           },
@@ -282,7 +298,6 @@ const getPlaylistDetails = async (req, res) => {
       _id: 1,
       created_user_id: 1,
       title: 1,
-      itemList: 1,
       createdAt: 1,
       type: 1,
       video_list: "$video_list",

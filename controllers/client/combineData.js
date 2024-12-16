@@ -862,10 +862,7 @@ const getDataList = async (req, res) => {
       duration: { $ifNull: ["$duration", 0] },
       type: 1,
       view: 1,
-      like: 1,
-      disLike: 1,
       type: 1,
-      tag_info: { $ifNull: ["$tag_info", null] },
       channel_info: 1,
       createdAt: 1,
     },
@@ -1529,7 +1526,11 @@ const getVideoCmts = async (req, res) => {
 };
 
 const getPlaylistDetails = async (req, res) => {
-  const { userId } = req.user;
+  let userId;
+
+  if (req.user) {
+    userId = req.user.userId;
+  }
 
   const { id } = req.params;
 
@@ -1543,6 +1544,7 @@ const getPlaylistDetails = async (req, res) => {
 
   if (
     foundedPlaylist.type !== "public" &&
+    userId &&
     foundedPlaylist.created_user_id.toString() !== userId
   ) {
     throw new ForbiddenError("you cannot access this playlist ");
