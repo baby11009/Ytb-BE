@@ -7,6 +7,11 @@ const {
 } = require("../../errors");
 const mongoose = require("mongoose");
 
+const redis = require("redis");
+const client = redis.createClient();
+
+const { generateSessionId } = require("../../utils/generator");
+
 const getVideoList = async (req, res) => {
   const { limit, page, tag, type, search, channelEmail, sort } = req.query;
 
@@ -197,7 +202,7 @@ const getVideoList = async (req, res) => {
   });
 };
 
-// const getRandomShort = async (req, res) => {
+// const getRandomShorts = async (req, res) => {
 //   let userId;
 //   if (req.user) {
 //     userId = req.user.userId;
@@ -390,7 +395,7 @@ const getVideoList = async (req, res) => {
 
 // Lấy data channel, playlist và video
 
-const getRandomShort = async (req, res) => {
+const getRandomShorts = async (req, res) => {
   let userId;
   if (req.user) {
     userId = req.user.userId;
@@ -496,6 +501,257 @@ const getRandomShort = async (req, res) => {
   res.status(StatusCodes.OK).json({
     data: finalData,
   });
+};
+
+const getRandomShort = async (req, res) => {
+  try {
+    let id;
+
+    if (Object.keys(req.params).length > 0) {
+      id = req.params.id;
+    }
+
+    let userId;
+
+    let sessionId;
+
+    if (req.user) {
+      userId = req.user.userId;
+    } else {
+      if (req.headers["session-id"]) {
+        sessionId = req.headers["session-id"];
+      } else {
+        sessionId = generateSessionId();
+        res.set("session-id", sessionId);
+        res.set("Access-Control-Expose-Headers", "session-id");
+      }
+    }
+
+    const pipeline = [];
+
+    const addFieldsObj = {};
+
+    const matchObj = {
+      type: "short",
+    };
+
+    const key = userId ? userId : sessionId;
+
+    // connect redis
+    await client.connect();
+
+    // check if redis key is available
+    const watchedShortIdList = [];
+    if (await client.exists(key)) {
+      const idList = await client.sMembers(key);
+      watchedShortIdList.push(...idList);
+      console.log(watchedShortIdList);
+    }
+
+    // if user provided short id and short id is not in the wacthed list
+    if (id && !watchedShortIdList.includes(id)) {
+      addFieldsObj["_idStr"] = { $toString: "$_id" };
+
+      matchObj["_idStr"] = id;
+    } else {
+      if (watchedShortIdList && watchedShortIdList.length > 0) {
+        addFieldsObj["_idStr"] = { $toString: "$_id" };
+
+        matchObj["_idStr"] = { $nin: watchedShortIdList };
+      }
+    }
+
+    if (Object.keys(addFieldsObj).length > 0) {
+      pipeline.push({ $addFields: addFieldsObj });
+    }
+
+    pipeline.push({ $match: matchObj });
+
+    pipeline.push(
+      {
+        $sample: { size: 1 },
+      },
+      {
+        $lookup: {
+          from: "users",
+          localField: "user_id",
+          foreignField: "_id",
+          pipeline: [
+            {
+              $project: {
+                _id: 1,
+                name: 1,
+                email: 1,
+                avatar: 1,
+                subscriber: 1,
+              },
+            },
+          ],
+          as: "channel_info",
+        },
+      },
+      {
+        $unwind: "$channel_info",
+      },
+    );
+
+    if (userId) {
+      // Subscription state
+      pipeline.push(
+        {
+          $lookup: {
+            from: "subscribes",
+            let: {
+              videoOwnerId: "$user_id",
+              subscriberId: new mongoose.Types.ObjectId(userId),
+            },
+            pipeline: [
+              {
+                $match: {
+                  $expr: {
+                    $and: [
+                      { $eq: ["$channel_id", "$$videoOwnerId"] },
+                      { $eq: ["$subscriber_id", "$$subscriberId"] },
+                    ],
+                  },
+                },
+              },
+              {
+                $project: {
+                  _id: 1,
+                  name: 1,
+                  email: 1,
+                  avatar: 1,
+                  subscriber: 1,
+                },
+              },
+            ],
+            as: "subscription_info",
+          },
+        },
+        {
+          $unwind: {
+            path: "$subscription_info",
+            preserveNullAndEmptyArrays: true, // Ensure video is returned even if no subscription exists
+          },
+        },
+      );
+
+      pipeline.push(
+        {
+          $lookup: {
+            from: "reacts",
+            let: {
+              videoId: new mongoose.Types.ObjectId(id),
+              subscriberId: new mongoose.Types.ObjectId(userId),
+            },
+            // pipeline để so sánh dữ liệu
+            pipeline: [
+              {
+                $match: {
+                  $expr: {
+                    $and: [
+                      { $eq: ["$video_id", "$$videoId"] },
+                      { $eq: ["$user_id", "$$subscriberId"] },
+                    ],
+                  },
+                },
+              },
+              {
+                $project: {
+                  type: 1,
+                },
+              },
+            ],
+            as: "react_info",
+          },
+        },
+        {
+          $unwind: {
+            path: "$react_info",
+            preserveNullAndEmptyArrays: true, // Ensure video is returned even if no subscription exists
+          },
+        },
+      );
+    }
+
+    pipeline.push(
+      {
+        $lookup: {
+          from: "tags",
+          let: { tagIds: "$tag" },
+          pipeline: [
+            {
+              $addFields: {
+                _idStr: { $toString: "$_id" },
+              },
+            },
+            {
+              $match: {
+                $expr: { $in: ["$_idStr", "$$tagIds"] },
+              },
+            },
+            {
+              $project: {
+                _id: 1,
+                title: 1,
+                slug: 1,
+                icon: 1,
+              },
+            },
+          ],
+          as: "tag_info",
+        },
+      },
+      {
+        $project: {
+          _id: 1,
+          title: 1, // Các trường bạn muốn giữ lại từ Video
+          channel_info: { $ifNull: ["$channel_info", null] },
+          thumb: 1,
+          video: 1,
+          stream: {
+            $cond: {
+              if: { $ne: ["$stream", null] }, // Check if `stream` exists and is not null
+              then: "$stream", // Keep the `stream` value if it exists
+              else: null, // Set it to null if it doesn't exist
+            },
+          },
+          type: 1,
+          view: 1,
+          like: 1,
+          dislike: 1,
+          totalCmt: 1,
+          createdAt: 1,
+          description: 1,
+          subscription_info: { $ifNull: ["$subscription_info", null] },
+          react_info: { $ifNull: ["$react_info", null] },
+          tag_info: { $ifNull: ["$tag_info", []] },
+        },
+      },
+    );
+
+    const short = await Video.aggregate(pipeline);
+
+    // add new short id to redis list
+    if (short.length > 0) {
+      await client.sAdd(key, short[0]._id.toString());
+    }
+
+    // set expire of the list or refresh the list if it was created
+    await client.expire(key, 30);
+
+    // disconnect redis
+    await client.disconnect();
+
+    res.status(StatusCodes.OK).json({ data: short });
+  } catch (error) {
+    if (error.message === "Socket already opened") {
+      await client.disconnect();
+    } else {
+      throw error;
+    }
+  }
 };
 
 const getDataList = async (req, res) => {
@@ -1662,6 +1918,7 @@ module.exports = {
   getChannelPlaylistVideos,
   getVideoDetails,
   getVideoCmts,
+  getRandomShorts,
   getRandomShort,
   getPlaylistDetails,
 };
