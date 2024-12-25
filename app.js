@@ -26,6 +26,7 @@ const {
   tagRouter,
   combineRouter,
   clientRouter,
+  redisRouter,
 } = require("./routes");
 
 app.use(cors());
@@ -48,6 +49,7 @@ app.use("/api/v1/file", fileRouter);
 
 // User site
 app.use("/api/v1/data", getAccountInfoMiddleware, combineRouter);
+app.use("/api/v1/redis", redisRouter);
 
 // Admin site
 app.use("/api/v1/user", authMiddleware, permissionMiddleware, userRouter);

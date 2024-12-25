@@ -7,6 +7,7 @@ const playlistRouter = require("./playlist");
 const tagRouter = require("./tag");
 const combineRouter = require("./combineData");
 const clientRouter = require("./client");
+const redisRouter = require("./redis");
 
 module.exports = {
   authRouter,
@@ -18,4 +19,5 @@ module.exports = {
   tagRouter,
   combineRouter,
   clientRouter,
+  redisRouter
 };

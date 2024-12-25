@@ -512,7 +512,6 @@ const getRandomShort = async (req, res) => {
     }
 
     let userId;
-
     let sessionId;
 
     if (req.user) {
@@ -522,8 +521,6 @@ const getRandomShort = async (req, res) => {
         sessionId = req.headers["session-id"];
       } else {
         sessionId = generateSessionId();
-        res.set("session-id", sessionId);
-        res.set("Access-Control-Expose-Headers", "session-id");
       }
     }
 
@@ -536,6 +533,9 @@ const getRandomShort = async (req, res) => {
     };
 
     const key = userId ? userId : sessionId;
+
+    res.set("session-id", key);
+    res.set("Access-Control-Expose-Headers", "session-id");
 
     // connect redis
     await client.connect();
@@ -733,18 +733,22 @@ const getRandomShort = async (req, res) => {
 
     const short = await Video.aggregate(pipeline);
 
+    const totalData = await Video.countDocuments({ type: "short" });
+
+    let remainData = Math.max(0, totalData - (watchedShortIdList.length + 1));
+
     // add new short id to redis list
     if (short.length > 0) {
       await client.sAdd(key, short[0]._id.toString());
     }
 
     // set expire of the list or refresh the list if it was created
-    await client.expire(key, 30);
+    await client.expire(key, 300);
 
     // disconnect redis
     await client.disconnect();
 
-    res.status(StatusCodes.OK).json({ data: short });
+    res.status(StatusCodes.OK).json({ data: short, remain: remainData });
   } catch (error) {
     if (error.message === "Socket already opened") {
       await client.disconnect();
