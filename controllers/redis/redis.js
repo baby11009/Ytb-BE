@@ -1,24 +1,30 @@
 const { StatusCodes } = require("http-status-codes");
 const { InternalServerError } = require("../../errors/");
-const redis = require("redis");
-const client = redis.createClient();
+const {
+  client,
+  connectRedis,
+  disconnectRedis,
+  removeKey,
+} = require("../../utils/redis");
 
 const removeRedisKey = async (req, res) => {
   try {
     const redisKey = req.headers["session-id"];
 
-    await client.connect();
+    await connectRedis();
 
-    await client.del(redisKey);
+    await removeKey(redisKey);
 
-    await client.disconnect();
+    await disconnectRedis();
+
+    console.log(`Remove redis key : ${redisKey}`);
 
     res
       .status(StatusCodes.OK)
       .json({ message: "Remove redis key successfully" });
-    console.log(`Remove redis key : ${redisKey}`);
   } catch (error) {
     console.error(error);
+    // await disconnectRedis();
     throw new InternalServerError("Failed to remove redis key");
   }
 };

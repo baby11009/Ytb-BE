@@ -7,8 +7,16 @@ const {
 } = require("../../errors");
 const mongoose = require("mongoose");
 
-const redis = require("redis");
-const client = redis.createClient();
+const {
+  client,
+  connectRedis,
+  disconnectRedis,
+  addValue,
+  setKeyExpire,
+} = require("../../utils/redis");
+
+// const redis = require("redis");
+// const client = redis.createClient();
 
 const { generateSessionId } = require("../../utils/generator");
 
@@ -533,12 +541,12 @@ const getRandomShort = async (req, res) => {
     };
 
     const key = userId ? userId : sessionId;
-
+    console.log("rediskey", key);
     res.set("session-id", key);
     res.set("Access-Control-Expose-Headers", "session-id");
 
     // connect redis
-    await client.connect();
+    await connectRedis();
 
     // check if redis key is available
     const watchedShortIdList = [];
@@ -619,10 +627,7 @@ const getRandomShort = async (req, res) => {
               {
                 $project: {
                   _id: 1,
-                  name: 1,
-                  email: 1,
-                  avatar: 1,
-                  subscriber: 1,
+                  notify: 1,
                 },
               },
             ],
@@ -642,7 +647,7 @@ const getRandomShort = async (req, res) => {
           $lookup: {
             from: "reacts",
             let: {
-              videoId: new mongoose.Types.ObjectId(id),
+              videoId: "$_id",
               subscriberId: new mongoose.Types.ObjectId(userId),
             },
             // pipeline để so sánh dữ liệu
@@ -739,19 +744,19 @@ const getRandomShort = async (req, res) => {
 
     // add new short id to redis list
     if (short.length > 0) {
-      await client.sAdd(key, short[0]._id.toString());
+      // await client.sAdd(key, short[0]._id.toString());
+      await addValue("list", key, short[0]._id.toString());
     }
 
     // set expire of the list or refresh the list if it was created
-    await client.expire(key, 300);
-
+    await setKeyExpire(key, 300);
     // disconnect redis
-    await client.disconnect();
+    await disconnectRedis();
 
     res.status(StatusCodes.OK).json({ data: short, remain: remainData });
   } catch (error) {
     if (error.message === "Socket already opened") {
-      await client.disconnect();
+      await disconnectRedis();
     } else {
       throw error;
     }
@@ -1438,10 +1443,7 @@ const getVideoDetails = async (req, res) => {
           {
             $project: {
               _id: 1,
-              name: 1,
-              email: 1,
-              avatar: 1,
-              subscriber: 1,
+              notify: 1,
             },
           },
         ],
