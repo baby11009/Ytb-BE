@@ -1,7 +1,7 @@
 const redis = require("redis");
 
 // Khởi tạo Redis client
-const client = redis.createClient();
+const client = redis.createClient({ debug: true });
 
 // Sự kiện lỗi
 client.on("error", (err) => {
@@ -35,7 +35,13 @@ const addValue = async (type, key, value) => {
     return;
   }
 
-  await client.set(key, value);
+  await client.set(key, value, (err, reply) => {
+    if (err) {
+      console.error(err);
+    } else {
+      console.log(reply);
+    }
+  });
 };
 
 const setKeyExpire = async (key, time) => {
