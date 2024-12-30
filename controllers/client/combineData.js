@@ -519,6 +519,8 @@ const getRandomShort = async (req, res) => {
       id = req.params.id;
     }
 
+    const { size = 1 } = req.query;
+
     let userId;
     let sessionId;
 
@@ -577,7 +579,7 @@ const getRandomShort = async (req, res) => {
 
     pipeline.push(
       {
-        $sample: { size: 1 },
+        $sample: { size: size },
       },
       {
         $lookup: {
@@ -736,16 +738,21 @@ const getRandomShort = async (req, res) => {
       },
     );
 
-    const short = await Video.aggregate(pipeline);
+    const shorts = await Video.aggregate(pipeline);
 
     const totalData = await Video.countDocuments({ type: "short" });
 
-    let remainData = Math.max(0, totalData - (watchedShortIdList.length + 1));
+    let remainData = Math.max(
+      0,
+      totalData - (watchedShortIdList.length + shorts.length),
+    );
 
-    // add new short id to redis list
-    if (short.length > 0) {
-      // await client.sAdd(key, short[0]._id.toString());
-      await addValue("list", key, short[0]._id.toString());
+    // add new shorts id to redis list
+    if (shorts.length > 0) {
+      await addValue(
+        key,
+        shorts.map((short) => short._id.toString()),
+      );
     }
 
     // set expire of the list or refresh the list if it was created
@@ -753,7 +760,7 @@ const getRandomShort = async (req, res) => {
     // disconnect redis
     await disconnectRedis();
 
-    res.status(StatusCodes.OK).json({ data: short, remain: remainData });
+    res.status(StatusCodes.OK).json({ data: shorts, remain: remainData });
   } catch (error) {
     if (error.message === "Socket already opened") {
       await disconnectRedis();

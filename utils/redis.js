@@ -29,8 +29,8 @@ const disconnectRedis = async () => {
   }
 };
 
-const addValue = async (type, key, value) => {
-  if (type === "list") {
+const addValue = async (key, value) => {
+  if (Array.isArray(value)) {
     await client.sAdd(key, value);
     return;
   }
