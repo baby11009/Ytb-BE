@@ -520,7 +520,7 @@ const getRandomShort = async (req, res) => {
     }
 
     const { size = 1 } = req.query;
-
+    console.log(size);
     let userId;
     let sessionId;
 
@@ -579,7 +579,7 @@ const getRandomShort = async (req, res) => {
 
     pipeline.push(
       {
-        $sample: { size: size },
+        $sample: { size: Number(size) },
       },
       {
         $lookup: {
