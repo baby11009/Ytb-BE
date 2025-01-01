@@ -431,7 +431,7 @@ const updatePlaylist = async (req, res, next) => {
   }
 
   if (Object.keys(updateDatas).length > 0) {
-    await playlist.updateOne({ _id: id }, updateDatas);
+    await Playlist.updateOne({ _id: id }, updateDatas);
   }
 
   if (videoIdList && videoIdList.length > 0) {

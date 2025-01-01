@@ -279,6 +279,13 @@ const getVideoDetails = async (req, res) => {
         tag_info: { $ifNull: ["$tag_info", []] },
         thumb: 1,
         video: 1,
+        stream: {
+          $cond: {
+            if: { $ne: ["$stream", null] }, // Check if `stream` exists and is not null
+            then: "$stream", // Keep the `stream` value if it exists
+            else: null, // Set it to null if it doesn't exist
+          },
+        },
         type: 1,
         view: 1,
         like: 1,

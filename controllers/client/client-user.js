@@ -78,7 +78,6 @@ const settingAccount = async (req, res) => {
   const id = req.user.userId;
 
   const { ...data } = req.body;
-
   try {
     if (Object.keys(data).length === 0 && !req.files) {
       throw new BadRequestError("No data provided to update");
@@ -101,6 +100,7 @@ const settingAccount = async (req, res) => {
     const queryFuncObj = {
       name: (value) => {
         if (foundedUser.name === value) {
+          console.log(data);
           sameValueFields.push("name");
           return;
         }
@@ -122,7 +122,8 @@ const settingAccount = async (req, res) => {
         finalObject["description"] = value;
       },
     };
-    if (Object.keys(data).lenght > 0) {
+
+    if (Object.keys(data).length > 0) {
       for (const [key, value] of Object.entries(data)) {
         if (queryFuncObj[key]) {
           const func = queryFuncObj[key];
