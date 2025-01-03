@@ -404,114 +404,6 @@ const getVideoList = async (req, res) => {
 // Lấy data channel, playlist và video
 
 const getRandomShorts = async (req, res) => {
-  let userId;
-  if (req.user) {
-    userId = req.user.userId;
-  }
-
-  const { watchedIdList = [] } = req.query;
-  let size = 3;
-  const addFieldsObj = {};
-  let matchObj = {
-    $expr: { $eq: [{ $toLower: "$type" }, "short"] },
-  };
-
-  const pipeline = [
-    {
-      $lookup: {
-        from: "users",
-        localField: "user_id",
-        foreignField: "_id",
-        as: "channel_info",
-      },
-    },
-    {
-      $unwind: {
-        path: "$channel_info",
-        preserveNullAndEmptyArrays: true,
-      },
-    },
-  ];
-
-  if (userId) {
-    addFieldsObj.userIdStr = { $toString: "$channel_info._id" };
-
-    matchObj.userIdStr = { $ne: userId };
-  }
-  let foundedShort = [];
-
-  const queryFuncObj = {
-    shortId: async (value) => {
-      size = 2;
-      foundedShort = await Video.aggregate([
-        { $addFields: { _idStr: { $toString: "$_id" } } },
-        {
-          $match: { _idStr: value },
-        },
-        {
-          $project: {
-            _id: 1,
-          },
-        },
-      ]);
-      watchedIdList.push(value);
-    },
-    watchedIdList: (value) => {
-      if (value.length > 0) {
-        addFieldsObj["_idStr"] = { $toString: "$_id" };
-        matchObj["_idStr"] = { $nin: value };
-      }
-    },
-  };
-
-  const queryKeys = Object.keys(req.query);
-  if (queryKeys.length > 0) {
-    for (const [key, value] of Object.entries(req.query)) {
-      if (queryFuncObj[key] && value) {
-        const func = queryFuncObj[key];
-        if (func.constructor.name === "AsyncFunction") {
-          await func(value);
-        } else {
-          func(value);
-        }
-      }
-    }
-  }
-
-  pipeline.push(
-    {
-      $addFields: addFieldsObj,
-    },
-    {
-      $match: matchObj,
-    },
-    { $sample: { size } },
-    {
-      $project: {
-        _id: 1,
-        video: 1,
-        stream: {
-          $cond: {
-            if: { $ne: ["$stream", null] }, // Check if `stream` exists and is not null
-            then: "$stream", // Keep the `stream` value if it exists
-            else: null, // Set it to null if it doesn't exist
-          },
-        },
-      },
-    },
-  );
-  const shorts = await Video.aggregate(pipeline);
-
-  let finalData = [...shorts.map((item) => item._id)];
-  if (foundedShort.length > 0) {
-    finalData = [foundedShort[0]._id, ...finalData];
-  }
-  res.status(StatusCodes.OK).json({
-    data: finalData,
-  });
-};
-
-const getRandomShort = async (req, res) => {
   try {
     let id;
 
@@ -519,8 +411,8 @@ const getRandomShort = async (req, res) => {
       id = req.params.id;
     }
 
-    const { size = 1 } = req.query;
-    console.log(size);
+    const { size = 1, type = "short" } = req.query;
+
     let userId;
     let sessionId;
 
@@ -539,7 +431,7 @@ const getRandomShort = async (req, res) => {
     const addFieldsObj = {};
 
     const matchObj = {
-      type: "short",
+      type,
     };
 
     const key = userId ? userId : sessionId;
@@ -892,16 +784,18 @@ const getDataList = async (req, res) => {
   }
 
   // Get playlist if tyoe is not short , user don't provide tag and page < 3
-  if (type !== "short" && !tag && dataPage < 3) {
+  if (
+    type !== "short" &&
+    !tag &&
+    dataPage < 3 &&
+    Object.keys(sortObj).length === 0
+  ) {
     const addFieldsObj = {};
 
     const matchObj = { type: "public" };
 
-    // If having sort then don't get random data
-    if (!sortObj["createdAt"] && watchedPlIdList.length > 0) {
-      addFieldsObj["_idStr"] = { $toString: "$_id" };
-      matchObj["_idStr"] = { $nin: watchedPlIdList };
-    }
+    addFieldsObj["_idStr"] = { $toString: "$_id" };
+    matchObj["_idStr"] = { $nin: watchedPlIdList };
 
     if (search) {
       matchObj["title"] = { $regex: search, $options: "i" };
@@ -972,19 +866,7 @@ const getDataList = async (req, res) => {
       },
     ];
 
-    if (sortObj["createdAt"]) {
-      playlistPipeline.push(
-        { $sort: { createdAt: sortObj["createdAt"] } },
-        {
-          $skip: (dataPage - 1) * 2,
-        },
-        {
-          $limit: 2,
-        },
-      );
-    } else {
-      playlistPipeline.push({ $sample: { size: 2 } });
-    }
+    playlistPipeline.push({ $sample: { size: 2 } });
 
     playlistPipeline.push({
       $project: {
@@ -1932,6 +1814,5 @@ module.exports = {
   getVideoDetails,
   getVideoCmts,
   getRandomShorts,
-  getRandomShort,
   getPlaylistDetails,
 };
