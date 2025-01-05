@@ -45,12 +45,13 @@ const getVideoList = async (req, res) => {
         from: "users",
         localField: "user_id",
         foreignField: "_id",
-        as: "user_info",
+        pipeline: [{ $project: { name: 1, email: 1, avatar: 1 } }],
+        as: "channel_info",
       },
     },
     {
       $unwind: {
-        path: "$user_info",
+        path: "$channel_info",
         preserveNullAndEmptyArrays: true,
       },
     },
@@ -61,7 +62,7 @@ const getVideoList = async (req, res) => {
       pipeline.push(
         {
           $addFields: {
-            email: "$user_info.email",
+            email: "$channel_info.email",
           },
         },
         {
@@ -147,10 +148,7 @@ const getVideoList = async (req, res) => {
     $project: {
       _id: 1,
       title: 1, // Các trường bạn muốn giữ lại từ Video
-      "user_info._id": 1,
-      "user_info.email": 1,
-      "user_info.avatar": 1,
-      "user_info.name": 1,
+      channel_info: 1,
       tag_info: 1,
       video: 1,
       stream: {
@@ -823,11 +821,11 @@ const getDataList = async (req, res) => {
               },
             },
           ],
-          as: "user_info",
+          as: "channel_info",
         },
       },
       {
-        $unwind: "$user_info",
+        $unwind: "$channel_info",
       },
       {
         $lookup: {
@@ -872,7 +870,7 @@ const getDataList = async (req, res) => {
       $project: {
         _id: 1,
         title: 1,
-        user_info: 1,
+        channel_info: 1,
         video_list: { $ifNull: ["$video_list", []] },
         size: { $size: "$itemList" },
         createdAt: 1,
@@ -1183,10 +1181,10 @@ const getChannelPlaylistVideos = async (req, res) => {
                   },
                 },
               ],
-              as: "user_info",
+              as: "channel_info",
             },
           },
-          { $unwind: "$user_info" },
+          { $unwind: "$channel_info" },
           {
             $limit: Number(videoLimit),
           },
@@ -1204,7 +1202,7 @@ const getChannelPlaylistVideos = async (req, res) => {
               },
               duration: { $ifNull: ["$duration", null] },
               view: 1,
-              user_info: 1,
+              channel_info: 1,
               createdAt: 1,
             },
           },
