@@ -28,8 +28,8 @@ router.route("/video/:id").get(getVideoDetails);
 router.route("/comment/video-cmt/:videoId").get(getVideoCmts);
 
 // Get random short or short with id - optional
-router.route("/shorts").get(getRandomShorts);
+router.route("/shorts/:id?").get(getRandomShorts);
 
-router.route("/short/:id").get(getRandomShorts);
+// router.route("/short/:id").get(getRandomShorts);
 
 module.exports = router;

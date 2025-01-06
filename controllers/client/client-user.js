@@ -440,18 +440,18 @@ const getSubscribedChannelsVideos = async (req, res) => {
                 },
               },
             ],
-            as: "user_info",
+            as: "channel_info",
           },
         },
         {
-          $unwind: "$user_info",
+          $unwind: "$channel_info",
         },
         {
           $project: {
             _id: 1,
             title: 1,
             thumb: 1,
-            user_info: 1,
+            channel_info: 1,
             createdAt: 1,
             like: 1,
             dislike: 1,

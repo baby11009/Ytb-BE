@@ -668,7 +668,7 @@ const getDataList = async (req, res) => {
     tag,
     type,
     search,
-    channelId,
+    channelEmail,
     userId,
     prevPlCount = 0,
     watchedVideoIdList = [],
@@ -691,7 +691,20 @@ const getDataList = async (req, res) => {
 
   const sortObj = {};
 
-  const videoPipeline = [];
+  const videoPipeline = [
+    {
+      $lookup: {
+        from: "users",
+        localField: "user_id",
+        foreignField: "_id",
+        pipeline: [{ $project: { _id: 1, name: 1, email: 1, avatar: 1 } }],
+        as: "channel_info",
+      },
+    },
+    {
+      $unwind: "$channel_info",
+    },
+  ];
 
   // Sorting objects
   if (sort && Object.keys(sort).length > 0) {
@@ -710,7 +723,7 @@ const getDataList = async (req, res) => {
   }
 
   // Get users when searching
-  if (!channelId && search && dataPage < 2 && !tag) {
+  if (!channelEmail && search && dataPage < 2 && !tag) {
     const channelPipeline = [
       {
         $match: {
@@ -783,6 +796,7 @@ const getDataList = async (req, res) => {
 
   // Get playlist if tyoe is not short , user don't provide tag and page < 3
   if (
+    !channelEmail &&
     type !== "short" &&
     !tag &&
     dataPage < 3 &&
@@ -884,9 +898,8 @@ const getDataList = async (req, res) => {
   }
 
   const queryFuncObj = {
-    channelId: (value) => {
-      videoAddFieldsObj["_userIdStr"] = { $toString: "user_id" };
-      videoMatchObj["_userIdStr"] = { _userIdStr: value };
+    channelEmail: (value) => {
+      videoMatchObj["channel_info.email"] = channelEmail;
     },
     search: (value) => {
       videoMatchObj["title"] = { $regex: value, $options: "i" };
@@ -953,6 +966,7 @@ const getDataList = async (req, res) => {
       );
     },
   };
+
   if (Object.keys(req.query).length > 0) {
     for (const [key, value] of Object.entries(req.query)) {
       if (queryFuncObj[key] && value) {
@@ -960,6 +974,10 @@ const getDataList = async (req, res) => {
       }
     }
   }
+
+  console.log(req.query);
+
+  console.log(videoMatchObj);
 
   if (Object.keys(videoAddFieldsObj).length > 0) {
     videoPipeline.push({
@@ -972,21 +990,6 @@ const getDataList = async (req, res) => {
       $match: videoMatchObj,
     });
   }
-
-  videoPipeline.push(
-    {
-      $lookup: {
-        from: "users",
-        localField: "user_id",
-        foreignField: "_id",
-        pipeline: [{ $project: { _id: 1, name: 1, email: 1, avatar: 1 } }],
-        as: "channel_info",
-      },
-    },
-    {
-      $unwind: "$channel_info",
-    },
-  );
 
   if (Object.keys(sortObj).length > 0) {
     videoPipeline.push(
