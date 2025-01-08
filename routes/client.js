@@ -3,7 +3,6 @@ const {
   createMulterUpload,
   multerErrorHandling,
   fileLimitSizeMiddleware,
-  getAccountInfoMiddleware,
 } = require("../middlewares");
 const {
   getAccountInfo,
@@ -45,6 +44,7 @@ const {
   getPlaylists,
   getPlaylistDetails,
   updatePlaylist,
+  updateWatchLater,
   deletePlaylist,
   deleteManyPlaylist,
 } = require("../controllers/client/client-playlist");
@@ -64,7 +64,7 @@ router
     async (req, res, next) => {
       fileLimitSizeMiddleware(req, res, next, { image: 4, banner: 6 });
     },
-    settingAccount
+    settingAccount,
   );
 router.get("/user/subscribed-channels", getSubscribedChannels);
 router.get("/user/subscribed-channels-videos", getSubscribedChannelsVideos);
@@ -82,7 +82,7 @@ router.post(
   async (req, res, next) => {
     fileLimitSizeMiddleware(req, res, next, { image: 4 });
   },
-  upLoadVideo
+  upLoadVideo,
 );
 
 router.route("/video").get(getVideos);
@@ -99,7 +99,7 @@ router
     async (req, res, next) => {
       fileLimitSizeMiddleware(req, res, next, { image: 4 });
     },
-    updateVideo
+    updateVideo,
   );
 
 // subscribe
@@ -125,12 +125,14 @@ router
 
 // comment react
 
-router.route("/cmt-react").post(toggleCmtReact);
+router.post("/cmt-react", toggleCmtReact);
 
 // playlist
 router.route("/playlist").get(getPlaylists).post(createPlaylist);
 
-router.route("/playlist/delete-many").post(deleteManyPlaylist);
+router
+  .patch("/playlist/watchlater", updateWatchLater)
+  .post("/playlist/delete-many", deleteManyPlaylist);
 
 router
   .route("/playlist/:id")

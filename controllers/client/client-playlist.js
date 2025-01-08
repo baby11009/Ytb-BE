@@ -533,6 +533,116 @@ const updatePlaylist = async (req, res, next) => {
     .json({ msg: "Playlist updated successfullly", data: playlist[0] });
 };
 
+const updateWatchLater = async (req, res) => {
+  const { userId } = req.user;
+
+  const { videoIdList } = req.body;
+
+  if (!videoIdList || videoIdList.length === 0) {
+    throw new BadRequestError("Please provide atleast one id to update");
+  }
+
+  const watchLaterList = await Playlist.findOne({
+    title: "Watch later",
+    created_user_id: userId,
+    type: "personal",
+  });
+
+  const foundedVideos = await Video.aggregate([
+    {
+      $addFields: {
+        _idStr: { $toString: "$_id" },
+      },
+    },
+    { $match: { _idStr: { $in: videoIdList } } },
+    { $group: { _id: null, idsFound: { $push: "$_idStr" } } },
+    {
+      $project: {
+        missingIds: {
+          $setDifference: [videoIdList, "$idsFound"],
+        },
+      },
+    },
+  ]);
+
+  if (foundedVideos.length === 0) {
+    throw new NotFoundError(
+      `The following videos with id: ${videoIdList.join(
+        ", ",
+      )} could not be found`,
+    );
+  }
+
+  if (foundedVideos[0]?.missingIds?.length > 0) {
+    throw new NotFoundError(
+      `The following videos with id: ${foundedVideos[0].missingIds.join(
+        ", ",
+      )} could not be found`,
+    );
+  }
+
+  const alreadyInPlaylistVideosId = videoIdList.reduce((acc, item) => {
+    if (watchLaterList.itemList.includes(item)) {
+      acc.push(item);
+    }
+    return acc;
+  }, []);
+
+  let notInplaylistVideosId = [];
+
+  if (alreadyInPlaylistVideosId.length > 0) {
+    await Playlist.updateOne(
+      { title: "Watch later", created_user_id: userId, type: "personal" },
+      { $pullAll: { itemList: alreadyInPlaylistVideosId } },
+    );
+
+    notInplaylistVideosId = videoIdList.reduce((acc, item) => {
+      if (!alreadyInPlaylistVideosId.includes(item)) {
+        acc.push(item);
+      }
+      return acc;
+    }, []);
+  } else {
+    notInplaylistVideosId = videoIdList;
+  }
+
+  if (notInplaylistVideosId.length > 0) {
+    await Playlist.updateOne(
+      { title: "Watch later", created_user_id: userId, type: "personal" },
+      { $addToSet: { itemList: { $each: notInplaylistVideosId } } },
+    );
+  }
+
+  const pipeline = [
+    {
+      $addFields: {
+        userIdStr: { $toString: "$created_user_id" },
+      },
+    },
+    {
+      $match: { title: "Watch later", userIdStr: userId, type: "personal" },
+    },
+    {
+      $project: {
+        _id: 1,
+        created_user_id: 1,
+        title: 1,
+        itemList: 1,
+        updatedAt: 1,
+        type: 1,
+        size: { $size: "$itemList" },
+      },
+    },
+  ];
+
+  const watchLaterListUpdate = await Playlist.aggregate(pipeline);
+
+  res.status(StatusCodes.OK).json({
+    msg: "Watch later updated",
+    data: watchLaterListUpdate[0],
+  });
+};
+
 const deletePlaylist = async (req, res) => {
   const { id } = req.params;
 
@@ -636,6 +746,8 @@ module.exports = {
   getPlaylists,
   getPlaylistDetails,
   updatePlaylist,
+  updateWatchLater,
+
   deletePlaylist,
   deleteManyPlaylist,
 };
