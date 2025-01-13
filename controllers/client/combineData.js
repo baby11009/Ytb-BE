@@ -794,7 +794,7 @@ const getDataList = async (req, res) => {
     channelList.push(...channels);
   }
 
-  // Get playlist if tyoe is not short , user don't provide tag and page < 3
+  // Get playlist if type is not short , user don't provide tag and page < 3
   if (
     !channelEmail &&
     type !== "short" &&
@@ -815,7 +815,16 @@ const getDataList = async (req, res) => {
 
     const playlistPipeline = [
       {
-        $addFields: addFieldsObj,
+        $addFields: {
+          ...addFieldsObj,
+          objectIdVideoList: {
+            $map: {
+              input: "$itemList",
+              as: "id",
+              in: { $toObjectId: "$$id" },
+            },
+          },
+        },
       },
       {
         $match: matchObj,
@@ -844,16 +853,53 @@ const getDataList = async (req, res) => {
       {
         $lookup: {
           from: "videos",
-          let: { videoIdList: "$itemList" },
+          let: { videoIdList: "$objectIdVideoList" },
           pipeline: [
             {
               $addFields: {
-                _idStr: { $toString: "$_id" },
-                reverseIdList: { $reverseArray: "$$videoIdList" },
+                videoIdList: "$$videoIdList",
+                order: {
+                  $indexOfArray: ["$$videoIdList", "$_id"],
+                },
               },
             },
             {
-              $match: { $expr: { $in: ["$_idStr", "$reverseIdList"] } },
+              $match: {
+                $expr: { $in: ["$_id", "$videoIdList"] },
+                ...matchObj,
+              },
+            },
+          ],
+          as: "videos",
+        },
+      },
+      {
+        $addFields: {
+          count: { $size: "$videos" },
+        },
+      },
+      {
+        $lookup: {
+          from: "videos",
+          let: { videoIdList: "$objectIdVideoList" },
+          pipeline: [
+            {
+              $addFields: {
+                videoIdList: "$$videoIdList",
+                order: {
+                  $indexOfArray: ["$$videoIdList", "$_id"],
+                },
+              },
+            },
+            {
+              $match: {
+                $expr: { $in: ["$_id", "$videoIdList"] },
+              },
+            },
+            {
+              $sort: {
+                order: -1, // Sắp xếp theo thứ tự tăng dần của `order`
+              },
             },
             {
               $limit: 1,
@@ -870,6 +916,7 @@ const getDataList = async (req, res) => {
                     else: null, // Set it to null if it doesn't exist
                   },
                 },
+                createdAt: 1,
               },
             },
           ],
@@ -974,10 +1021,6 @@ const getDataList = async (req, res) => {
       }
     }
   }
-
-  console.log(req.query);
-
-  console.log(videoMatchObj);
 
   if (Object.keys(videoAddFieldsObj).length > 0) {
     videoPipeline.push({
@@ -1688,6 +1731,9 @@ const getPlaylistDetails = async (req, res) => {
 
   const { videoLimit = 8, videoPage = 1 } = req.query;
 
+  const limit = Number(videoLimit) || 12;
+  const skip = (Number(videoPage) - 1) * limit;
+
   const foundedPlaylist = await Playlist.findOne({ _id: id });
 
   if (!foundedPlaylist) {
@@ -1706,6 +1752,13 @@ const getPlaylistDetails = async (req, res) => {
     {
       $addFields: {
         _idStr: { $toString: "$_id" },
+        objectIdVideoList: {
+          $map: {
+            input: "$itemList",
+            as: "id",
+            in: { $toObjectId: "$$id" },
+          },
+        },
       },
     },
     {
@@ -1726,58 +1779,100 @@ const getPlaylistDetails = async (req, res) => {
   ];
 
   if (videoLimit && videoLimit > 0) {
-    pipeline.push({
-      $lookup: {
-        from: "videos",
-        let: { videoIdList: "$itemList" },
-        pipeline: [
-          {
-            $addFields: {
-              _idStr: { $toString: "$_id" },
-              reverseIdList: { $reverseArray: "$$videoIdList" },
-            },
-          },
-          { $match: { $expr: { $in: ["$_idStr", "$reverseIdList"] } } },
-          {
-            $skip: (Number(videoPage) - 1) * Number(videoLimit),
-          },
-          {
-            $limit: Number(videoLimit),
-          },
-          {
-            $lookup: {
-              from: "users",
-              localField: "user_id",
-              foreignField: "_id",
-              pipeline: [{ $project: { name: 1, email: 1, avatar: 1 } }],
-              as: "channel_info",
-            },
-          },
-          {
-            $unwind: "$channel_info",
-          },
-          {
-            $project: {
-              _id: 1,
-              thumb: 1,
-              video: 1,
-              stream: {
-                $cond: {
-                  if: { $ne: ["$stream", null] }, // Check if `stream` exists and is not null
-                  then: "$stream", // Keep the `stream` value if it exists
-                  else: null, // Set it to null if it doesn't exist
+    pipeline.push(
+      {
+        $lookup: {
+          from: "videos",
+          let: { videoIdList: "$objectIdVideoList" },
+          pipeline: [
+            {
+              $addFields: {
+                videoIdList: "$$videoIdList",
+                order: {
+                  $indexOfArray: ["$$videoIdList", "$_id"],
                 },
               },
-              duration: { $ifNull: ["$duration", 0] },
-              title: 1,
-              createdAt: 1,
-              channel_info: 1,
             },
-          },
-        ],
-        as: "video_list",
+            {
+              $match: {
+                $expr: { $in: ["$_id", "$videoIdList"] },
+              },
+            },
+          ],
+          as: "videos",
+        },
       },
-    });
+      {
+        $addFields: {
+          count: { $size: "$videos" },
+        },
+      },
+      {
+        $lookup: {
+          from: "videos",
+          let: { videoIdList: "$objectIdVideoList" },
+          pipeline: [
+            {
+              $addFields: {
+                videoIdList: "$$videoIdList",
+                order: {
+                  $indexOfArray: ["$$videoIdList", "$_id"],
+                },
+              },
+            },
+            {
+              $match: {
+                $expr: { $in: ["$_id", "$videoIdList"] },
+              },
+            },
+            {
+              $sort: {
+                order: -1, // Sắp xếp theo thứ tự tăng dần của `order`
+              },
+            },
+            {
+              $skip: skip,
+            },
+            {
+              $limit: limit,
+            },
+            {
+              $lookup: {
+                from: "users",
+                localField: "user_id",
+                foreignField: "_id",
+                pipeline: [{ $project: { name: 1, email: 1, avatar: 1 } }],
+                as: "channel_info",
+              },
+            },
+            {
+              $unwind: "$channel_info",
+            },
+            {
+              $project: {
+                _id: 1,
+                thumb: 1,
+                title: 1,
+                view: 1,
+                type: 1,
+                video: 1,
+                stream: {
+                  $cond: {
+                    if: { $ne: ["$stream", null] }, // Check if `stream` exists and is not null
+                    then: "$stream", // Keep the `stream` value if it exists
+                    else: null, // Set it to null if it doesn't exist
+                  },
+                },
+                createdAt: 1,
+                duration: 1,
+                channel_info: 1,
+              },
+            },
+          ],
+          as: "video_list",
+        },
+      },
+    );
   }
 
   pipeline.push({
@@ -1793,6 +1888,7 @@ const getPlaylistDetails = async (req, res) => {
   });
 
   const playlist = await Playlist.aggregate(pipeline);
+  console.log("🚀 ~ playlist:", playlist);
 
   if (playlist.length === 0) {
     throw new NotFoundError("Playlist not found");
