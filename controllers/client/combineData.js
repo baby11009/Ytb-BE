@@ -445,7 +445,6 @@ const getRandomShorts = async (req, res) => {
     if (await client.exists(key)) {
       const idList = await client.sMembers(key);
       watchedShortIdList.push(...idList);
-      console.log(watchedShortIdList);
     }
 
     // if user provided short id and short id is not in the wacthed list
@@ -1022,6 +1021,10 @@ const getDataList = async (req, res) => {
     }
   }
 
+  if (!type) {
+    videoMatchObj["type"] = "video";
+  }
+
   if (Object.keys(videoAddFieldsObj).length > 0) {
     videoPipeline.push({
       $addFields: videoAddFieldsObj,
@@ -1068,6 +1071,22 @@ const getDataList = async (req, res) => {
 
   const videos = await Video.aggregate(videoPipeline);
 
+  let shorts;
+
+  if (!type) {
+    const shortPipeline = [...videoPipeline];
+    // modify to get short only
+    shortPipeline.forEach((item) => {
+      if (item["$match"] && item["$match"]["type"]) {
+        item["$match"]["type"] = "short";
+      } else if (item["$sample"] && item["$sample"]["size"]) {
+        item["$sample"]["size"] = dataLimit;
+      }
+    });
+
+    shorts = await Video.aggregate(shortPipeline);
+  }
+
   let finalData = [...videos];
 
   if (playlistList.length > 0) {
@@ -1093,10 +1112,15 @@ const getDataList = async (req, res) => {
 
   let result = {
     data: finalData,
+    page: dataPage,
   };
 
   if (channelList.length > 0) {
     result.channels = channelList;
+  }
+
+  if (shorts) {
+    result.shorts = shorts;
   }
 
   res.status(StatusCodes.OK).json(result);
@@ -1888,7 +1912,6 @@ const getPlaylistDetails = async (req, res) => {
   });
 
   const playlist = await Playlist.aggregate(pipeline);
-  console.log("🚀 ~ playlist:", playlist);
 
   if (playlist.length === 0) {
     throw new NotFoundError("Playlist not found");
