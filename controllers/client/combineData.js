@@ -801,12 +801,13 @@ const getDataList = async (req, res) => {
     dataPage < 3 &&
     Object.keys(sortObj).length === 0
   ) {
-    const addFieldsObj = {};
+    const addFieldsObj = { _idStr: { $toString: "$_id" } };
 
-    const matchObj = { type: "public" };
-
-    addFieldsObj["_idStr"] = { $toString: "$_id" };
-    matchObj["_idStr"] = { $nin: watchedPlIdList };
+    const matchObj = {
+      type: "playlist",
+      privacy: "public",
+      _idStr: { $nin: watchedPlIdList },
+    };
 
     if (search) {
       matchObj["title"] = { $regex: search, $options: "i" };
@@ -1175,10 +1176,9 @@ const getChannelInfo = async (req, res) => {
       subscriber: 1,
       totalVids: 1,
       createdAt: 1,
-      "subscription_info.notify": {
-        $ifNull: ["$subscription_info.notify", null],
+      subscription_info: {
+        $ifNull: ["$subscription_info", null],
       },
-      "subscription_info._id": { $ifNull: ["$subscription_info._id", null] },
     },
   });
 
@@ -1219,7 +1219,8 @@ const getChannelPlaylistVideos = async (req, res) => {
     {
       $match: {
         created_user_id: foundedChannel._id,
-        type: "public",
+        type: "playlist",
+        privacy: "public",
       },
     },
     {
@@ -1282,9 +1283,9 @@ const getChannelPlaylistVideos = async (req, res) => {
     },
   ];
 
-  const validSortKey = ["createdAt", "updatedAt", "textAZ"];
-
   const sortObj = {};
+
+  const validSortKey = ["createdAt", "updatedAt", "textAZ"];
 
   if (sort && Object.keys(sort).length > 0) {
     for (const [key, value] of Object.entries(sort)) {
@@ -1744,6 +1745,7 @@ const getVideoCmts = async (req, res) => {
   });
 };
 
+// For not logged in users
 const getPlaylistDetails = async (req, res) => {
   let userId;
 
@@ -1758,18 +1760,37 @@ const getPlaylistDetails = async (req, res) => {
   const limit = Number(videoLimit) || 12;
   const skip = (Number(videoPage) - 1) * limit;
 
-  const foundedPlaylist = await Playlist.findOne({ _id: id });
+  const foundedPlaylist = await Playlist.findOne({
+    _id: id,
+  });
 
   if (!foundedPlaylist) {
     throw new NotFoundError("Playlist not found");
   }
 
-  if (
-    foundedPlaylist.type !== "public" &&
-    userId &&
-    foundedPlaylist.created_user_id.toString() !== userId
-  ) {
-    throw new ForbiddenError("you cannot access this playlist ");
+  switch (foundedPlaylist.type) {
+    case "playlist":
+      if (
+        foundedPlaylist.privacy === "private" &&
+        userId &&
+        userId !== foundedPlaylist.created_user_id.toString()
+      ) {
+        throw new ForbiddenError(
+          "You are not authorized to access this playlist 1 ",
+        );
+      }
+      break;
+    case "history":
+      throw new ForbiddenError(
+        "You are not authorized to access this playlist 2",
+      );
+
+    default:
+      if (userId && userId !== foundedPlaylist.created_user_id.toString()) {
+        throw new ForbiddenError(
+          "You are not authorized to access this playlist 3",
+        );
+      }
   }
 
   const pipeline = [
@@ -1906,7 +1927,7 @@ const getPlaylistDetails = async (req, res) => {
       title: 1,
       createdAt: 1,
       type: 1,
-      video_list: "$video_list",
+      video_list: { $ifNull: ["$video_list", []] },
       size: { $size: "$itemList" },
     },
   });

@@ -527,8 +527,7 @@ const getWatchLaterDetails = async (req, res) => {
       {
         $match: {
           created_user_idStr: userId,
-          title: "Watch later",
-          type: "personal",
+          type: "watch_later",
         },
       },
       {
@@ -608,14 +607,6 @@ const getWatchLaterDetails = async (req, res) => {
                 title: 1,
                 view: 1,
                 type: 1,
-                video: 1,
-                stream: {
-                  $cond: {
-                    if: { $ne: ["$stream", null] }, // Check if `stream` exists and is not null
-                    then: "$stream", // Keep the `stream` value if it exists
-                    else: null, // Set it to null if it doesn't exist
-                  },
-                },
                 createdAt: 1,
                 duration: 1,
                 channel_info: 1,
@@ -799,8 +790,7 @@ const getLikedVideoList = async (req, res) => {
       {
         $match: {
           created_user_idStr: userId,
-          title: "Liked videos",
-          type: "personal",
+          type: "liked",
         },
       },
       {
@@ -880,14 +870,6 @@ const getLikedVideoList = async (req, res) => {
                 title: 1,
                 view: 1,
                 type: 1,
-                video: 1,
-                stream: {
-                  $cond: {
-                    if: { $ne: ["$stream", null] }, // Check if `stream` exists and is not null
-                    then: "$stream", // Keep the `stream` value if it exists
-                    else: null, // Set it to null if it doesn't exist
-                  },
-                },
                 createdAt: 1,
                 duration: 1,
                 channel_info: 1,

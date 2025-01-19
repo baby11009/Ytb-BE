@@ -7,7 +7,7 @@ const {
 const { StatusCodes } = require("http-status-codes");
 
 const createPlaylist = async (req, res) => {
-  const { title, videoIdList = [], userId, type } = req.body;
+  const { title, videoIdList = [], userId, privacy } = req.body;
 
   if (!userId) {
     throw new BadRequestError("Please provide user create playlist id");
@@ -36,16 +36,16 @@ const createPlaylist = async (req, res) => {
     if (foundedVideos.length === 0) {
       throw new NotFoundError(
         `The following videos with id: ${videoIdList.join(
-          ", "
-        )} could not be found`
+          ", ",
+        )} could not be found`,
       );
     }
 
     if (foundedVideos[0]?.missingIds?.length > 0) {
       throw new NotFoundError(
         `The following videos with id: ${foundedVideos[0].missingIds.join(
-          ", "
-        )} could not be found`
+          ", ",
+        )} could not be found`,
       );
     }
   }
@@ -54,47 +54,79 @@ const createPlaylist = async (req, res) => {
     throw new ForbiddenError("Cannot create personal playlist");
   }
 
-  const playlist = await Playlist.create({
+  await Playlist.create({
     created_user_id: userId,
     title,
     itemList: videoIdList,
-    type,
+    type: "playlist",
+    privacy,
   });
 
   res.status(StatusCodes.OK).json({ msg: "Created playlist successfully" });
 };
 
 const getPlaylists = async (req, res) => {
-  
-  const limit = Number(req.query.limit) || 5;
-  const page = Number(req.query.page) || 1;
+  const { limit, page, sort, ...matchParams } = req.query;
+  const limitNumber = Number(limit) || 5;
+  const pageNumber = Number(page) || 1;
 
-  const skip = (page - 1) * limit;
+  const skip = (pageNumber - 1) * limitNumber;
 
-  const findParams = Object.keys(req.query).filter(
-    (key) => key !== "limit" && key !== "page" && key !== "createdAt"
-  );
+  let matchObj = {};
 
-  let findObj = {};
+  const matchFuncObj = {
+    id: (syntax) => {
+      matchObj["_idStr"] = syntax;
+    },
+    email: (syntax) => {
+      matchObj["user_info.email"] = syntax;
+    },
+  };
 
-  findParams.forEach((item) => {
-    const syntax = { $regex: req.query[item], $options: "i" };
-    if (item === "id") {
-      findObj["_idStr"] = syntax;
-    } else if (item === "userId") {
-      findObj["_userIdStr"] = syntax;
-    } else if (item === "email") {
-      findObj["user_info.email"] = syntax;
-    } else {
-      findObj[item] = syntax;
+  if (Object.keys(matchParams).length > 0) {
+    for (const [key, value] of Object.entries(matchParams)) {
+      const syntax = { $regex: value, $options: "i" };
+      if (matchFuncObj[key] && value) {
+        matchFuncObj[item](syntax);
+      } else if (value) {
+        matchObj[key] = syntax;
+      }
     }
-  });
-
-  let sortNum = 1;
-
-  if (req.query.createdAt === "mới nhất") {
-    sortNum = -1;
   }
+
+  let uniqueSortObj = {};
+
+  let sortDateObj = {};
+
+  if (sort && Object.keys(sort).length > 0) {
+    const uniqueSortKeys = ["size"];
+    const sortKeys = ["createdAt", "title", "updatedAt"];
+    let unique = [];
+    let uniqueValue;
+    for (const [key, value] of Object.entries(sort)) {
+      if (sortKeys.includes(key)) {
+        sortDateObj[key] = Number(value);
+      } else if (uniqueSortKeys.includes(key)) {
+        unique.push(key);
+        uniqueValue = Number(value);
+      }
+    }
+
+    if (unique.length > 1) {
+      throw new BadRequestError(
+        `Only one sort key in ${uniqueSortKeys.join(", ")} is allowed`,
+      );
+    } else if (unique.length > 0) {
+      uniqueSortObj[unique[0]] = uniqueValue;
+    }
+  } else {
+    sortDateObj = {
+      createdAt: -1,
+    };
+    uniqueSortObj = { size: 1 };
+  }
+
+  const combinedSort = { ...uniqueSortObj, ...sortDateObj };
 
   const pipeline = [
     {
@@ -115,10 +147,11 @@ const getPlaylists = async (req, res) => {
       $addFields: {
         _idStr: { $toString: "$_id" },
         _userIdStr: { $toString: "$created_user_id" },
+        size: { $size: "$itemList" },
       },
     },
     {
-      $match: findObj,
+      $match: matchObj,
     },
     {
       $project: {
@@ -132,14 +165,12 @@ const getPlaylists = async (req, res) => {
       },
     },
     {
-      $sort: {
-        createdAt: sortNum,
-      },
+      $sort: combinedSort,
     },
     {
       $facet: {
         totalCount: [{ $count: "total" }],
-        data: [{ $skip: skip }, { $limit: limit }],
+        data: [{ $skip: skip }, { $limit: limitNumber }],
       },
     },
   ];
@@ -165,13 +196,21 @@ const getPlaylistDetails = async (req, res) => {
       },
     },
     {
-      $match: { _idStr: id },
+      $match: { _idStr: id, type: "playlist" },
     },
     {
       $lookup: {
         from: "users",
         localField: "created_user_id",
         foreignField: "_id",
+        pipeline: [
+          {
+            $project: {
+              email: 1,
+              name: 1,
+            },
+          },
+        ],
         as: "user_info",
       },
     },
@@ -188,8 +227,7 @@ const getPlaylistDetails = async (req, res) => {
         title: 1,
         itemList: 1,
         createdAt: 1,
-        "user_info._id": 1,
-        "user_info.email": 1,
+        user_info: 1,
       },
     },
   ];
@@ -210,11 +248,11 @@ const updatePlaylist = async (req, res) => {
     throw new BadRequestError("Please provide playlist id to update");
   }
 
-  const { videoIdList, title, type } = req.body;
+  const { videoIdList, ...restData } = req.body;
 
   if (!videoIdList && !title) {
     throw new BadRequestError(
-      "Please provide atleast videoIdList or title to update playlist"
+      "Please provide atleast videoIdList or title to update playlist",
     );
   }
 
@@ -224,8 +262,66 @@ const updatePlaylist = async (req, res) => {
     throw new NotFoundError("Playlist not found");
   }
 
-  if (foundedPlaylist.type === "personal" && type && type !== "personal") {
-    throw new ForbiddenError(`You can't change personal playlist to ${type}`);
+  const updateDatas = {};
+
+  const notAllowData = [];
+
+  const title = (value) => {
+    if (foundedPlaylist.type === "personal")
+      return next(new ForbiddenError("You can't modify personal playlist"));
+    if (typeof value !== "string")
+      return next(new ForbiddenError("Data type must be a string"));
+    if (foundedPlaylist.title === value) {
+      return next(
+        new BadRequestError("The new title of playlist is still the same"),
+      );
+    } else {
+      updateDatas.title = value;
+    }
+  };
+  const privacy = (value) => {
+    if (foundedPlaylist.type !== "playlist")
+      throw new ForbiddenError("You can't modify this list");
+    if (value === foundedPlaylist.privacy) {
+      throw new BadRequestError(
+        "The new privacy of playlist is still the same ",
+      );
+    } else {
+      const validatePrivacy = ["private", "public"];
+      if (!validatePrivacy.includes(value)) {
+        return next(new BadRequestError("Invalid playlist type"));
+      } else {
+        updateDatas.privacy = value;
+      }
+    }
+  };
+
+  const updateFuncObj = {
+    playlist: {
+      title,
+      privacy,
+    },
+  };
+
+  if (Object.keys(restData).length > 0) {
+    for (const [key, value] of Object.entries(restData)) {
+      const func = updateFuncObj[foundedPlaylist.type][key];
+      if (func) {
+        const result = await func(value);
+
+        if (result instanceof Promise) {
+          return;
+        }
+      } else {
+        notAllowData.push(key);
+      }
+    }
+  }
+
+  if (notAllowData.length > 0) {
+    throw new BadRequestError(
+      "You can't update these fields: " + notAllowData.join(", "),
+    );
   }
 
   if (videoIdList && videoIdList.length > 0) {
@@ -249,16 +345,16 @@ const updatePlaylist = async (req, res) => {
     if (foundedVideos.length === 0) {
       throw new NotFoundError(
         `The following videos with id: ${videoIdList.join(
-          ", "
-        )} could not be found`
+          ", ",
+        )} could not be found`,
       );
     }
 
     if (foundedVideos[0]?.missingIds?.length > 0) {
       throw new NotFoundError(
         `The following videos with id: ${foundedVideos[0].missingIds.join(
-          ", "
-        )} could not be found`
+          ", ",
+        )} could not be found`,
       );
     }
 
@@ -274,7 +370,7 @@ const updatePlaylist = async (req, res) => {
     if (alreadyInPlaylistVideosId.length > 0) {
       await Playlist.updateOne(
         { _id: id },
-        { $pullAll: { itemList: alreadyInPlaylistVideosId } }
+        { $pullAll: { itemList: alreadyInPlaylistVideosId } },
       );
 
       notInplaylistVideosId = videoIdList.reduce((acc, item) => {
@@ -290,36 +386,11 @@ const updatePlaylist = async (req, res) => {
     if (notInplaylistVideosId.length > 0) {
       await Playlist.updateOne(
         { _id: id },
-        { $addToSet: { itemList: { $each: notInplaylistVideosId } } }
+        { $addToSet: { itemList: { $each: notInplaylistVideosId } } },
       );
     }
   } else if (videoIdList && videoIdList.length === 0) {
     await Playlist.updateOne({ _id: id }, { itemList: [] });
-  }
-
-  const updateDatas = {};
-
-  if (type) {
-    if (type === foundedPlaylist.type) {
-      throw new BadRequestError("The new type of playlist is still the same ");
-    } else {
-      const validateType = ["private", "public"];
-      if (!validateType.includes(type)) {
-        throw new BadRequestError("Invalid playlist type");
-      } else {
-        updateDatas.type = type;
-      }
-    }
-  }
-
-  if (title) {
-    if (foundedPlaylist.title === title) {
-      throw new BadRequestError(
-        "The new title of playlist is still the same as the old title"
-      );
-    } else {
-      updateDatas.title = title;
-    }
   }
 
   if (Object.keys(updateDatas).length > 0) {
@@ -332,14 +403,14 @@ const updatePlaylist = async (req, res) => {
 const deletePlaylist = async (req, res) => {
   const { id } = req.params;
 
-  const playlist = await Playlist.findById(id);
+  const playlist = await Playlist.findOne({ _id: id });
 
   if (!playlist) {
     throw new NotFoundError(`Playlist not found`);
   }
 
-  if (playlist.type === "personal") {
-    throw new ForbiddenError("You can't delete a personal playlist");
+  if (playlist.type !== "playlist") {
+    throw new ForbiddenError("You can't delete this list");
   }
 
   await Playlist.deleteOne({ _id: id });
@@ -372,33 +443,33 @@ const deleteManyPlaylist = async (req, res) => {
 
   if (foundedPlaylists.length === 0) {
     throw new NotFoundError(
-      `The following playlists with id: ${idList.join(", ")}could not be found`
+      `The following playlists with id: ${idList.join(", ")}could not be found`,
     );
   }
 
   if (foundedPlaylists[0]?.missingIds?.length > 0) {
     throw new NotFoundError(
       `The following playlists with id: ${foundedPlaylists[0].missingIds.join(
-        ", "
-      )} could not be found`
+        ", ",
+      )} could not be found`,
     );
   }
 
-  const personalList = foundedPlaylists.filter((playlist) => {
-    if (playlist.type === "personal") {
+  const specialList = foundedPlaylists.filter((playlist) => {
+    if (playlist.type !== "playlist") {
       return playlist._id.toString();
     }
   });
 
-  if (personalList.length > 0) {
-    throw new ForbiddenError("You can't delete personal playlists");
+  if (specialList.length > 0) {
+    throw new ForbiddenError("You can't delete these playlists");
   }
 
   await Playlist.deleteMany({ _id: { $in: idList } });
 
   res.status(StatusCodes.OK).json({
     msg: `Successfully deleted playlist with following id: ${idList.join(
-      ", "
+      ", ",
     )}`,
   });
 };

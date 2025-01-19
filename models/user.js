@@ -68,9 +68,6 @@ const User = new mongoose.Schema(
       type: String,
       default: "",
     },
-    playlistList: {
-      type: mongoose.Types.ObjectId,
-    },
     watchedHistory: {
       type: mongoose.Types.ObjectId,
     },
@@ -89,20 +86,17 @@ User.post("save", async function (next) {
 
   await Playlist.create({
     created_user_id: this._id,
-    title: "Watch later",
-    type: "personal",
+    type: "watch_later",
   });
 
   await Playlist.create({
     created_user_id: this._id,
-    title: "History",
-    type: "personal",
+    type: "history",
   });
 
   await Playlist.create({
     created_user_id: this._id,
-    title: "Liked videos",
-    type: "personal",
+    type: "liked",
   });
 });
 

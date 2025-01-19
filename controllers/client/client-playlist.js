@@ -8,7 +8,7 @@ const { StatusCodes } = require("http-status-codes");
 
 const createPlaylist = async (req, res) => {
   const { userId } = req.user;
-  const { title, videoIdList = [], type } = req.body;
+  const { title, videoIdList = [], privacy } = req.body;
 
   if (!title || title === "") {
     throw new BadRequestError("Please provide a playlist title");
@@ -47,14 +47,11 @@ const createPlaylist = async (req, res) => {
     }
   }
 
-  if (type && type === "personal") {
-    throw new ForbiddenError("Cannot create personal playlist");
-  }
-
   const playlist = await Playlist.create({
     created_user_id: userId,
     title,
-    type,
+    type: "playlist",
+    privacy,
     itemList: videoIdList,
   });
 
@@ -65,44 +62,37 @@ const createPlaylist = async (req, res) => {
 
 const getPlaylists = async (req, res) => {
   const { userId } = req.user;
-  const { sort, videoLimit } = req.query;
-  const limit = Number(req.query.limit) || 5;
-  const page = Number(req.query.page) || 1;
-  const skip = (page - 1) * limit;
 
-  const findParams = Object.keys(req.query).filter(
-    (key) =>
-      key !== "limit" &&
-      key !== "page" &&
-      key !== "sort" &&
-      key !== "videoLimit",
-  );
+  const { limit, page, sort, videoLimit, ...matchParams } = req.query;
+  const limitNumber = Number(limit) || 5;
+  const pageNumber = Number(page) || 1;
+  const skip = (pageNumber - 1) * limitNumber;
 
-  let findObj = {
-    $expr: {
-      $or: [{ $ne: ["$title", "History"] }, { $ne: ["$type", "personal"] }],
-    },
+  let matchObj = {
+    type: { $ne: "history" },
   };
 
-  const findFuncObj = {
+  const matchFuncObj = {
     id: (syntax) => {
-      findObj["_idStr"] = syntax;
+      matchObj["_idStr"] = syntax;
     },
     email: (syntax) => {
-      findObj["user_info.email"] = syntax;
+      matchObj["user_info.email"] = syntax;
     },
   };
 
-  findParams.forEach((item) => {
-    const syntax = { $regex: req.query[item], $options: "i" };
-    if (findFuncObj[item] && req.query[item]) {
-      findFuncObj[item](syntax);
-    } else if (req.query[item]) {
-      findObj[item] = syntax;
+  if (Object.keys(matchParams).length > 0) {
+    for (const [key, value] of Object.entries(matchParams)) {
+      const syntax = { $regex: value, $options: "i" };
+      if (matchFuncObj[key] && value) {
+        matchFuncObj[item](syntax);
+      } else if (value) {
+        matchObj[key] = syntax;
+      }
     }
-  });
+  }
 
-  let sortObj = {};
+  let uniqueSortObj = {};
 
   let sortDateObj = {};
 
@@ -125,16 +115,16 @@ const getPlaylists = async (req, res) => {
         `Only one sort key in ${uniqueSortKeys.join(", ")} is allowed`,
       );
     } else if (unique.length > 0) {
-      sortObj[unique[0]] = uniqueValue;
+      uniqueSortObj[unique[0]] = uniqueValue;
     }
   } else {
     sortDateObj = {
       createdAt: -1,
     };
-    sortObj = { size: 1 };
+    uniqueSortObj = { size: 1 };
   }
 
-  const combinedSort = { ...sortObj, ...sortDateObj };
+  const combinedSort = { ...uniqueSortObj, ...sortDateObj };
 
   const pipeline = [
     {
@@ -150,7 +140,7 @@ const getPlaylists = async (req, res) => {
       },
     },
     {
-      $match: findObj,
+      $match: matchObj,
     },
     {
       $sort: combinedSort,
@@ -211,7 +201,7 @@ const getPlaylists = async (req, res) => {
     {
       $facet: {
         totalCount: [{ $count: "total" }],
-        data: [{ $skip: skip }, { $limit: limit }],
+        data: [{ $skip: skip }, { $limit: limitNumber }],
       },
     },
   );
@@ -238,6 +228,10 @@ const getPlaylistDetails = async (req, res) => {
 
   if (!foundedPlaylist) {
     throw new NotFoundError("Playlist not found");
+  }
+
+  if (foundedPlaylist.created_user_id !== userId) {
+    throw new ForbiddenError("You are not authorized to access this playlist");
   }
 
   const pipeline = [
@@ -335,7 +329,7 @@ const updatePlaylist = async (req, res, next) => {
     throw new BadRequestError("Please provide atleast one data to update");
   }
 
-  const foundedPlaylist = await Playlist.findById(id);
+  const foundedPlaylist = await Playlist.findOne({ _id: id });
 
   if (!foundedPlaylist) {
     throw new NotFoundError("Playlist not found");
@@ -349,71 +343,84 @@ const updatePlaylist = async (req, res, next) => {
 
   const updateDatas = {};
 
-  const updateFuncObj = {
-    title: (value) => {
-      if (foundedPlaylist.type === "personal")
-        return next(new ForbiddenError("You can't modify personal playlist"));
-      if (typeof value !== "string")
-        return next(new ForbiddenError("Data type must be a string"));
-      if (foundedPlaylist.title === value) {
-        return next(
-          new BadRequestError("The new title of playlist is still the same"),
-        );
-      } else {
-        updateDatas.title = value;
-      }
-    },
-    type: (value) => {
-      if (foundedPlaylist.type === "personal")
-        throw new ForbiddenError("You can't modify personal playlist");
-      if (value === foundedPlaylist.type) {
-        throw new BadRequestError(
-          "The new type of playlist is still the same ",
-        );
-      } else {
-        const validateType = ["private", "public"];
-        if (!validateType.includes(value)) {
-          return next(new BadRequestError("Invalid playlist type"));
-        } else {
-          updateDatas.type = value;
-        }
-      }
-    },
-    move: async (value) => {
-      if (typeof value !== "object")
-        return next(
-          new BadRequestError(
-            "Data type must be an object with following properties from :(nummber > 0) ,  to : (number < list length )",
-          ),
-        );
-
-      // Must reverse because we are display data in reverse order of itemList indexes
-      const vidList = [...foundedPlaylist.itemList].reverse();
-
-      const { from, to } = value;
-
-      const fromValue = vidList[from];
-      const toValue = vidList[to];
-      if (fromValue && toValue) {
-        vidList[from] = toValue;
-        vidList[to] = fromValue;
-      } else {
-        return next(new BadRequestError("Invalid move action"));
-      }
-
-      vidList.reverse();
-
-      await Playlist.updateOne(
-        { _id: foundedPlaylist._id },
-        { itemList: vidList },
+  const title = (value) => {
+    if (foundedPlaylist.type === "personal")
+      return next(new ForbiddenError("You can't modify personal playlist"));
+    if (typeof value !== "string")
+      return next(new ForbiddenError("Data type must be a string"));
+    if (foundedPlaylist.title === value) {
+      return next(
+        new BadRequestError("The new title of playlist is still the same"),
       );
+    } else {
+      updateDatas.title = value;
+    }
+  };
+  const privacy = (value) => {
+    if (foundedPlaylist.type !== "playlist")
+      throw new ForbiddenError("You can't modify this list");
+    if (value === foundedPlaylist.privacy) {
+      throw new BadRequestError(
+        "The new privacy of playlist is still the same ",
+      );
+    } else {
+      const validatePrivacy = ["private", "public"];
+      if (!validatePrivacy.includes(value)) {
+        return next(new BadRequestError("Invalid playlist type"));
+      } else {
+        updateDatas.privacy = value;
+      }
+    }
+  };
+  const move = async (value) => {
+    if (typeof value !== "object")
+      return next(
+        new BadRequestError(
+          "Data type must be an object with following properties from :(nummber > 0) ,  to : (number < list length )",
+        ),
+      );
+
+    // Must reverse because we are display data in reverse order of itemList indexes
+    const vidList = [...foundedPlaylist.itemList].reverse();
+
+    const { from, to } = value;
+
+    const fromValue = vidList[from];
+    const toValue = vidList[to];
+    if (fromValue && toValue) {
+      vidList[from] = toValue;
+      vidList[to] = fromValue;
+    } else {
+      return next(new BadRequestError("Invalid move action"));
+    }
+
+    vidList.reverse();
+
+    await Playlist.updateOne(
+      { _id: foundedPlaylist._id },
+      { itemList: vidList },
+    );
+  };
+
+  const updateFuncObj = {
+    playlist: {
+      title,
+      privacy,
+      move,
+    },
+    watch_later: {
+      move,
+    },
+    likded: {
+      move,
     },
   };
 
   if (Object.keys(restData).length > 0) {
     for (const [key, value] of Object.entries(restData)) {
-      if (updateFuncObj[key]) {
-        const result = await updateFuncObj[key](value);
+      const func = updateFuncObj[foundedPlaylist.type][key];
+      if (func) {
+        const result = await func(value);
 
         if (result instanceof Promise) {
           return;
@@ -654,8 +661,8 @@ const deletePlaylist = async (req, res) => {
     throw new ForbiddenError("You are not authorized to delete this playlist");
   }
 
-  if (foundedPlaylist.type === "personal") {
-    throw new ForbiddenError("Cannot delete personal playlist");
+  if (foundedPlaylist.type !== "playlist") {
+    throw new ForbiddenError("Cannot delete this list");
   }
 
   await Playlist.deleteOne({ _id: id });
@@ -703,7 +710,7 @@ const deleteManyPlaylist = async (req, res) => {
 
   const notBelongList = [];
 
-  const personalList = [];
+  const specialList = [];
 
   foundedPlaylists.forEach((playlist) => {
     if (playlist.created_user_id.toString() !== userId) {
@@ -711,8 +718,8 @@ const deleteManyPlaylist = async (req, res) => {
       return;
     }
 
-    if (playlist.type === "personal") {
-      personalList.push(playlist._id.toString());
+    if (playlist.type !== "playlist") {
+      specialList.push(playlist._id.toString());
     }
   });
 
@@ -724,9 +731,9 @@ const deleteManyPlaylist = async (req, res) => {
     );
   }
 
-  if (personalList.length > 0) {
+  if (specialList.length > 0) {
     throw new ForbiddenError(
-      `Cannot delete these personal playlist with id : ${personalList.join(
+      `Cannot delete these personal playlist with id : ${specialList.join(
         ", ",
       )}`,
     );
@@ -747,7 +754,6 @@ module.exports = {
   getPlaylistDetails,
   updatePlaylist,
   updateWatchLater,
-
   deletePlaylist,
   deleteManyPlaylist,
 };

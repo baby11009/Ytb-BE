@@ -8,9 +8,22 @@ const Playlist = new mongoose.Schema(
     },
     title: {
       type: String,
-      required: [true, "Please provide playlist title"],
       minLength: 1,
       maxLength: 200,
+      set: function (value) {
+        switch (this.type) {
+          case "watch_later":
+            return "Watch Later";
+          case "liked":
+            return "Liked videos";
+          case "playlist":
+            if (!value) {
+              throw new Error('Title is required when type is "playlist"');
+            }
+
+            return value;
+        }
+      },
     },
     itemList: {
       type: Array,
@@ -18,11 +31,19 @@ const Playlist = new mongoose.Schema(
     },
     type: {
       type: String,
-      enum: ["public", "private", "personal"],
+      enum: ["playlist", "watch_later", "liked", "history"],
+      default: "playlist",
+    },
+    privacy: {
+      type: String,
+      enum: ["private", "public"],
       default: "public",
+      required: function () {
+        return this.type === "playlist"; // Chỉ bắt buộc nếu type là 'playlist'
+      },
     },
   },
-  { timestamps: true }
+  { timestamps: true },
 );
 
 module.exports = mongoose.model("Playlist", Playlist);
