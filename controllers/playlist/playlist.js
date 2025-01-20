@@ -72,7 +72,7 @@ const getPlaylists = async (req, res) => {
 
   const skip = (pageNumber - 1) * limitNumber;
 
-  let matchObj = {};
+  let matchObj = { type: { $ne: "liked" } };
 
   const matchFuncObj = {
     id: (syntax) => {
@@ -87,7 +87,7 @@ const getPlaylists = async (req, res) => {
     for (const [key, value] of Object.entries(matchParams)) {
       const syntax = { $regex: value, $options: "i" };
       if (matchFuncObj[key] && value) {
-        matchFuncObj[item](syntax);
+        matchFuncObj[key](syntax);
       } else if (value) {
         matchObj[key] = syntax;
       }
@@ -134,6 +134,7 @@ const getPlaylists = async (req, res) => {
         from: "users",
         localField: "created_user_id",
         foreignField: "_id",
+        pipeline: [{ $project: { name: 1, email: 1, avatar: 1 } }],
         as: "user_info",
       },
     },
@@ -160,8 +161,9 @@ const getPlaylists = async (req, res) => {
         title: 1,
         itemList: 1,
         createdAt: 1,
-        "user_info._id": 1,
-        "user_info.email": 1,
+        user_info: 1,
+        type: 1,
+        privacy: 1,
       },
     },
     {
@@ -196,7 +198,7 @@ const getPlaylistDetails = async (req, res) => {
       },
     },
     {
-      $match: { _idStr: id, type: "playlist" },
+      $match: { _idStr: id },
     },
     {
       $lookup: {
@@ -248,12 +250,10 @@ const updatePlaylist = async (req, res) => {
     throw new BadRequestError("Please provide playlist id to update");
   }
 
-  const { videoIdList, ...restData } = req.body;
+  const bodyData = req.body;
 
-  if (!videoIdList && !title) {
-    throw new BadRequestError(
-      "Please provide atleast videoIdList or title to update playlist",
-    );
+  if (Object.keys(bodyData).length < 1) {
+    throw new BadRequestError("Please provide at least one data to update");
   }
 
   const foundedPlaylist = await Playlist.findById(id);
@@ -296,21 +296,100 @@ const updatePlaylist = async (req, res) => {
     }
   };
 
+  const updateList = async (videoIdList) => {
+    if (videoIdList.length > 0 && foundedPlaylist.type) {
+      const foundedVideos = await Video.aggregate([
+        {
+          $addFields: {
+            _idStr: { $toString: "$_id" },
+          },
+        },
+        { $match: { _idStr: { $in: videoIdList } } },
+        { $group: { _id: null, idsFound: { $push: "$_idStr" } } },
+        {
+          $project: {
+            missingIds: {
+              $setDifference: [videoIdList, "$idsFound"],
+            },
+          },
+        },
+      ]);
+
+      if (foundedVideos.length === 0) {
+        throw new NotFoundError(
+          `The following videos with id: ${videoIdList.join(
+            ", ",
+          )} could not be found`,
+        );
+      }
+
+      if (foundedVideos[0]?.missingIds?.length > 0) {
+        throw new NotFoundError(
+          `The following videos with id: ${foundedVideos[0].missingIds.join(
+            ", ",
+          )} could not be found`,
+        );
+      }
+
+      const alreadyInPlaylistVideosId = videoIdList.reduce((acc, item) => {
+        if (foundedPlaylist.itemList.includes(item)) {
+          acc.push(item);
+        }
+        return acc;
+      }, []);
+
+      let notInplaylistVideosId = [];
+
+      if (alreadyInPlaylistVideosId.length > 0) {
+        await Playlist.updateOne(matchObj, {
+          $pullAll: { itemList: alreadyInPlaylistVideosId },
+        });
+
+        notInplaylistVideosId = videoIdList.reduce((acc, item) => {
+          if (!alreadyInPlaylistVideosId.includes(item)) {
+            acc.push(item);
+          }
+          return acc;
+        }, []);
+      } else {
+        notInplaylistVideosId = videoIdList;
+      }
+
+      if (notInplaylistVideosId.length > 0) {
+        await Playlist.updateOne(matchObj, {
+          $addToSet: { itemList: { $each: notInplaylistVideosId } },
+        });
+      }
+    } else {
+      await Playlist.updateOne({ _id: id }, { itemList: [] });
+    }
+  };
+
   const updateFuncObj = {
     playlist: {
       title,
       privacy,
+      videoIdList: updateList,
     },
+    watch_later: { videoIdList: updateList },
+    history: { videoIdList: updateList },
   };
 
-  if (Object.keys(restData).length > 0) {
-    for (const [key, value] of Object.entries(restData)) {
-      const func = updateFuncObj[foundedPlaylist.type][key];
+  if (Object.keys(bodyData).length > 0) {
+    for (const [key, value] of Object.entries(bodyData)) {
+      let func = updateFuncObj[foundedPlaylist.type];
       if (func) {
-        const result = await func(value);
-
-        if (result instanceof Promise) {
-          return;
+        func = func[key];
+      } else {
+        throw new BadRequestError(
+          `Cannot update ${key} of list with type ${foundedPlaylist.type}`,
+        );
+      }
+      if (func) {
+        if (func.constructor.name === "AsyncFunction") {
+          await func(value);
+        } else {
+          func(value);
         }
       } else {
         notAllowData.push(key);
@@ -322,75 +401,6 @@ const updatePlaylist = async (req, res) => {
     throw new BadRequestError(
       "You can't update these fields: " + notAllowData.join(", "),
     );
-  }
-
-  if (videoIdList && videoIdList.length > 0) {
-    const foundedVideos = await Video.aggregate([
-      {
-        $addFields: {
-          _idStr: { $toString: "$_id" },
-        },
-      },
-      { $match: { _idStr: { $in: videoIdList } } },
-      { $group: { _id: null, idsFound: { $push: "$_idStr" } } },
-      {
-        $project: {
-          missingIds: {
-            $setDifference: [videoIdList, "$idsFound"],
-          },
-        },
-      },
-    ]);
-
-    if (foundedVideos.length === 0) {
-      throw new NotFoundError(
-        `The following videos with id: ${videoIdList.join(
-          ", ",
-        )} could not be found`,
-      );
-    }
-
-    if (foundedVideos[0]?.missingIds?.length > 0) {
-      throw new NotFoundError(
-        `The following videos with id: ${foundedVideos[0].missingIds.join(
-          ", ",
-        )} could not be found`,
-      );
-    }
-
-    const alreadyInPlaylistVideosId = videoIdList.reduce((acc, item) => {
-      if (foundedPlaylist.itemList.includes(item)) {
-        acc.push(item);
-      }
-      return acc;
-    }, []);
-
-    let notInplaylistVideosId = [];
-
-    if (alreadyInPlaylistVideosId.length > 0) {
-      await Playlist.updateOne(
-        { _id: id },
-        { $pullAll: { itemList: alreadyInPlaylistVideosId } },
-      );
-
-      notInplaylistVideosId = videoIdList.reduce((acc, item) => {
-        if (!alreadyInPlaylistVideosId.includes(item)) {
-          acc.push(item);
-        }
-        return acc;
-      }, []);
-    } else {
-      notInplaylistVideosId = videoIdList;
-    }
-
-    if (notInplaylistVideosId.length > 0) {
-      await Playlist.updateOne(
-        { _id: id },
-        { $addToSet: { itemList: { $each: notInplaylistVideosId } } },
-      );
-    }
-  } else if (videoIdList && videoIdList.length === 0) {
-    await Playlist.updateOne({ _id: id }, { itemList: [] });
   }
 
   if (Object.keys(updateDatas).length > 0) {

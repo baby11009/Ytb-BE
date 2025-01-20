@@ -16,7 +16,9 @@ const Playlist = new mongoose.Schema(
             return "Watch Later";
           case "liked":
             return "Liked videos";
-          case "playlist":
+          case "history":
+            return "History";
+          default:
             if (!value) {
               throw new Error('Title is required when type is "playlist"');
             }

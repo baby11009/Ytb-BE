@@ -5,6 +5,7 @@ const {
   ForbiddenError,
 } = require("../../errors");
 const { StatusCodes } = require("http-status-codes");
+const mongoose = require("mongoose");
 
 const createPlaylist = async (req, res) => {
   const { userId } = req.user;
@@ -63,13 +64,20 @@ const createPlaylist = async (req, res) => {
 const getPlaylists = async (req, res) => {
   const { userId } = req.user;
 
-  const { limit, page, sort, videoLimit, ...matchParams } = req.query;
+  const {
+    limit,
+    page,
+    exCludeTypes = [],
+    sort,
+    videoLimit,
+    ...matchParams
+  } = req.query;
   const limitNumber = Number(limit) || 5;
   const pageNumber = Number(page) || 1;
   const skip = (pageNumber - 1) * limitNumber;
 
   let matchObj = {
-    type: { $ne: "history" },
+    type: { $nin: ["history", ...exCludeTypes] },
   };
 
   const matchFuncObj = {
@@ -194,6 +202,7 @@ const getPlaylists = async (req, res) => {
         video_list: "$video_list",
         size: 1,
         type: 1,
+        privacy: 1,
         createdAt: 1,
         updatedAt: 1,
       },
@@ -212,7 +221,7 @@ const getPlaylists = async (req, res) => {
     data: playlists[0]?.data,
     qtt: playlists[0]?.data?.length,
     totalQtt: playlists[0]?.totalCount[0]?.total,
-    currPage: page,
+    currPage: pageNumber,
     totalPage: Math.ceil(playlists[0]?.totalCount[0]?.total / limit),
   });
 };
@@ -230,7 +239,7 @@ const getPlaylistDetails = async (req, res) => {
     throw new NotFoundError("Playlist not found");
   }
 
-  if (foundedPlaylist.created_user_id !== userId) {
+  if (foundedPlaylist.created_user_id.toString() !== userId) {
     throw new ForbiddenError("You are not authorized to access this playlist");
   }
 
@@ -293,7 +302,7 @@ const getPlaylistDetails = async (req, res) => {
       created_user_id: 1,
       title: 1,
       createdAt: 1,
-      type: 1,
+      privacy: 1,
       video_list: "$video_list",
       size: { $size: "$itemList" },
     },
@@ -323,13 +332,38 @@ const updatePlaylist = async (req, res, next) => {
     throw new BadRequestError("Please provide playlist id to update");
   }
 
-  const { videoIdList, ...restData } = req.body;
+  const bodyData = req.body;
 
-  if (Object.keys(req.body).length === 0) {
+  if (Object.keys(bodyData).length === 0) {
     throw new BadRequestError("Please provide atleast one data to update");
   }
 
-  const foundedPlaylist = await Playlist.findOne({ _id: id });
+  let matchObj;
+
+  if (mongoose.Types.ObjectId.isValid(id)) {
+    matchObj = {
+      _id: id,
+    };
+  } else {
+    const listTypes = {
+      wl: "watch_later",
+      liked: "liked",
+      history: "history",
+    };
+
+    const listType = listTypes[id];
+
+    if (!listType) {
+      throw new BadRequestError("Invalid list id");
+    }
+
+    matchObj = {
+      type: listType,
+      created_user_id: userId,
+    };
+  }
+
+  const foundedPlaylist = await Playlist.findOne(matchObj);
 
   if (!foundedPlaylist) {
     throw new NotFoundError("Playlist not found");
@@ -402,28 +436,100 @@ const updatePlaylist = async (req, res, next) => {
     );
   };
 
+  const updateList = async (videoIdList) => {
+    if (videoIdList.length > 0 && foundedPlaylist.type) {
+      const foundedVideos = await Video.aggregate([
+        {
+          $addFields: {
+            _idStr: { $toString: "$_id" },
+          },
+        },
+        { $match: { _idStr: { $in: videoIdList } } },
+        { $group: { _id: null, idsFound: { $push: "$_idStr" } } },
+        {
+          $project: {
+            missingIds: {
+              $setDifference: [videoIdList, "$idsFound"],
+            },
+          },
+        },
+      ]);
+
+      if (foundedVideos.length === 0) {
+        throw new NotFoundError(
+          `The following videos with id: ${videoIdList.join(
+            ", ",
+          )} could not be found`,
+        );
+      }
+
+      if (foundedVideos[0]?.missingIds?.length > 0) {
+        throw new NotFoundError(
+          `The following videos with id: ${foundedVideos[0].missingIds.join(
+            ", ",
+          )} could not be found`,
+        );
+      }
+
+      const alreadyInPlaylistVideosId = videoIdList.reduce((acc, item) => {
+        if (foundedPlaylist.itemList.includes(item)) {
+          acc.push(item);
+        }
+        return acc;
+      }, []);
+
+      let notInplaylistVideosId = [];
+
+      if (alreadyInPlaylistVideosId.length > 0) {
+        await Playlist.updateOne(matchObj, {
+          $pullAll: { itemList: alreadyInPlaylistVideosId },
+        });
+
+        notInplaylistVideosId = videoIdList.reduce((acc, item) => {
+          if (!alreadyInPlaylistVideosId.includes(item)) {
+            acc.push(item);
+          }
+          return acc;
+        }, []);
+      } else {
+        notInplaylistVideosId = videoIdList;
+      }
+
+      if (notInplaylistVideosId.length > 0) {
+        await Playlist.updateOne(matchObj, {
+          $addToSet: { itemList: { $each: notInplaylistVideosId } },
+        });
+      }
+    } else {
+      await Playlist.updateOne({ _id: id }, { itemList: [] });
+    }
+  };
+
   const updateFuncObj = {
     playlist: {
       title,
       privacy,
       move,
+      videoIdList: updateList,
     },
     watch_later: {
       move,
+      videoIdList: updateList,
     },
     likded: {
       move,
     },
   };
 
-  if (Object.keys(restData).length > 0) {
-    for (const [key, value] of Object.entries(restData)) {
+  if (Object.keys(bodyData).length > 0) {
+    for (const [key, value] of Object.entries(bodyData)) {
       const func = updateFuncObj[foundedPlaylist.type][key];
-      if (func) {
-        const result = await func(value);
 
-        if (result instanceof Promise) {
-          return;
+      if (func) {
+        if (func.constructor.name === "AsyncFunction") {
+          await func(value);
+        } else {
+          func(value);
         }
       } else {
         notAllowData.push(key);
@@ -438,76 +544,7 @@ const updatePlaylist = async (req, res, next) => {
   }
 
   if (Object.keys(updateDatas).length > 0) {
-    await Playlist.updateOne({ _id: id }, updateDatas);
-  }
-
-  if (videoIdList && videoIdList.length > 0) {
-    const foundedVideos = await Video.aggregate([
-      {
-        $addFields: {
-          _idStr: { $toString: "$_id" },
-        },
-      },
-      { $match: { _idStr: { $in: videoIdList } } },
-      { $group: { _id: null, idsFound: { $push: "$_idStr" } } },
-      {
-        $project: {
-          missingIds: {
-            $setDifference: [videoIdList, "$idsFound"],
-          },
-        },
-      },
-    ]);
-
-    if (foundedVideos.length === 0) {
-      throw new NotFoundError(
-        `The following videos with id: ${videoIdList.join(
-          ", ",
-        )} could not be found`,
-      );
-    }
-
-    if (foundedVideos[0]?.missingIds?.length > 0) {
-      throw new NotFoundError(
-        `The following videos with id: ${foundedVideos[0].missingIds.join(
-          ", ",
-        )} could not be found`,
-      );
-    }
-
-    const alreadyInPlaylistVideosId = videoIdList.reduce((acc, item) => {
-      if (foundedPlaylist.itemList.includes(item)) {
-        acc.push(item);
-      }
-      return acc;
-    }, []);
-
-    let notInplaylistVideosId = [];
-
-    if (alreadyInPlaylistVideosId.length > 0) {
-      await Playlist.updateOne(
-        { _id: id },
-        { $pullAll: { itemList: alreadyInPlaylistVideosId } },
-      );
-
-      notInplaylistVideosId = videoIdList.reduce((acc, item) => {
-        if (!alreadyInPlaylistVideosId.includes(item)) {
-          acc.push(item);
-        }
-        return acc;
-      }, []);
-    } else {
-      notInplaylistVideosId = videoIdList;
-    }
-
-    if (notInplaylistVideosId.length > 0) {
-      await Playlist.updateOne(
-        { _id: id },
-        { $addToSet: { itemList: { $each: notInplaylistVideosId } } },
-      );
-    }
-  } else if (videoIdList && videoIdList.length === 0) {
-    await Playlist.updateOne({ _id: id }, { itemList: [] });
+    await Playlist.updateOne(matchObj, updateDatas);
   }
 
   const pipeline = [
@@ -540,116 +577,6 @@ const updatePlaylist = async (req, res, next) => {
     .json({ msg: "Playlist updated successfullly", data: playlist[0] });
 };
 
-const updateWatchLater = async (req, res) => {
-  const { userId } = req.user;
-
-  const { videoIdList } = req.body;
-
-  if (!videoIdList || videoIdList.length === 0) {
-    throw new BadRequestError("Please provide atleast one id to update");
-  }
-
-  const watchLaterList = await Playlist.findOne({
-    title: "Watch later",
-    created_user_id: userId,
-    type: "personal",
-  });
-
-  const foundedVideos = await Video.aggregate([
-    {
-      $addFields: {
-        _idStr: { $toString: "$_id" },
-      },
-    },
-    { $match: { _idStr: { $in: videoIdList } } },
-    { $group: { _id: null, idsFound: { $push: "$_idStr" } } },
-    {
-      $project: {
-        missingIds: {
-          $setDifference: [videoIdList, "$idsFound"],
-        },
-      },
-    },
-  ]);
-
-  if (foundedVideos.length === 0) {
-    throw new NotFoundError(
-      `The following videos with id: ${videoIdList.join(
-        ", ",
-      )} could not be found`,
-    );
-  }
-
-  if (foundedVideos[0]?.missingIds?.length > 0) {
-    throw new NotFoundError(
-      `The following videos with id: ${foundedVideos[0].missingIds.join(
-        ", ",
-      )} could not be found`,
-    );
-  }
-
-  const alreadyInPlaylistVideosId = videoIdList.reduce((acc, item) => {
-    if (watchLaterList.itemList.includes(item)) {
-      acc.push(item);
-    }
-    return acc;
-  }, []);
-
-  let notInplaylistVideosId = [];
-
-  if (alreadyInPlaylistVideosId.length > 0) {
-    await Playlist.updateOne(
-      { title: "Watch later", created_user_id: userId, type: "personal" },
-      { $pullAll: { itemList: alreadyInPlaylistVideosId } },
-    );
-
-    notInplaylistVideosId = videoIdList.reduce((acc, item) => {
-      if (!alreadyInPlaylistVideosId.includes(item)) {
-        acc.push(item);
-      }
-      return acc;
-    }, []);
-  } else {
-    notInplaylistVideosId = videoIdList;
-  }
-
-  if (notInplaylistVideosId.length > 0) {
-    await Playlist.updateOne(
-      { title: "Watch later", created_user_id: userId, type: "personal" },
-      { $addToSet: { itemList: { $each: notInplaylistVideosId } } },
-    );
-  }
-
-  const pipeline = [
-    {
-      $addFields: {
-        userIdStr: { $toString: "$created_user_id" },
-      },
-    },
-    {
-      $match: { title: "Watch later", userIdStr: userId, type: "personal" },
-    },
-    {
-      $project: {
-        _id: 1,
-        created_user_id: 1,
-        title: 1,
-        itemList: 1,
-        updatedAt: 1,
-        type: 1,
-        size: { $size: "$itemList" },
-      },
-    },
-  ];
-
-  const watchLaterListUpdate = await Playlist.aggregate(pipeline);
-
-  res.status(StatusCodes.OK).json({
-    msg: "Watch later updated",
-    data: watchLaterListUpdate[0],
-  });
-};
-
 const deletePlaylist = async (req, res) => {
   const { id } = req.params;
 
@@ -671,6 +598,8 @@ const deletePlaylist = async (req, res) => {
 };
 
 const deleteManyPlaylist = async (req, res) => {
+  const { userId } = req.user;
+
   const { idList } = req.body;
 
   if (!idList || idList.length === 0) {
@@ -683,11 +612,9 @@ const deleteManyPlaylist = async (req, res) => {
         _idStr: { $toString: "$_id" },
       },
     },
-    { $match: { _idStr: { $in: idList } } },
-    { $group: { _id: null, idsFound: { $push: "$_idStr" } } },
+    { $match: { _idStr: { $in: idList }, type: "playlist" } },
     {
       $project: {
-        missingIds: { $setDifference: [idList, "$idsFound"] },
         type: 1,
         created_user_id: 1,
       },
@@ -700,14 +627,18 @@ const deleteManyPlaylist = async (req, res) => {
     );
   }
 
-  if (foundedPlaylists[0]?.missingIds?.length > 0) {
+  const foundedIdList = foundedPlaylists.map((item) => item._id.toString());
+
+  const notFoundedId = idList.filter((id) => !foundedIdList.includes(id));
+
+  if (notFoundedId.length > 0) {
     throw new NotFoundError(
-      `The following playlists with id: ${foundedPlaylists[0].missingIds.join(
+      `The following playlists with id: ${notFoundedId.join(
         ", ",
       )} could not be found`,
     );
   }
-
+  
   const notBelongList = [];
 
   const specialList = [];
@@ -733,9 +664,7 @@ const deleteManyPlaylist = async (req, res) => {
 
   if (specialList.length > 0) {
     throw new ForbiddenError(
-      `Cannot delete these personal playlist with id : ${specialList.join(
-        ", ",
-      )}`,
+      `Cannot delete these list with id : ${specialList.join(", ")}`,
     );
   }
 
@@ -753,7 +682,6 @@ module.exports = {
   getPlaylists,
   getPlaylistDetails,
   updatePlaylist,
-  updateWatchLater,
   deletePlaylist,
   deleteManyPlaylist,
 };

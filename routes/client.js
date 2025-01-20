@@ -44,7 +44,6 @@ const {
   getPlaylists,
   getPlaylistDetails,
   updatePlaylist,
-  updateWatchLater,
   deletePlaylist,
   deleteManyPlaylist,
 } = require("../controllers/client/client-playlist");
@@ -130,9 +129,7 @@ router.post("/cmt-react", toggleCmtReact);
 // playlist
 router.route("/playlist").get(getPlaylists).post(createPlaylist);
 
-router
-  .patch("/playlist/watchlater", updateWatchLater)
-  .post("/playlist/delete-many", deleteManyPlaylist);
+router.post("/playlist/delete-many", deleteManyPlaylist);
 
 router
   .route("/playlist/:id")
