@@ -313,13 +313,12 @@ const getPlaylistDetails = async (req, res) => {
   if (playlist.length === 0) {
     throw new NotFoundError("Playlist not found");
   }
-
   res.status(StatusCodes.OK).json({
     data: playlist[0],
     qtt: playlist[0].size,
-    videoLimit,
-    currPage: videoPage,
-    totalPages: Math.floor(playlist[0].size / Number(videoLimit)),
+    videoLimit: Number(videoLimit),
+    currPage: Number(videoPage),
+    totalPages: Math.ceil(playlist[0].size / Number(videoLimit)),
   });
 };
 
@@ -638,7 +637,7 @@ const deleteManyPlaylist = async (req, res) => {
       )} could not be found`,
     );
   }
-  
+
   const notBelongList = [];
 
   const specialList = [];
