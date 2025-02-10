@@ -19,7 +19,7 @@ const createCmt = async (req, res) => {
 
   if (Object.values(req.body).length === 0) {
     throw new BadRequestError(
-      `Please provide these ${neededKeys.join(" ")}fields to create comment `
+      `Please provide these ${neededKeys.join(" ")}fields to create comment `,
     );
   }
 
@@ -31,7 +31,7 @@ const createCmt = async (req, res) => {
 
   if (invalidFields.length > 0) {
     throw new BadRequestError(
-      `Missing required fields: ${invalidFields.join(", ")} `
+      `Missing required fields: ${invalidFields.join(", ")} `,
     );
   }
 
@@ -56,7 +56,7 @@ const createCmt = async (req, res) => {
 
     if (replyCmt.video_id?.toString() !== videoId) {
       throw new BadRequestError(
-        "Reply comment should belong to the same video"
+        "Reply comment should belong to the same video",
       );
     }
 
@@ -73,7 +73,7 @@ const createCmt = async (req, res) => {
     const parentCmt = await Comment.findOneAndUpdate(
       { _id: cmtId },
       { $inc: { replied_cmt_total: 1 } },
-      { returnDocument: "after" }
+      { returnDocument: "after" },
     );
 
     if (parentCmt) {
@@ -153,7 +153,7 @@ const getCmts = async (req, res) => {
   let skip = (page - 1) * limit;
   const { sort } = req.query;
   const findParams = Object.keys(req.query).filter(
-    (key) => key !== "limit" && key !== "page" && key !== "sort"
+    (key) => key !== "limit" && key !== "page" && key !== "sort",
   );
 
   let findObj = {};
@@ -201,7 +201,7 @@ const getCmts = async (req, res) => {
 
     if (unique.length > 1) {
       throw new BadRequestError(
-        `Only one sort key in ${uniqueSortKeys.join(", ")} is allowed`
+        `Only one sort key in ${uniqueSortKeys.join(", ")} is allowed`,
       );
     } else if (unique.length > 0) {
       sortObj[unique[0]] = uniqueValue;
@@ -243,11 +243,13 @@ const getCmts = async (req, res) => {
     },
     {
       $lookup: {
-        from: "videos", // Collection users mà bạn muốn join
-        localField: "video_id", // Trường trong collection videos (khóa ngoại)
-        foreignField: "_id", // Trường trong collection users (khóa chính)
-        pipeline: [{ $project: { _id: 1, thumb: 1, title: 1 } }],
-        as: "video_info", // Tên mảng để lưu kết quả join
+        from: "videos",
+        localField: "video_id",
+        foreignField: "_id",
+        pipeline: [
+          { $project: { _id: 1, thumb: 1, title: 1, type: 1, description: 1 } },
+        ],
+        as: "video_info",
       },
     },
     {
@@ -297,7 +299,7 @@ const getCmts = async (req, res) => {
 const getVideoComments = async (req, res) => {
   const { userId } = req.user;
 
-  const { sort, limit, page, videoId } = req.query;
+  const { sort, limit, page } = req.query;
 
   const limitNum = Number(limit);
   const pageNum = Number(page);
@@ -307,9 +309,8 @@ const getVideoComments = async (req, res) => {
   const findObj = {};
 
   const findQueryKey = Object.keys(req.query).filter(
-    (key) => key !== "sort" && key !== "limit" && key !== "page"
+    (key) => key !== "sort" && key !== "limit" && key !== "page",
   );
-  const findKeys = ["text", "videoId"];
 
   const findFuncObj = {
     text: (syntax) => {
@@ -350,7 +351,7 @@ const getVideoComments = async (req, res) => {
 
     if (unique.length > 1) {
       throw new BadRequestError(
-        `Only one sort key in ${uniqueSortKeys.join(", ")} is allowed`
+        `Only one sort key in ${uniqueSortKeys.join(", ")} is allowed`,
       );
     } else if (unique.length > 0) {
       sortObj[unique[0]] = uniqueValue;
@@ -384,7 +385,17 @@ const getVideoComments = async (req, res) => {
         from: "videos",
         localField: "video_id",
         foreignField: "_id",
-        pipeline: [{ $project: { _id: 1, user_id: 1, title: 1, thumb: 1 } }],
+        pipeline: [
+          {
+            $project: {
+              _id: 1,
+              user_id: 1,
+              title: 1,
+              thumb: 1,
+              description: 1,
+            },
+          },
+        ],
         as: "video_info",
       },
     },
@@ -396,7 +407,17 @@ const getVideoComments = async (req, res) => {
         from: "users",
         localField: "user_id",
         foreignField: "_id",
-        pipeline: [{ $project: { _id: 1, name: 1, email: 1 } }],
+        pipeline: [
+          {
+            $project: {
+              _id: 1,
+              name: 1,
+              email: 1,
+              description: { $ifNull: ["$description", null] },
+              type: 1,
+            },
+          },
+        ],
         as: "user_info",
       },
     },
@@ -523,7 +544,7 @@ const updateCmt = async (req, res) => {
 
   if (foundedCmt.user_id.toString() !== userId) {
     throw new ForbiddenError(
-      "You don't have permission to update this comment."
+      "You don't have permission to update this comment.",
     );
   }
 
@@ -555,8 +576,8 @@ const updateCmt = async (req, res) => {
   if (notAllowValue.length > 0) {
     throw new BadRequestError(
       `The comment cannot contain the following fields: ${notAllowValue.join(
-        ", "
-      )}`
+        ", ",
+      )}`,
     );
   }
 
@@ -639,13 +660,13 @@ const deleteCmt = async (req, res) => {
     userId !== foundedCmt.videoCreatedUserId
   ) {
     throw new BadRequestError(
-      `Comment with id ${id} does not belong to user with id ${req.user.userId}`
+      `Comment with id ${id} does not belong to user with id ${req.user.userId}`,
     );
   }
 
   const cmt = await Comment.findOneAndDelete(
     { _id: id },
-    { returnDocument: "before" }
+    { returnDocument: "before" },
   );
 
   if (!cmt) {
@@ -719,18 +740,20 @@ const deleteManyCmt = async (req, res) => {
       }
       if (userId !== cmt.userIdStr && userId !== videoCreatedUserId) {
         throw new BadRequestError(
-          `Comment with id ${id} does not belong to user with id ${userId}`
+          `Comment with id ${id} does not belong to user with id ${userId}`,
         );
       }
       return null;
-    })
+    }),
   );
 
   notFoundedCmts = notFoundedCmts.filter((id) => id !== null);
 
   if (notFoundedCmts.length > 0) {
     throw new BadRequestError(
-      `The following video IDs could not be found: ${notFoundedCmts.join(", ")}`
+      `The following video IDs could not be found: ${notFoundedCmts.join(
+        ", ",
+      )}`,
     );
   }
 
@@ -744,7 +767,7 @@ const deleteManyCmt = async (req, res) => {
 
   res.status(StatusCodes.OK).json({
     msg: `Comments with the following IDs have been deleted: ${idList.join(
-      ", "
+      ", ",
     )}`,
   });
 };

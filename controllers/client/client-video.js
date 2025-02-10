@@ -328,7 +328,9 @@ const updateVideo = async (req, res) => {
     throw new BadRequestError("There is nothing to update.");
   }
 
-  let updatedKey = ["title", "image", "type", "tag", "description"];
+  let updatedKey = new Set(["title", "image", "type", "tag", "description"]);
+
+  let canBeEmpty = new Set(["description"]);
 
   let updateData = {};
 
@@ -337,8 +339,8 @@ const updateVideo = async (req, res) => {
   let notAllowValue = [];
 
   for (let [key, value] of Object.entries(req.body)) {
-    if (updatedKey.includes(key)) {
-      if (value === "") {
+    if (updatedKey.has(key)) {
+      if (value === "" && !canBeEmpty.has(key)) {
         emptyList.push(key);
       } else {
         if (key === "tag") {
