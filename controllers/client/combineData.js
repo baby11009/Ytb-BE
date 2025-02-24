@@ -21,7 +21,8 @@ const {
 const { generateSessionId } = require("../../utils/generator");
 
 const getVideoList = async (req, res) => {
-  const { limit, page, tag, type, search, channelEmail, sort } = req.query;
+  
+  const { limit, page, sort } = req.query;
 
   const listLimit = Number(limit) || 8;
 
@@ -668,26 +669,21 @@ const getDataList = async (req, res) => {
     type,
     search,
     channelEmail,
-    userId,
     prevPlCount = 0,
     watchedVideoIdList = [],
     watchedPlIdList = [],
   } = req.query;
 
+  const userId = req?.user?.userId;
+
   const dataLimit = Number(limit) || 16;
-
   const dataPage = Number(page) || 1;
-
   const skip = (dataPage - 1) * dataLimit;
 
   const channelList = [];
-
   const playlistList = [];
-
   const videoAddFieldsObj = {};
-
   const videoMatchObj = {};
-
   const sortObj = {};
 
   const videoPipeline = [
@@ -807,6 +803,7 @@ const getDataList = async (req, res) => {
       type: "playlist",
       privacy: "public",
       _idStr: { $nin: watchedPlIdList },
+      itemList: { $ne: [] },
     };
 
     if (search) {
@@ -1022,10 +1019,6 @@ const getDataList = async (req, res) => {
     }
   }
 
-  if (!type) {
-    videoMatchObj["type"] = "video";
-  }
-
   if (Object.keys(videoAddFieldsObj).length > 0) {
     videoPipeline.push({
       $addFields: videoAddFieldsObj,
@@ -1047,6 +1040,7 @@ const getDataList = async (req, res) => {
   } else {
     videoPipeline.push({ $sample: { size: dataLimit - playlistList.length } });
   }
+  console.log(videoMatchObj);
 
   videoPipeline.push({
     $project: {
@@ -1176,6 +1170,7 @@ const getChannelInfo = async (req, res) => {
       subscriber: 1,
       totalVids: 1,
       createdAt: 1,
+      description: 1,
       subscription_info: {
         $ifNull: ["$subscription_info", null],
       },

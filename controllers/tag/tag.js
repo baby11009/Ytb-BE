@@ -38,7 +38,7 @@ const createTag = async (req, res) => {
 };
 
 const getTags = async (req, res) => {
-  const { limit, page, title, createdAt } = req.query;
+  const { limit, page, sort, ...othersData } = req.query;
 
   const dataLimit = Number(limit) || 5;
   const dataPage = Number(page) || 1;
@@ -47,21 +47,35 @@ const getTags = async (req, res) => {
 
   let findObj = {};
 
-  if (title) {
-    findObj.title = { $regex: title, $options: "i" };
+  const queryFuncObj = {
+    title: (title) => {
+      findObj[title] = { $regex: title, $options: "i" };
+    },
+  };
+
+  for (const [key, value] of Object.entries(othersData)) {
+    if (queryFuncObj[key] && value) {
+      queryFuncObj[key](value);
+    }
   }
 
   let result = Tag.find(findObj);
 
-  let sortNum = -1;
-  if (createdAt === "cũ nhất") {
-    sortNum = 1;
+  const validSortKey = ["createdAt"];
+
+  let sortObj = {};
+  if (sort && Object.keys(sort).length > 0) {
+    for (const [key, value] of Object.entries(sort)) {
+      if (
+        validSortKey.includes(key) &&
+        (Number(value) === 1 || Number(value) === -1)
+      ) {
+        sortObj[`${key}`] = Number(value);
+      }
+    }
   }
 
-  const tags = await result
-    .limit(dataLimit)
-    .skip(skip)
-    .sort({ createdAt: sortNum });
+  const tags = await result.limit(dataLimit).skip(skip).sort(sortObj);
 
   const totalTags = await Tag.countDocuments(findObj);
 
@@ -185,13 +199,13 @@ const deleteManyTags = async (req, res) => {
           return id;
         }
         return null;
-      })
+      }),
     )
   ).filter((id) => id !== null);
 
   if (notFoundedTags.length > 0) {
     throw new NotFoundError(
-      `Cannot find these tags with id : ${notFoundedTags.join(", ")}`
+      `Cannot find these tags with id : ${notFoundedTags.join(", ")}`,
     );
   }
 
@@ -203,7 +217,7 @@ const deleteManyTags = async (req, res) => {
       }
       const imagePath = path.join(iconPath, tag.icon);
       deleteFile(imagePath);
-    })
+    }),
   );
 
   res.status(StatusCodes.OK).json({ msg: "Tags deleted successfully" });

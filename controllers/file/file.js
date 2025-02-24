@@ -14,14 +14,12 @@ const handleViewImage = async (req, res, fileFolder = "") => {
 
     const finalPath = path.join(assetsPath, fileFolder, name);
 
-    try {
-      await fs.promises.access(finalPath, fs.constants.F_OK);
-      res.sendFile(finalPath);
-    } catch (err) {
+    await fs.promises.access(finalPath, fs.constants.F_OK).catch((err) => {
       throw new NotFoundError(`Not found file with name ${name}`);
-    }
+    });
+    res.sendFile(finalPath);
   } catch (error) {
-    throw err;
+    throw error;
   }
 };
 
