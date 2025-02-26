@@ -38,46 +38,54 @@ const createTag = async (req, res) => {
 };
 
 const getTags = async (req, res) => {
-  const { limit, page, sort, ...othersData } = req.query;
+  const { limit, page, sort, search } = req.query;
 
   const dataLimit = Number(limit) || 5;
   const dataPage = Number(page) || 1;
 
   const skip = (dataPage - 1) * dataLimit;
 
-  let findObj = {};
+  let matchObj = {};
 
   const queryFuncObj = {
     title: (title) => {
-      findObj[title] = { $regex: title, $options: "i" };
+      matchObj.title = { $regex: title, $options: "i" };
     },
-  };
+  };  
 
-  for (const [key, value] of Object.entries(othersData)) {
-    if (queryFuncObj[key] && value) {
-      queryFuncObj[key](value);
-    }
-  }
-
-  let result = Tag.find(findObj);
-
-  const validSortKey = ["createdAt"];
-
-  let sortObj = {};
-  if (sort && Object.keys(sort).length > 0) {
-    for (const [key, value] of Object.entries(sort)) {
-      if (
-        validSortKey.includes(key) &&
-        (Number(value) === 1 || Number(value) === -1)
-      ) {
-        sortObj[`${key}`] = Number(value);
+  if (search) {
+    for (const [key, value] of Object.entries(search)) {
+      if (queryFuncObj[key] && value) {
+        queryFuncObj[key](value);
       }
     }
   }
 
-  const tags = await result.limit(dataLimit).skip(skip).sort(sortObj);
+  const sortObj = { createdAt: -1 };
 
-  const totalTags = await Tag.countDocuments(findObj);
+  const sortFuncsObj = {
+    createdAt: (value) => {
+      const valueList = new Set([1, -1]);
+      if (valueList.has(Number(value))) {
+        sortObj.createdAt = Number(value);
+      }
+    },
+  };
+
+  if (sort) {
+    for (const [key, value] of Object.entries(sort)) {
+      if (sortFuncsObj[key]) {
+        sortFuncsObj[key](value);
+      }
+    }
+  }
+
+  const tags = await Tag.find(matchObj)
+    .limit(dataLimit)
+    .skip(skip)
+    .sort(sortObj);
+
+  const totalTags = await Tag.countDocuments(matchObj);
 
   res.status(StatusCodes.OK).json({
     data: tags,

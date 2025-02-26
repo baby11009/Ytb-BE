@@ -15,7 +15,7 @@ const {
 const { StatusCodes } = require("http-status-codes");
 const { deleteFile } = require("../../utils/file");
 const path = require("path");
-const { log } = require("console");
+
 const avatarPath = path.join(__dirname, "../../assets/user avatar");
 const videoThumbPath = path.join(__dirname, "../../assets/video thumb");
 const videoPath = path.join(__dirname, "../../assets/videos");
@@ -59,44 +59,62 @@ const createUser = async (req, res) => {
 };
 
 const getUsers = async (req, res) => {
-  let limit = Number(req.query.limit) || 5;
+  const { limit, page, sort, search } = req.query;
 
-  let page = Number(req.query.page) || 1;
+  const limitNumber = Number(limit) || 10;
 
-  let skip = (page - 1) * limit;
+  const pageNumber = Number(req.query.page) || 1;
 
-  const findParams = Object.keys(req.query).filter(
-    (key) =>
-      key !== "limit" &&
-      key !== "page" &&
-      key !== "createdAt" &&
-      key !== "select"
-  );
+  let skip = (pageNumber - 1) * limitNumber;
 
-  let findObj = {};
+  const matchObj = {};
 
-  findParams.forEach((item) => {
-    if (item === "role") {
-      findObj[item] = req.query[item];
-    } else if (item === "confirmed") {
-      let value = true;
-      if (req.query[item] === "false") {
-        value = false;
+  const searchFuncsObj = {
+    name: (name) => {
+      matchObj.name = { $regex: name, $options: "i" };
+    },
+    email: (email) => {
+      matchObj.email = { $regex: email, $options: "i" };
+    },
+    role: (role) => {
+      matchObj.role = role;
+    },
+    confirmed: (confirmed) => {
+      const valueList = { true: true, false: false };
+      matchObj.confirmed = valueList[confirmed];
+    },  
+  };
+
+  if (search) {
+    for (const [key, value] of Object.entries(search)) {
+      if (searchFuncsObj[key]) {
+        searchFuncsObj[key](value);
       }
-      findObj[item] = value;
-    } else {
-      findObj[item] = { $regex: req.query[item], $options: "i" };
     }
-  });
-  let sortNum = 1;
+  }
 
-  if (req.query.createdAt === "mới nhất") {
-    sortNum = -1;
+  const sortObj = { createdAt: -1 };
+
+  const sortFuncsObj = {
+    createdAt: (value) => {
+      const valueList = new Set([1, -1]);
+      if (valueList.has(Number(value))) {
+        sortObj.createdAt = Number(value);
+      }
+    },
+  };
+
+  if (sort) {
+    for (const [key, value] of Object.entries(sort)) {
+      if (sortFuncsObj[key]) {
+        sortFuncsObj[key](value);
+      }
+    }
   }
 
   const pipeline = [
     {
-      $match: findObj,
+      $match: matchObj,
     },
     {
       $project: {
@@ -105,8 +123,6 @@ const getUsers = async (req, res) => {
         name: 1,
         role: 1,
         confirmed: 1,
-        privateCode: 1,
-        codeType: 1,
         subscriber: 1,
         avatar: 1,
         banner: { $ifNull: ["$banner", null] },
@@ -115,14 +131,12 @@ const getUsers = async (req, res) => {
       },
     },
     {
-      $sort: {
-        createdAt: sortNum,
-      },
+      $sort: sortObj,
     },
     {
       $facet: {
         totalCount: [{ $count: "total" }],
-        data: [{ $skip: skip }, { $limit: limit }],
+        data: [{ $skip: skip }, { $limit: limitNumber }],
       },
     },
   ];
@@ -194,7 +208,7 @@ const deleteManyUsers = async (req, res) => {
 
   if (foundedUsers.length === 0) {
     throw new NotFoundError(
-      `No user found with these ids ${idList.joing(", ")}`
+      `No user found with these ids ${idList.joing(", ")}`,
     );
   } else if (foundedUsers.length !== idList.length) {
     foundedUsers = foundedUsers.map((user) => user._id.toString());
@@ -202,7 +216,7 @@ const deleteManyUsers = async (req, res) => {
     const notFoundedList = idList.filter((id) => !foundedUsers.includes(id));
 
     throw new NotFoundError(
-      `No user found with these ids : ${notFoundedList.join(", ")}`
+      `No user found with these ids : ${notFoundedList.join(", ")}`,
     );
   }
 
@@ -240,7 +254,7 @@ const deleteManyUsers = async (req, res) => {
         // Cập nhật lại list item để loại bỏ video đã bị xóa khỏi playlist
         await Playlist.updateMany(
           { itemList: video._id.toString() },
-          { $pull: { itemList: video._id.toString() } }
+          { $pull: { itemList: video._id.toString() } },
         );
 
         // Xóa các comment thuộc video
@@ -267,7 +281,7 @@ const deleteManyUsers = async (req, res) => {
         //Cập nhật lại subscriber của video tương ứng các subscribe tìm thấy
         await User.updateOne(
           { _id: subscribe.channel_id },
-          { $inc: { subscriber: -1 } }
+          { $inc: { subscriber: -1 } },
         );
       }
 
@@ -323,7 +337,7 @@ const deleteManyUsers = async (req, res) => {
         // Cập nhật lại số lượng comment của video tương ứng với comment
         await Video.updateOne(
           { _id: cmt.video_id },
-          { $inc: { totalCmt: -1 } }
+          { $inc: { totalCmt: -1 } },
         );
       }
 
@@ -358,7 +372,7 @@ const deleteManyUsers = async (req, res) => {
 
 const updateUser = async (req, res) => {
   const { id } = req.params;
-  console.log(id);
+
   const { email, ...data } = req.body;
 
   let foundedUser;
@@ -375,7 +389,7 @@ const updateUser = async (req, res) => {
     }
 
     foundedUser = await User.findOne({ _id: id }).select(
-      "name password role confirmed subscriber totalVids banner avatar"
+      "name password role confirmed subscriber totalVids banner avatar",
     );
 
     if (!foundedUser) {
@@ -428,13 +442,13 @@ const updateUser = async (req, res) => {
 
     if (notValidateFields.length > 0) {
       throw new BadRequestError(
-        `Not accepted theses fields: ${notValidateFields.join(", ")}`
+        `Not accepted theses fields: ${notValidateFields.join(", ")}`,
       );
     }
 
     if (sameValueFields.length > 0) {
       throw new BadRequestError(
-        `These fields's value is still the same: ${sameValueFields.join(", ")}`
+        `These fields's value is still the same: ${sameValueFields.join(", ")}`,
       );
     }
 
@@ -445,7 +459,6 @@ const updateUser = async (req, res) => {
     if (req.files?.banner) {
       finalObject.banner = req.files.banner[0].filename;
     }
-    console.log(finalObject);
 
     const user = await User.updateOne({ _id: id }, finalObject);
 
