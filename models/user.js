@@ -4,7 +4,7 @@ const bcrypt = require("bcryptjs");
 
 const path = require("path");
 const avatarPath = path.join(__dirname, "../assets/user avatar");
-
+const { deleteFile } = require("../utils/file.js");
 const User = new mongoose.Schema(
   {
     name: {

@@ -14,6 +14,7 @@ const {
 } = require("../../errors");
 const { StatusCodes } = require("http-status-codes");
 const { deleteFile } = require("../../utils/file");
+const mongoose = require("mongoose");
 const path = require("path");
 
 const avatarPath = path.join(__dirname, "../../assets/user avatar");
@@ -82,7 +83,7 @@ const getUsers = async (req, res) => {
     confirmed: (confirmed) => {
       const valueList = { true: true, false: false };
       matchObj.confirmed = valueList[confirmed];
-    },  
+    },
   };
 
   if (search) {
@@ -161,7 +162,9 @@ const getUserDetails = async (req, res) => {
     throw new BadRequestError("Please provide user id");
   }
 
-  const user = await User.findById(id);
+  const user = await User.findById(id).select(
+    "-password -subscriber -totalVids -codeType -privateCode -__v",
+  );
 
   if (!user) {
     throw new NotFoundError("User not found");
@@ -182,6 +185,13 @@ const deleteUser = async (req, res) => {
     throw new NotFoundError("User not found");
   }
 
+  try {
+    const session = mongoose.startSession();
+    await User.deleteOne({ _id: id }).session(session);
+  } catch (error) {
+   
+    throw error;
+  }
   // Xóa avatar & banner của user đã upload
 
   if (foundedUser.avatar !== "df.jpg") {
@@ -191,8 +201,6 @@ const deleteUser = async (req, res) => {
   if (foundedUser.banner !== "df-banner.jpg") {
     deleteFile(path.join(avatarPath, foundedUser.banner));
   }
-
-  await User.deleteOne({ _id: id });
 
   res.status(StatusCodes.OK).json({ msg: "User deleted" });
 };
@@ -403,6 +411,7 @@ const updateUser = async (req, res) => {
       "confirmed",
       "subscriber",
       "totalVids",
+      "description",
     ];
 
     const notValidateFields = [];

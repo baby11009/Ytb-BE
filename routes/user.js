@@ -33,7 +33,7 @@ router
         banner: 6,
       });
     },
-    createUser
+    createUser,
   );
 
 router.route("/delete-many").post(deleteManyUsers);
@@ -52,7 +52,7 @@ router
     async (req, res, next) => {
       fileLimitSizeMiddleware(req, res, next, { image: 4, banner: 6 });
     },
-    updateUser
+    updateUser,
   );
 
 module.exports = router;

@@ -9,6 +9,7 @@ const fileLimitSizeMiddleware = (req, res, next, limitObject = {}) => {
     const fileListPath = [];
     for (const key of Object.keys(req.files)) {
       req.files[key]?.forEach((file) => {
+        console.log(file.size)
         if (
           file.mimetype.startsWith("image/") &&
           limitObject[key] &&
