@@ -21,7 +21,6 @@ const {
 const { generateSessionId } = require("../../utils/generator");
 
 const getVideoList = async (req, res) => {
-  
   const { limit, page, sort } = req.query;
 
   const listLimit = Number(limit) || 8;
@@ -666,7 +665,8 @@ const getDataList = async (req, res) => {
     page,
     sort,
     tag,
-    type,
+    type = "all",
+    split,
     search,
     channelEmail,
     prevPlCount = 0,
@@ -949,7 +949,11 @@ const getDataList = async (req, res) => {
       videoMatchObj["title"] = { $regex: value, $options: "i" };
     },
     type: (value) => {
-      videoMatchObj["type"] = value;
+      if (type === "all" && split) {
+        videoMatchObj["type"] = "video";
+      } else if (type !== "all") {
+        videoMatchObj["type"] = value;
+      }
     },
     tag: (value) => {
       videoPipeline.push(
@@ -1040,7 +1044,6 @@ const getDataList = async (req, res) => {
   } else {
     videoPipeline.push({ $sample: { size: dataLimit - playlistList.length } });
   }
-  console.log(videoMatchObj);
 
   videoPipeline.push({
     $project: {
@@ -1068,7 +1071,7 @@ const getDataList = async (req, res) => {
 
   let shorts;
 
-  if (!type) {
+  if (type === "all" && split) {
     const shortPipeline = [...videoPipeline];
     // modify to get short only
     shortPipeline.forEach((item) => {

@@ -22,6 +22,8 @@ const videoThumbPath = path.join(__dirname, "../../assets/video thumb");
 const videoPath = path.join(__dirname, "../../assets/videos");
 
 const createUser = async (req, res) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
   try {
     const keys = Object.keys(req.body);
 
@@ -29,7 +31,9 @@ const createUser = async (req, res) => {
       throw new BadRequestError("Please provide data to create user");
     }
 
-    const existingUser = await User.findOne({ email: req.body.email });
+    const existingUser = await User.findOne({ email: req.body.email }).session(
+      session,
+    );
 
     if (existingUser) {
       throw new BadRequestError("Email already registered");
@@ -45,10 +49,11 @@ const createUser = async (req, res) => {
       finalData.banner = req.files.banner[0].filename;
     }
 
-    const user = await User.create(finalData);
-
+    const user = await User.create([finalData], { session });
+    await session.commitTransaction();
     res.status(StatusCodes.CREATED).json({ msg: user });
   } catch (error) {
+    await session.abortTransaction();
     if (req.files.image) {
       deleteFile(req.files.image[0].path);
     }
@@ -56,6 +61,8 @@ const createUser = async (req, res) => {
       deleteFile(req.files.banner[0].path);
     }
     throw error;
+  } finally {
+    session.endSession();
   }
 };
 
@@ -185,12 +192,17 @@ const deleteUser = async (req, res) => {
     throw new NotFoundError("User not found");
   }
 
+  const session = await mongoose.startSession();
+  session.startTransaction();
   try {
-    const session = mongoose.startSession();
-    await User.deleteOne({ _id: id }).session(session);
+    await User.deleteOne({ _id: id }, { session: session });
+
+    await session.commitTransaction();
   } catch (error) {
-   
+    await session.abortTransaction();
     throw error;
+  } finally {
+    session.endSession();
   }
   // Xóa avatar & banner của user đã upload
 
@@ -206,176 +218,49 @@ const deleteUser = async (req, res) => {
 };
 
 const deleteManyUsers = async (req, res) => {
-  const { idList } = req.body;
+  const { idList } = req.query;
 
-  if (!idList || !Array.isArray(idList) || idList.length === 0) {
-    throw new BadRequestError("Please provide a list of user to delete");
+  if (!idList) {
+    throw new BadRequestError("Please provide a list of user's id to delete");
   }
 
-  let foundedUsers = await User.find({ _id: { $in: idList } });
+  const idArray = idList.split(",");
+
+  console.log("🚀 ~ idArray:", idArray);
+
+  const foundedUsers = await User.find({ _id: { $in: idArray } }).select("_id");
 
   if (foundedUsers.length === 0) {
-    throw new NotFoundError(
-      `No user found with these ids ${idList.joing(", ")}`,
-    );
-  } else if (foundedUsers.length !== idList.length) {
-    foundedUsers = foundedUsers.map((user) => user._id.toString());
+    throw new NotFoundError(`No user found with these ids ${idList}`);
+  } else if (foundedUsers.length !== idArray.length) {
+    const notFoundedList = [];
 
-    const notFoundedList = idList.filter((id) => !foundedUsers.includes(id));
+    foundedUsers.forEach((user) => {
+      if (idArray.includes(user._id.toString())) {
+        console.log("🚀 ~ user._id:", user._id);
+        notFoundedList.push(user._id);
+      }
+    });
 
     throw new NotFoundError(
       `No user found with these ids : ${notFoundedList.join(", ")}`,
     );
   }
-
-  // Xóa các user khi đảm bảo đúng
-
-  await User.deleteMany({ _id: { $in: idList } });
-
-  for (const foundedUser of foundedUsers) {
-    // Xóa avatar & banner của foundedUser đã upload
-
-    if (foundedUser.avatar && foundedUser.avatar !== "df.jpg") {
-      deleteFile(path.join(avatarPath, foundedUser.avatar));
-    }
-
-    if (foundedUser.banner !== "df-banner.jpg") {
-      deleteFile(path.join(avatarPath, foundedUser.banner));
-    }
-
-    const foundedVideo = await Video.find({ user_id: foundedUser._id });
-
-    if (foundedVideo.length > 0) {
-      for (const video of foundedVideo) {
-        // Xóa các file thumb, video của video đã tìm thấy do user đăng tải
-        deleteFile(path.join(videoPath, video.video));
-        deleteFile(path.join(videoThumbPath, video.thumb));
-
-        // Tìm các comment thuộc video
-        const foundedCmt = await Comment.find({ video_id: video._id });
-
-        // Xóa các react của comment tìm thấy
-        foundedCmt.map(async (cmt) => {
-          await CmtReact.deleteMany({ cmt_id: cmt._id });
-        });
-
-        // Cập nhật lại list item để loại bỏ video đã bị xóa khỏi playlist
-        await Playlist.updateMany(
-          { itemList: video._id.toString() },
-          { $pull: { itemList: video._id.toString() } },
-        );
-
-        // Xóa các comment thuộc video
-        await Comment.deleteMany({ video_id: video._id });
-
-        // Xóa các react của video
-        await React.deleteMany({ video_id: video._id });
-      }
-
-      // Xóa các video do user đăng tải
-      await Video.deleteMany({ user_id: foundedUser._id });
-    }
-
-    // Tìm các subscribe của user
-    const foundedSubscribe = await Subscribe.find({
-      $or: [
-        { subscriber_id: foundedUser._id },
-        { channel_id: foundedUser._id },
-      ],
+  // Delete users after verify the id list is valid
+  const session = await mongoose.startSession();
+  session.startTransaction();
+  try {
+    await User.deleteMany({ _id: { $in: idArray } }, { session });
+    session.commitTransaction();
+    res.status(StatusCodes.OK).json({
+      msg: `Successfully deleted these following users : ${idList}`,
     });
-
-    if (foundedSubscribe.length > 0) {
-      for (const subscribe of foundedSubscribe) {
-        //Cập nhật lại subscriber của video tương ứng các subscribe tìm thấy
-        await User.updateOne(
-          { _id: subscribe.channel_id },
-          { $inc: { subscriber: -1 } },
-        );
-      }
-
-      // Xóa các subscribe
-      await Subscribe.deleteMany({
-        $or: [
-          { subscriber_id: foundedUser._id },
-          { channel_id: foundedUser._id },
-        ],
-      });
-    }
-
-    // Tìm các react do user tạo
-    const foundedReact = await React.find({ user_id: foundedUser._id });
-
-    if (foundedReact.length > 0) {
-      for (const react of foundedReact) {
-        // Cập nhất lại số lượng like và dislike của video tương ứng với react
-        let updateObject = { $inc: { like: -1 } };
-        if (react.type === "dislike") {
-          updateObject = { $inc: { dislike: -1 } };
-        }
-        await Video.updateOne({ _id: react.video_id }, updateObject);
-      }
-
-      // Xóa các React do user tạo
-      await React.deleteMany({ user_id: foundedUser._id });
-    }
-
-    // Xóa các playlist do user tạo
-    await Playlist.deleteMany({ created_user_id: foundedUser._id });
-
-    // Tìm các comment do user tạo
-    const foundedCmt = await Comment.find({ user_id: foundedUser._id });
-
-    if (foundedCmt.length > 0) {
-      for (const cmt of foundedCmt) {
-        // Nếu là 1 comment reply comment nào đó thì thực hiện
-        if (cmt.replied_cmt_id) {
-          let findObject = { _id: cmt.replied_cmt_id };
-          if (cmt.replied_parent_cmt_id) {
-            findObject = { _id: cmt.replied_parent_cmt_id };
-          }
-          // Xóa các react của comment đã tìm thấy
-          await CmtReact.deleteMany({ cmt_id: cmt._id });
-
-          // Cập nhật lại số lượng comment reply của thằng comment đc reply
-          await Comment.updateOne(findObject, {
-            $inc: { replied_cmt_total: -1 },
-          });
-        }
-
-        // Cập nhật lại số lượng comment của video tương ứng với comment
-        await Video.updateOne(
-          { _id: cmt.video_id },
-          { $inc: { totalCmt: -1 } },
-        );
-      }
-
-      // Xóa các comment do user tạo
-      await Comment.deleteMany({ user_id: foundedUser._id });
-    }
-
-    // Tìm các cmtReact do user tạo
-    const foundedCmtReact = await CmtReact.find({
-      user_id: foundedUser._id,
-    });
-
-    if (foundedCmtReact.length > 0) {
-      for (const cmtReact of foundedCmtReact) {
-        // Cập nhật lại số lượng like và dislike của comment tương ứng với cmtReact
-        let updateObject = { $inc: { like: -1 } };
-        if (cmtReact.type === "dislike") {
-          updateObject = { $inc: { dislike: -1 } };
-        }
-        await Comment.updateOne({ _id: cmtReact._id }, updateObject);
-      }
-
-      // Xóa comment react
-      await CmtReact.deleteMany({ user_id: foundedUser._id });
-    }
+  } catch (error) {
+    session.abortTransaction();
+    throw error;
+  } finally {
+    session.endSession();
   }
-
-  res.status(StatusCodes.OK).json({
-    msg: `Successfully deleted these following users : ${idList.join(", ")}`,
-  });
 };
 
 const updateUser = async (req, res) => {

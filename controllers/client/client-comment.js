@@ -1,6 +1,7 @@
 const { User, Video, Comment, CmtReact } = require("../../models");
 const { StatusCodes } = require("http-status-codes");
 const { getIo } = require("../../socket.js");
+const mongoose = require("mongoose");
 
 const {
   NotFoundError,
@@ -664,23 +665,39 @@ const deleteCmt = async (req, res) => {
     );
   }
 
-  const cmt = await Comment.findOneAndDelete(
-    { _id: id },
-    { returnDocument: "before" },
-  );
+  const session = await mongoose.startSession();
+  session.startTransaction();
 
-  if (!cmt) {
+  try {
+    const cmt = await Comment.findOneAndDelete(
+      { _id: id },
+      { returnDocument: "before", session: session },
+    );
+
+    const io = getIo();
+    let event = `delete-comment-${userId}`;
+
+    if (cmt.replied_cmt_id) {
+      event = `delete-reply-comment-${userId}`;
+      const parentCmt = await Comment.findOne({
+        _id: cmt.replied_cmt_id,
+      }).session(session);
+      io.emit(`update-parent-comment-${userId}`, parentCmt);
+    }
+    io.emit(event, cmt);
+
+    res
+      .status(StatusCodes.OK)
+      .json({ msg: "Comment deleted", data: foundedCmt });
+
+    await session.commitTransaction();
+  } catch (error) {
+    await session.abortTransaction();
+    console.error(error);
     throw new InternalServerError(`Failed to delete comment with id ${id}`);
+  } finally {
+    session.endSession();
   }
-  const io = getIo();
-  let event = `delete-comment-${userId}`;
-  if (cmt.replied_cmt_id) {
-    event = `delete-reply-comment-${userId}`;
-    const parentCmt = await Comment.findOne({ _id: cmt.replied_cmt_id });
-    io.emit(`update-parent-comment-${userId}`, parentCmt);
-  }
-  io.emit(event, cmt);
-  res.status(StatusCodes.OK).json({ msg: "Comment deleted", data: foundedCmt });
 };
 
 const deleteManyCmt = async (req, res) => {

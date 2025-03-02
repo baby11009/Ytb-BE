@@ -16,15 +16,20 @@ const CmtReact = new mongoose.Schema(
       required: [true, "Please provide comment's react type"],
     },
   },
-  { timestamps: true }
+  { timestamps: true },
 );
 
 CmtReact.pre("deleteMany", async function () {
   const { user_id } = this.getQuery();
-  // Just do all of the work when is is cascade deleting when deleting user
+  const { session } = this.options;
+  if (!session) {
+    throw new Error("⚠️ Transaction session is required");
+  }
+  // Just do all of the work when it is cascade deleting when deleting user
   if (user_id) {
     const CmtReact = mongoose.model("CmtReact");
-    const foundedCmtReacts = await CmtReact.find({ user_id });
+    const Comment = mongoose.model("Comment");
+    const foundedCmtReacts = await CmtReact.find({ user_id }, { session });
 
     // Update the comment like and dislike count of the comment that user has reacted to
     foundedCmtReacts.forEach(async (cmtReact) => {
@@ -32,7 +37,9 @@ CmtReact.pre("deleteMany", async function () {
       if (cmtReact.type === "dislike") {
         updateObject = { $inc: { dislike: -1 } };
       }
-      await Comment.updateOne({ _id: cmtReact.cmt_id }, updateObject);
+      await Comment.updateOne({ _id: cmtReact.cmt_id }, updateObject, {
+        session,
+      });
     });
   }
 });

@@ -119,6 +119,11 @@ Video.pre("deleteOne", async function () {
 // Cascade when deleting user
 Video.pre("deleteMany", async function () {
   const { user_id } = this.getQuery();
+  const { session } = this.getOptions();
+
+  if (!session) {
+    throw new Error("⚠️ Transaction session is required");
+  }
 
   const Video = mongoose.model("Video");
 
@@ -126,26 +131,34 @@ Video.pre("deleteMany", async function () {
 
   const React = mongoose.model("React");
 
-  // Find all the videos is belong to user
-  const foundedVideos = await Video.find({ user_id });
+  try {
+    if (user_id) {
+      // Find all the videos is belong to user
+      const foundedVideos = await Video.find({ user_id }).select(
+        "_id video thumb",
+      );
 
-  // Deleting all the comments that belong to this video
-  foundedVideos.map(async (video) => {
-    // Delete video and thumbnail belong to this video
-    const videoPath = path.join(asssetPath, "videos", video.video);
-    const imagePath = path.join(asssetPath, "video thumb", video.thumb);
+      // Deleting all the comments that belong to this video
+      for (const video of foundedVideos) {
+        // Delete video and thumbnail belong to this video
+        const videoPath = path.join(asssetPath, "videos", video.video);
+        const imagePath = path.join(asssetPath, "video thumb", video.thumb);
 
-    let args = { videoPath, imagePath };
+        let args = { videoPath, imagePath };
 
-    if (video?.stream) {
-      args.streamFolderName = video.stream;
+        if (video?.stream) {
+          args.streamFolderName = video.stream;
+        }
+        await clearUploadedVideoFiles(args);
+
+        // Delete all the React belong to videos
+        await React.deleteMany({ video_id: video._id }, { session });
+        // Delete all the comments belong to videos
+        await Comment.deleteMany({ video_id: video._id }, { session });
+      }
     }
-    await clearUploadedVideoFiles(args);
-
-    // Delete all the React belong to videos
-    await React.deleteMany({ video_id: video._id });
-    // Delete all the comments belong to videos
-    await Comment.deleteMany({ video_id: video._id });
-  });
+  } catch (error) {
+    throw err;
+  }
 });
 module.exports = mongoose.model("Video", Video);

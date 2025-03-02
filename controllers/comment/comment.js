@@ -13,7 +13,7 @@ const createCmt = async (req, res) => {
 
   if (Object.values(req.body).length === 0) {
     throw new BadRequestError(
-      `Please provide these ${neededKeys.join(" ")}fields to create comment `
+      `Please provide these ${neededKeys.join(" ")}fields to create comment `,
     );
   }
 
@@ -25,7 +25,7 @@ const createCmt = async (req, res) => {
 
   if (invalidFields.length > 0) {
     throw new BadRequestError(
-      `Missing required fields: ${invalidFields.join(", ")} `
+      `Missing required fields: ${invalidFields.join(", ")} `,
     );
   }
 
@@ -52,7 +52,7 @@ const createCmt = async (req, res) => {
 
     if (replyCmt.video_id?.toString() !== videoId) {
       throw new BadRequestError(
-        "Reply comment should belong to the same video"
+        "Reply comment should belong to the same video",
       );
     }
 
@@ -92,7 +92,7 @@ const getCmts = async (req, res) => {
   let skip = (page - 1) * limit;
 
   const findParams = Object.keys(req.query).filter(
-    (key) => key !== "limit" && key !== "page" && key !== "createdAt"
+    (key) => key !== "limit" && key !== "page" && key !== "createdAt",
   );
 
   let findObj = {};
@@ -349,8 +349,8 @@ const updateCmt = async (req, res) => {
   if (notAllowValue.length > 0) {
     throw new BadRequestError(
       `The comment cannot contain the following fields: ${notAllowValue.join(
-        ", "
-      )}`
+        ", ",
+      )}`,
     );
   }
 
@@ -379,14 +379,19 @@ const deleteCmt = async (req, res) => {
   if (!foundedCmt) {
     throw new NotFoundError(`Cannot find comment with id ${id}`);
   }
-
-  const cmt = await Comment.deleteOne({ _id: id });
-
-  if (!cmt) {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+  try {
+    const cmt = await Comment.deleteOne({ _id: id }, { session: session });
+    await session.commitTransaction();
+    res.status(StatusCodes.OK).json({ msg: "Comment deleted", data: cmt });
+  } catch (error) {
+    await session.abortTransaction();
+    console.log(error);
     throw new InternalServerError(`Failed to delete comment with id ${id}`);
+  } finally {
+    session.endSession();
   }
-
-  res.status(StatusCodes.OK).json({ msg: "Comment deleted", data: cmt });
 };
 
 const deleteManyCmt = async (req, res) => {
@@ -395,25 +400,22 @@ const deleteManyCmt = async (req, res) => {
   if (!idList) {
     throw new BadRequestError("Please provide idList");
   }
+
   if (!Array.isArray(idList) || idList.length === 0) {
     throw new BadRequestError("idList must be an array and can't be empty");
   }
+  const foundedCmts = await Comment.findById({ _id: { $in: idList } });
 
-  let notFoundedCmts = await Promise.all(
-    idList.map(async (id) => {
-      const cmt = await Comment.findById(id);
-      if (!cmt) {
-        return id;
-      }
-      return null;
-    })
+  const notFoundedCmts = foundedCmts.filter((cmt) =>
+    idList.includes(cmt._id.toString()),
   );
 
-  notFoundedCmts = notFoundedCmts.filter((id) => id !== null);
 
   if (notFoundedCmts.length > 0) {
     throw new BadRequestError(
-      `The following video IDs could not be found: ${notFoundedCmts.join(", ")}`
+      `The following video IDs could not be found: ${notFoundedCmts.join(
+        ", ",
+      )}`,
     );
   }
 
@@ -427,7 +429,7 @@ const deleteManyCmt = async (req, res) => {
 
   res.status(StatusCodes.OK).json({
     msg: `Comments with the following IDs have been deleted: ${idList.join(
-      ", "
+      ", ",
     )}`,
   });
 };

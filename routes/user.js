@@ -36,7 +36,7 @@ router
     createUser,
   );
 
-router.route("/delete-many").post(deleteManyUsers);
+router.route("/delete-many").delete(deleteManyUsers);
 router.route("/test").delete(testDlt);
 
 router
