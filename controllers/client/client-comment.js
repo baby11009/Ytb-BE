@@ -64,11 +64,11 @@ const createCmt = async (req, res) => {
     let cmtId = replyId;
 
     if (replyCmt?.replied_parent_cmt_id) {
+      // If comment is in commen tre
       cmtId = replyCmt?.replied_parent_cmt_id;
       data["replied_parent_cmt_id"] = replyCmt?.replied_parent_cmt_id;
-    } else if (replyCmt?.replied_cmt_id) {
-      cmtId = replyCmt?.replied_cmt_id;
-      data["replied_parent_cmt_id"] = replyCmt?.replied_cmt_id;
+    } else {
+      data["replied_parent_cmt_id"] = replyId;
     }
 
     const parentCmt = await Comment.findOneAndUpdate(

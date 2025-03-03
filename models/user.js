@@ -5,6 +5,7 @@ const bcrypt = require("bcryptjs");
 const path = require("path");
 const avatarPath = path.join(__dirname, "../assets/user avatar");
 const { deleteFile } = require("../utils/file.js");
+const { log } = require("console");
 const User = new mongoose.Schema(
   {
     name: {
@@ -171,95 +172,32 @@ User.pre("deleteOne", async function () {
       .session(session)
       .select("_id avatar banner");
 
-    // find all the video that user had uploaded
-    const foundedVideos = await Video.find({
-      user_id: foundedUser._id,
-    })
-      .select("_id")
-      .session(session);
+    // Delete all the video that user have uploaded
+    await Video.deleteMany({ user_id: foundedUser._id }, { session });
 
-    if (foundedVideos.length > 0) {
-      // Delete all the video that user have uploaded
-      await Video.deleteMany(
-        { user_id: foundedUser._id },
-        { session, isDeletedUser: true },
-      );
-    }
+    // Delete all the subcription that user has subscribed to other user channel
+    await Subscribe.deleteMany({ subscriber_id: foundedUser._id }, { session });
 
-    const subscriptions = await Subscribe.find({
-      subscriber_id: foundedUser._id,
-    })
-      .select("_id channel_id")
-      .session(session);
+    // Delete all user channel subscriptions
+    await Subscribe.deleteMany({ channel_id: foundedUser._id }, { session });
 
-    if (subscriptions.length > 0) {
-      // Delete all the subcription that user has subscribed to other user channel
-      await Subscribe.deleteMany(
-        { subscriber_id: foundedUser._id },
-        { session },
-      );
-    }
+    // Delete all the react that user has created
+    await React.deleteMany(
+      { user_id: foundedUser._id },
+      { session, isDeletedUser: true },
+    );
 
-    const channelSubscriptions = await Subscribe.find({
-      channel_id: foundedUser._id,
-    })
-      .select("_id")
-      .session(session);
+    // Delete all the playlist user has created
+    await Playlist.deleteMany(
+      { created_user_id: foundedUser._id },
+      { session },
+    );
 
-    if (channelSubscriptions.length > 0) {
-      // Delete all user channel subscriptions
-      await Subscribe.deleteMany({ channel_id: foundedUser._id }, { session });
-    }
+    // Delete all the comment that user has posted
+    await Comment.deleteMany({ user_id: foundedUser._id }, { session });
 
-    // find all the react user had created
-    const reacts = await React.find({ user_id: foundedUser._id })
-      .select("_id")
-      .session(session);
-
-    if (reacts.length > 0) {
-      // Delete all the react that user has created
-      await React.deleteMany(
-        { user_id: foundedUser._id },
-        { session, isDeletedUser: true },
-      );
-    }
-
-    const playlists = await Playlist.find({ created_user_id: foundedUser._id })
-      .select("_id")
-      .session(session);
-
-    if (playlists.length > 0) {
-      await Playlist.deleteMany(
-        { created_user_id: foundedUser._id },
-        { session },
-      );
-    }
-
-    const comments = await Comment.find({ user_id: foundedUser._id })
-      .select("_id")
-      .session(session);
-
-    if (comments.length > 0) {
-      // Delete all the comment that user has posted
-      await Comment.deleteMany(
-        { user_id: foundedUser._id },
-        { session, isDeletedUser: true },
-      );
-    }
-
-    const cmtReacts = await CmtReact.find({ user_id: foundedUser._id })
-      .select("_id")
-      .session(session);
-
-    if (cmtReacts.length > 0) {
-      // Delete all the comment react that user has created
-      await CmtReact.deleteMany(
-        { user_id: foundedUser._id },
-        { session, isDeletedUser: true },
-      );
-    }
-
-    // await Promise.all(foundedCmtReacts.map((cmtReacts) => {}));
+    // Delete all the comment react that user has created
+    await CmtReact.deleteMany({ user_id: foundedUser._id }, { session });
 
     // Deleting avatar file if user has uploaded
     if (foundedUser.avatar !== "df.jpg") {
@@ -284,7 +222,6 @@ User.pre("deleteMany", async function () {
   const filter = this.getFilter();
   const deleteIdList = filter._id["$in"];
 
-  const User = mongoose.model("User");
   const Video = mongoose.model("Video");
   const Playlist = mongoose.model("Playlist");
   const Comment = mongoose.model("Comment");
@@ -292,47 +229,26 @@ User.pre("deleteMany", async function () {
   const Subscribe = mongoose.model("Subscribe");
   const CmtReact = mongoose.model("CmtReact");
 
-  const foundedUsers = await User.find({ _id: { $in: deleteIdList } }).select(
-    "_id avatar banner",
-  );
-
   for (const id of deleteIdList) {
     await Video.deleteMany({ user_id: id }, { session });
-
-    // Delete all the subcription that user has subscribed to other user channel
-    await Subscribe.deleteMany({ subscriber_id: id }, { session });
-
-    await Promise.all(
-      channelSubscriptions.map((subscribe) =>
-        User.updateOne(
-          { _id: subscribe.channel_id },
-          { $inc: { subscriber: -1 } },
-          { session },
-        ),
-      ),
-    );
-
-    // Delete all user channel subscriptions
-    await Subscribe.deleteMany({ channel_id: id }, { session });
 
     // Delete all the react that user has created
     await React.deleteMany({ user_id: id }, { session });
 
-    await Playlist.deleteMany({ created_user_id: id }, { session });
+    // Delete all the comment that user has posted
+    await Comment.deleteMany({ user_id: id }, { session });
 
     // Delete all the comment react that user has created
     await CmtReact.deleteMany({ user_id: id }, { session });
 
-    await Promise.all(foundedCmtReacts.map((cmtReacts) => {}));
+    // Delete all the subcription that user has subscribed to other user channel
+    await Subscribe.deleteMany({ subscriber_id: id }, { session });
 
-    // Delete all the comment that user has posted
-    await Comment.deleteMany({ user_id: id }, { session });
+    // Delete all user channel subscriptions
+    await Subscribe.deleteMany({ channel_id: id }, { session });
+
+    await Playlist.deleteMany({ created_user_id: id }, { session });
   }
-});
-
-User.post("deleteMany", async function () {
-  const filter = this.getFilter();
-  const deleteIdList = filter._id["$in"];
 });
 
 User.methods.createJwt = function () {

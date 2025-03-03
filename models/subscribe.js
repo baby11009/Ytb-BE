@@ -59,28 +59,31 @@ Subscribe.pre("deleteMany", async function () {
 
   const { subscriber_id } = this.getQuery();
 
-  try {
-    if (subscriber_id) {
-      const foundedSubscriptions = await Subscribe.find({
-        subscriber_id: subscriber_id,
-      });
+  if (subscriber_id) {
+    const foundedSubscriptions = await Subscribe.find({
+      subscriber_id: subscriber_id,
+    });
 
-      if (foundedSubscriptions.length < 1) {
-        throw new Error(`Not found any subscriptions for ${subscriber_id}`);
-      }
+    if (foundedSubscriptions.length > 0) {
+      const bulkOps = foundedSubscriptions.map((subcription) => ({
+        updateOne: {
+          filter: { _id: subcription.channel_id },
+          update: { $inc: { subscriber: -1 } },
+        },
+      }));
 
-      await Promise.all(
-        foundedSubscriptions.map((subcription) =>
-          User.updateOne(
-            { _id: subcription.channel_id },
-            { $inc: { subscriber: -1 } },
-            { session },
-          ),
-        ),
-      );
+      await User.bulkWrite(bulkOps, { session });
     }
-  } catch (error) {
-    throw error;
+
+    // await Promise.all(
+    //   foundedSubscriptions.map((subcription) =>
+    //     User.updateOne(
+    //       { _id: subcription.channel_id },
+    //       { $inc: { subscriber: -1 } },
+    //       { session },
+    //     ),
+    //   ),
+    // );
   }
 });
 

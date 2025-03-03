@@ -29,18 +29,54 @@ CmtReact.pre("deleteMany", async function () {
   if (user_id) {
     const CmtReact = mongoose.model("CmtReact");
     const Comment = mongoose.model("Comment");
-    const foundedCmtReacts = await CmtReact.find({ user_id }, { session });
+    // Get all the information about comment reactions, except for those reacting to comments created by the deleted user.
+    const foundedCmtReacts = await CmtReact.aggregate([
+      {
+        $lookup: {
+          from: "comments",
+          localField: "cmt_id",
+          foreignField: "_id",
+          pipeline: [
+            {
+              $match: {
+                user_id: { $ne: user_id },
+              },
+            },
+          ],
+          as: "cmt_info",
+        },
+      },
+      {
+        $unwind: "$cmt_info",
+      },
+      {
+        $match: {
+          user_id: user_id,
+        },
+      },
+    ]).session(session);
 
     // Update the comment like and dislike count of the comment that user has reacted to
-    foundedCmtReacts.forEach(async (cmtReact) => {
-      let updateObject = { $inc: { like: -1 } };
-      if (cmtReact.type === "dislike") {
-        updateObject = { $inc: { dislike: -1 } };
-      }
-      await Comment.updateOne({ _id: cmtReact.cmt_id }, updateObject, {
-        session,
+    if (foundedCmtReacts.length > 0) {
+      const bulkOps = foundedCmtReacts.map((cmtReact) => {
+        let updateObject = { $inc: { like: -1 } };
+
+        if (cmtReact.type === "dislike") {
+          updateObject = { $inc: { dislike: -1 } };
+        }
+
+        return {
+          updateOne: {
+            filter: {
+              _id: cmtReact.cmt_id,
+            },
+            update: updateObject,
+          },
+        };
       });
-    });
+
+      await Comment.bulkWrite(bulkOps, { session });
+    }
   }
 });
 module.exports = mongoose.model("CmtReact", CmtReact);

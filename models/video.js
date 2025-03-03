@@ -118,12 +118,13 @@ Video.pre("deleteOne", async function () {
 
 // Cascade when deleting user
 Video.pre("deleteMany", async function () {
-  const { user_id } = this.getQuery();
   const { session } = this.getOptions();
 
   if (!session) {
     throw new Error("⚠️ Transaction session is required");
   }
+
+  const { user_id, _id } = this.getQuery();
 
   const Video = mongoose.model("Video");
 
@@ -131,21 +132,21 @@ Video.pre("deleteMany", async function () {
 
   const React = mongoose.model("React");
 
-  try {
-    if (user_id) {
-      // Find all the videos is belong to user
-      const foundedVideos = await Video.find({ user_id }).select(
-        "_id video thumb",
-      );
+  if (user_id) {
+    // Find all the videos is belong to user
+    const foundedVideos = await Video.find({ user_id }).select(
+      "_id video thumb",
+    );
 
-      // Deleting all the comments that belong to this video
+    // Deleting all the comments that belong to this video
+    if (foundedVideos.length > 0) {
+      const reactBulkOps = [];
+      const commentBulkOps = [];
       for (const video of foundedVideos) {
         // Delete video and thumbnail belong to this video
         const videoPath = path.join(asssetPath, "videos", video.video);
         const imagePath = path.join(asssetPath, "video thumb", video.thumb);
-
         let args = { videoPath, imagePath };
-
         if (video?.stream) {
           args.streamFolderName = video.stream;
         }
@@ -157,8 +158,6 @@ Video.pre("deleteMany", async function () {
         await Comment.deleteMany({ video_id: video._id }, { session });
       }
     }
-  } catch (error) {
-    throw err;
   }
 });
 module.exports = mongoose.model("Video", Video);

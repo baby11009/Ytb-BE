@@ -198,23 +198,24 @@ const deleteUser = async (req, res) => {
     await User.deleteOne({ _id: id }, { session: session });
 
     await session.commitTransaction();
+    // Delete user uploaded avatar and banner
+
+    if (foundedUser.avatar !== "df.jpg") {
+      deleteFile(path.join(avatarPath, foundedUser.avatar));
+    }
+
+    if (foundedUser.banner !== "df-banner.jpg") {
+      deleteFile(path.join(avatarPath, foundedUser.banner));
+    }
+
+    res.status(StatusCodes.OK).json({ msg: "User deleted" });
   } catch (error) {
     await session.abortTransaction();
-    throw error;
+    console.error(error);
+    throw new InternalServerError("Failed to delete user");
   } finally {
     session.endSession();
   }
-  // Xóa avatar & banner của user đã upload
-
-  if (foundedUser.avatar !== "df.jpg") {
-    deleteFile(path.join(avatarPath, foundedUser.avatar));
-  }
-
-  if (foundedUser.banner !== "df-banner.jpg") {
-    deleteFile(path.join(avatarPath, foundedUser.banner));
-  }
-
-  res.status(StatusCodes.OK).json({ msg: "User deleted" });
 };
 
 const deleteManyUsers = async (req, res) => {
