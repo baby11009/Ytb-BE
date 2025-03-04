@@ -2,16 +2,38 @@ const fs = require("fs");
 const { getVideoDurationInSeconds } = require("get-video-duration");
 const path = require("path");
 
+// const deleteFile = async (filePath) => {
+//   try {
+//     if (fs.existsSync(filePath)) {
+//       await fs.promises.unlink(filePath); // Deletes the file
+//       console.log(`File ${filePath} deleted successfully.`);
+//     } else {
+//       throw new Error("File not exited");
+//     }
+//   } catch (err) {
+//     console.error(`Error deleting file ${filePath}:`, err.message);
+//     throw err;
+//   }
+// };
+
 const deleteFile = async (filePath) => {
   try {
-    if (fs.existsSync(filePath)) {
-      await fs.promises.unlink(filePath); // Deletes the file
-      console.log(`File ${filePath} deleted successfully.`);
-    } else {
-      throw new Error("File not exited");
-    }
+    // Sử dụng fs.promises.access để kiểm tra quyền truy cập file
+    await fs.promises.access(filePath, fs.constants.F_OK);
+
+    // Xóa file
+    await fs.promises.unlink(filePath);
+
+    console.log(`File ${filePath} deleted successfully.`);
   } catch (err) {
-    console.error(`Error deleting file ${filePath}:`, err.message);
+    // Phân biệt các loại lỗi
+    if (err.code === "ENOENT") {
+      console.warn(`File ${filePath} does not exist.`);
+    } else {
+      console.error(`Error deleting file ${filePath}:`, err.message);
+    }
+
+    throw err;
   }
 };
 
@@ -21,7 +43,7 @@ const deleteFolder = async (folderPath) => {
       fs.rmSync(folderPath, { recursive: true, force: true }); // Deletes the folder and all its content
       console.log(`Folder ${folderPath} deleted successfully.`);
     } else {
-      throw new Error("Folder not exited");
+      throw new Error("Folder does not exist ");
     }
   } catch (err) {
     console.error(`Error deleting folder ${folderPath}:`, err.message);

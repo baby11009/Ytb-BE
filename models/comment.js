@@ -133,14 +133,12 @@ Comment.pre("deleteMany", async function () {
 
   const { user_id, video_id, replied_parent_cmt_id, _id } = this.getQuery();
 
-  let idList;
-
   const findObj = {};
 
-  if (user_id && !video_id) {
+  if (user_id) {
     // Filtering all the comments for cascade delete when deleting a user
     findObj.user_id = user_id;
-  } else if (video_id && !user_id) {
+  } else if (video_id) {
     if (replied_parent_cmt_id) {
       // Filtering all comments that are replies to the root comment and cascade-deleting all of them.
       findObj.video_id = video_id;
@@ -150,9 +148,7 @@ Comment.pre("deleteMany", async function () {
       findObj.video_id = video_id;
     }
   } else if (_id) {
-    idList = _id["$in"];
-
-    findObj._id = { $in: idList };
+    findObj._id = { $in: _id["$in"] };
   }
 
   const foundedCmts = await Comment.find(findObj).session(session);
@@ -208,27 +204,6 @@ Comment.pre("deleteMany", async function () {
 
         // Delete all the founded comments
         await Comment.deleteMany(filter, { session });
-
-        // const availableCmts = await Comment.find(
-        //   {
-        //     video_id: cmt.video_id,
-        //   },
-        //   { session },
-        // );
-
-        // // Update Video total comment
-        // await Video.findOneAndUpdate(
-        //   { _id: cmt.video_id },
-        //   { totalCmt: availableCmts.length },
-        //   { session },
-        // );
-
-        // // delete all the react belong to the founded comments that have been deleted
-        // dltCmtList.forEach(async (item) => {
-        //   if (item.like > 0 || item.dislike > 0) {
-        //     await CmtReact.deleteMany({ cmt_id: item._id }, { session });
-        //   }
-        // });
       } // Update root comments reply count when the deleted comment is not root comment
       else if (cmt.replied_parent_cmt_id) {
         bulkOps.push({

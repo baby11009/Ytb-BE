@@ -5,7 +5,7 @@ const bcrypt = require("bcryptjs");
 const path = require("path");
 const avatarPath = path.join(__dirname, "../assets/user avatar");
 const { deleteFile } = require("../utils/file.js");
-const { log } = require("console");
+
 const User = new mongoose.Schema(
   {
     name: {
@@ -173,19 +173,49 @@ User.pre("deleteOne", async function () {
       .select("_id avatar banner");
 
     // Delete all the video that user have uploaded
-    await Video.deleteMany({ user_id: foundedUser._id }, { session });
+    const videoCount = await Video.countDocuments(
+      { user_id: foundedUser._id },
+      { session },
+    );
+
+    if (videoCount > 0) {
+      await Video.deleteMany({ user_id: foundedUser._id }, { session });
+    }
 
     // Delete all the subcription that user has subscribed to other user channel
-    await Subscribe.deleteMany({ subscriber_id: foundedUser._id }, { session });
+    const userSubscriptionCount = await Subscribe.countDocuments(
+      { subscriber_id: foundedUser._id },
+      { session },
+    );
+
+    if (userSubscriptionCount > 0) {
+      await Subscribe.deleteMany(
+        { subscriber_id: foundedUser._id },
+        { session },
+      );
+    }
 
     // Delete all user channel subscriptions
-    await Subscribe.deleteMany({ channel_id: foundedUser._id }, { session });
+    const subscriberCount = await Subscribe.countDocuments(
+      { channel_id: foundedUser._id },
+      { session },
+    );
+
+    if (subscriberCount) {
+      await Subscribe.deleteMany({ channel_id: foundedUser._id }, { session });
+    }
 
     // Delete all the react that user has created
-    await React.deleteMany(
+    const reactCount = await React.countDocuments(
       { user_id: foundedUser._id },
-      { session, isDeletedUser: true },
+      { session },
     );
+    if (reactCount > 0) {
+      await React.deleteMany(
+        { user_id: foundedUser._id },
+        { session, isDeletedUser: true },
+      );
+    }
 
     // Delete all the playlist user has created
     await Playlist.deleteMany(
@@ -194,10 +224,23 @@ User.pre("deleteOne", async function () {
     );
 
     // Delete all the comment that user has posted
-    await Comment.deleteMany({ user_id: foundedUser._id }, { session });
+    const commentCount = await Comment.countDocuments(
+      { user_id: foundedUser._id },
+      { session },
+    );
+    if (commentCount > 0) {
+      await Comment.deleteMany({ user_id: foundedUser._id }, { session });
+    }
 
     // Delete all the comment react that user has created
-    await CmtReact.deleteMany({ user_id: foundedUser._id }, { session });
+    const cmtReactCount = await CmtReact.countDocuments(
+      { user_id: foundedUser._id },
+      { session },
+    );
+
+    if (cmtReactCount > 0) {
+      await CmtReact.deleteMany({ user_id: foundedUser._id }, { session });
+    }
 
     // Deleting avatar file if user has uploaded
     if (foundedUser.avatar !== "df.jpg") {
@@ -214,9 +257,9 @@ User.pre("deleteOne", async function () {
 });
 
 User.pre("deleteMany", async function () {
-  const session = this.getOptions().session;
+  const { session } = this.getOptions();
   if (!session) {
-    return next(new Error("⚠️ Transaction session is required"));
+    throw new Error("⚠️ Transaction session is required");
   }
 
   const filter = this.getFilter();
@@ -230,22 +273,56 @@ User.pre("deleteMany", async function () {
   const CmtReact = mongoose.model("CmtReact");
 
   for (const id of deleteIdList) {
-    await Video.deleteMany({ user_id: id }, { session });
+    // Delete all the video that user has uploaded
+    const videoCount = await Video.countDocuments({ user_id: id }, { session });
+
+    if (videoCount > 0) {
+      await Video.deleteMany({ user_id: id }, { session });
+    }
 
     // Delete all the react that user has created
-    await React.deleteMany({ user_id: id }, { session });
+    const reactCount = await React.countDocuments({ user_id: id }, { session });
+    if (reactCount > 0) {
+      await React.deleteMany({ user_id: id }, { session });
+    }
 
     // Delete all the comment that user has posted
-    await Comment.deleteMany({ user_id: id }, { session });
+    const commentCount = await Comment.countDocuments(
+      { user_id: id },
+      { session },
+    );
+
+    if (commentCount > 0) {
+      await Comment.deleteMany({ user_id: id }, { session });
+    }
 
     // Delete all the comment react that user has created
-    await CmtReact.deleteMany({ user_id: id }, { session });
+    const cmtReactCount = await CmtReact.countDocuments(
+      { user_id: id },
+      { session },
+    );
+    if (cmtReactCount > 0) {
+      await CmtReact.deleteMany({ user_id: id }, { session });
+    }
 
     // Delete all the subcription that user has subscribed to other user channel
-    await Subscribe.deleteMany({ subscriber_id: id }, { session });
+    const supscriptionsCount = await Subscribe.countDocuments(
+      { subscriber_id: id },
+      { session },
+    );
+
+    if (supscriptionsCount > 0) {
+      await Subscribe.deleteMany({ subscriber_id: id }, { session });
+    }
 
     // Delete all user channel subscriptions
-    await Subscribe.deleteMany({ channel_id: id }, { session });
+    const subscriberCount = await Subscribe.countDocuments(
+      { channel_id: id },
+      { session },
+    );
+    if (subscriberCount > 0) {
+      await Subscribe.deleteMany({ channel_id: id }, { session });
+    }
 
     await Playlist.deleteMany({ created_user_id: id }, { session });
   }

@@ -18,9 +18,6 @@ const mongoose = require("mongoose");
 const path = require("path");
 
 const avatarPath = path.join(__dirname, "../../assets/user avatar");
-const videoThumbPath = path.join(__dirname, "../../assets/video thumb");
-const videoPath = path.join(__dirname, "../../assets/videos");
-
 const createUser = async (req, res) => {
   const session = await mongoose.startSession();
   session.startTransaction();
@@ -105,8 +102,8 @@ const getUsers = async (req, res) => {
 
   const sortFuncsObj = {
     createdAt: (value) => {
-      const valueList = new Set([1, -1]);
-      if (valueList.has(Number(value))) {
+      const valueList = new Set(["1", "-1"]);
+      if (valueList.has(value)) {
         sortObj.createdAt = Number(value);
       }
     },
@@ -176,6 +173,7 @@ const getUserDetails = async (req, res) => {
   if (!user) {
     throw new NotFoundError("User not found");
   }
+
   res.status(StatusCodes.OK).json({ data: user });
 };
 
@@ -219,6 +217,7 @@ const deleteUser = async (req, res) => {
 };
 
 const deleteManyUsers = async (req, res) => {
+  
   const { idList } = req.query;
 
   if (!idList) {
@@ -226,8 +225,6 @@ const deleteManyUsers = async (req, res) => {
   }
 
   const idArray = idList.split(",");
-
-  console.log("🚀 ~ idArray:", idArray);
 
   const foundedUsers = await User.find({ _id: { $in: idArray } }).select("_id");
 
@@ -238,7 +235,6 @@ const deleteManyUsers = async (req, res) => {
 
     foundedUsers.forEach((user) => {
       if (idArray.includes(user._id.toString())) {
-        console.log("🚀 ~ user._id:", user._id);
         notFoundedList.push(user._id);
       }
     });
@@ -249,18 +245,18 @@ const deleteManyUsers = async (req, res) => {
   }
   // Delete users after verify the id list is valid
   const session = await mongoose.startSession();
-  session.startTransaction();
   try {
+    session.startTransaction();
     await User.deleteMany({ _id: { $in: idArray } }, { session });
-    session.commitTransaction();
+    await session.commitTransaction();
     res.status(StatusCodes.OK).json({
       msg: `Successfully deleted these following users : ${idList}`,
     });
   } catch (error) {
-    session.abortTransaction();
+    await session.abortTransaction();
     throw error;
   } finally {
-    session.endSession();
+    await session.endSession();
   }
 };
 

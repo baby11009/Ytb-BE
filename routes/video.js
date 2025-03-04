@@ -32,7 +32,7 @@ router.post(
 
 router.route("/").get(getVideos);
 
-router.route("/delete-many").post(deleteManyVideos);
+router.route("/delete-many").delete(deleteManyVideos);
 
 router
   .route("/:id")

@@ -34,24 +34,44 @@ React.pre("deleteMany", async function () {
     const Video = mongoose.model("Video");
     // When deleting all the react user has created
     if (user_id) {
-      
       const foundedReacts = await React.find({ user_id })
         .select("_id video_id type")
         .session(session);
 
-      await Promise.all(
-        foundedReacts.map((react) => {
+      if (foundedReacts.length > 0) {
+        const bulkOps = foundedReacts.map((react) => {
           let updateObject = { $inc: { like: -1 } };
 
           if (react.type === "dislike") {
             updateObject = { $inc: { dislike: -1 } };
           }
 
-          return Video.updateOne({ _id: react.video_id }, updateObject, {
-            session,
-          });
-        }),
-      );
+          return {
+            updateOne: {
+              filter: {
+                _id: react.video_id,
+              },
+              update: updateObject,
+            },
+          };
+        });
+
+        await Video.bulkWrite(bulkOps, session);
+      }
+
+      // await Promise.all(
+      //   foundedReacts.map((react) => {
+      //     let updateObject = { $inc: { like: -1 } };
+
+      //     if (react.type === "dislike") {
+      //       updateObject = { $inc: { dislike: -1 } };
+      //     }
+
+      //     return Video.updateOne({ _id: react.video_id }, updateObject, {
+      //       session,
+      //     });
+      //   }),
+      // );
     }
   } catch (error) {
     throw error;

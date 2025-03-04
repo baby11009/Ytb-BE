@@ -31,13 +31,13 @@ const createCmt = async (req, res) => {
 
   const { userId, videoId, cmtText, replyId, like, dislike } = req.body;
 
-  const user = await User.findById(req.body.userId);
+  const user = await User.findById(userId);
 
   if (!user) {
     throw new NotFoundError(`Not found user with id ${userId}`);
   }
 
-  let data = {
+  const data = {
     user_id: userId,
     video_id: videoId,
     cmtText: cmtText,
@@ -85,35 +85,80 @@ const createCmt = async (req, res) => {
 };
 
 const getCmts = async (req, res) => {
-  let limit = Number(req.query.limit) || 5;
-  let page = Number(req.query.page) || 1;
+  const { limit, page, sort, search } = req.query;
 
-  let skip = (page - 1) * limit;
+  let limitNumber = Number(limit) || 5;
+  let pageNumber = Number(page) || 1;
 
-  const findParams = Object.keys(req.query).filter(
-    (key) => key !== "limit" && key !== "page" && key !== "createdAt",
-  );
+  let skip = (pageNumber - 1) * limitNumber;
 
-  let findObj = {};
+  let matchObj = {};
 
-  findParams.forEach((item) => {
-    if (item === "email") {
-      findObj["user_info.email"] = { $regex: req.query[item], $options: "i" };
-    } else if (item === "title") {
-      findObj["video_info.title"] = { $regex: req.query[item], $options: "i" };
-    } else if (item === "reply") {
-      findObj["replied_cmt_id"] = { $exists: JSON.parse(req.query[item]) };
-    } else if (item === "id") {
-      findObj["_idStr"] = { $regex: req.query[item], $options: "i" };
-    } else if (item === "videoId") {
-      findObj["_videoIdStr"] = { $regex: req.query[item], $options: "i" };
+  const matchFuncsObj = {
+    email: (email) => {
+      matchObj["user_info.email"] = { $regex: email, $options: "i" };
+    },
+    title: (title) => {
+      matchObj["video_info.title"] = { $regex: title, $options: "i" };
+    },
+    videoId: (videoId) => {
+      matchObj["_videoIdStr"] = videoId;
+    },
+    reply: (replyId) => {
+      matchObj["replied_cmt_id"] = { $exists: JSON.parse(replyId) };
+    },
+  };
+
+  if (search) {
+    const searchKeys = Object.keys(search);
+    if (searchKeys.length > 0) {
+      for (const key of searchKeys) {
+        if (matchFuncsObj[key]) {
+          matchFuncsObj[key](search[key]);
+        }
+      }
     }
-  });
+  }
 
-  let sortNum = 1;
+  // findParams.forEach((item) => {
+  //   if (item === "email") {
+  //     matchObj["user_info.email"] = { $regex: req.query[item], $options: "i" };
+  //   } else if (item === "title") {
+  //     matchObj["video_info.title"] = { $regex: req.query[item], $options: "i" };
+  //   } else if (item === "reply") {
+  //     matchObj["replied_cmt_id"] = { $exists: JSON.parse(req.query[item]) };
+  //   } else if (item === "id") {
+  //     matchObj["_idStr"] = { $regex: req.query[item], $options: "i" };
+  //   } else if (item === "videoId") {
+  //     matchObj["_videoIdStr"] = { $regex: req.query[item], $options: "i" };
+  //   }
+  // });
 
-  if (req.query.createdAt === "mới nhất") {
-    sortNum = -1;
+  const sortObj = {};
+
+  const sortFuncsObj = {
+    createdAt: (value) => {
+      const valueList = new Set(["1", "-1"]);
+      if (valueList.has(value)) {
+        sortObj["createdAt"] = Number(value);
+      } else {
+        sortObj["createdAt"] = -1;
+      }
+    },
+  };
+
+  const sortKeys = Object.keys(sort);
+  if (sortKeys && sortKeys.length > 0) {
+    const sortKeys = Object.keys(sort);
+    if (sortKeys.length > 0) {
+      for (const key of sortKeys) {
+        if (sortFuncsObj[key]) {
+          sortFuncsObj[key](sort[key]);
+        }
+      }
+    }
+  } else {
+    sortObj["createdAt"] = -1;
   }
 
   const pipeline = [
@@ -181,7 +226,7 @@ const getCmts = async (req, res) => {
       },
     },
     {
-      $match: findObj,
+      $match: matchObj,
     },
     {
       $project: {
@@ -199,14 +244,12 @@ const getCmts = async (req, res) => {
       },
     },
     {
-      $sort: {
-        createdAt: sortNum,
-      },
+      $sort: sortObj,
     },
     {
       $facet: {
         totalCount: [{ $count: "total" }],
-        data: [{ $skip: skip }, { $limit: limit }],
+        data: [{ $skip: skip }, { $limit: limitNumber }],
       },
     },
   ];
@@ -214,6 +257,7 @@ const getCmts = async (req, res) => {
   let result = Comment.aggregate(pipeline);
 
   const comments = await result;
+  console.log("🚀 ~ comments:", matchObj);
 
   res.status(StatusCodes.OK).json({
     data: comments[0]?.data,

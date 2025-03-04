@@ -91,37 +91,36 @@ const upLoadVideo = async (req, res) => {
 };
 
 const getVideos = async (req, res) => {
-  const { sort } = req.query;
-  let limit = Number(req.query.limit) || 5;
+  const { sort, search } = req.query;
+
+  let limit = Number(req.query.limit) || 10;
   let page = Number(req.query.page) || 1;
 
   let skip = (page - 1) * limit;
 
-  const findParams = Object.keys(req.query).filter(
-    (key) => key !== "limit" && key !== "page" && key !== "sort",
-  );
+  let matchObj = {};
 
-  let findObj = {};
-
-  const findFuncObj = {
-    email: (syntax) => {
-      findObj["user_info.email"] = syntax;
+  const searchFuncsObj = {
+    email: (email) => {
+      matchObj["user_info.email"] = { $regex: email, $options: "i" };
     },
-    id: (syntax) => {
-      findObj["_idStr"] = syntax;
+    id: (id) => {
+      matchObj["_idStr"] = id;
+    },
+    type: (type) => {
+      matchObj["type"] = type;
     },
   };
 
-  findParams.forEach((item) => {
-    const syntax = { $regex: req.query[item], $options: "i" };
-    if (req.query[item]) {
-      if (findFuncObj[item]) {
-        findFuncObj[item](syntax);
-      } else {
-        findObj[item] = syntax;
+  const searchKeys = search ? Object.keys(search) : undefined;
+
+  if (searchKeys && searchKeys.length > 0) {
+    searchKeys.forEach((key) => {
+      if (searchFuncsObj[key]) {
+        searchFuncsObj[key](search[key]);
       }
-    }
-  });
+    });
+  }
 
   const sortObj = {};
 
@@ -163,6 +162,15 @@ const getVideos = async (req, res) => {
         from: "users", // Collection users mà bạn muốn join
         localField: "user_id", // Trường trong collection videos (khóa ngoại)
         foreignField: "_id", // Trường trong collection users (khóa chính)
+        pipeline: [
+          {
+            $project: {
+              email: 1,
+              name: 1,
+              avatar: 1,
+            },
+          },
+        ],
         as: "user_info", // Tên mảng để lưu kết quả join
       },
     },
@@ -175,16 +183,13 @@ const getVideos = async (req, res) => {
       },
     },
     {
-      $match: findObj,
+      $match: matchObj,
     },
     {
       $project: {
         _id: 1,
         title: 1, // Các trường bạn muốn giữ lại từ Video
-        "user_info._id": 1,
-        "user_info.email": 1,
-        "user_info.avatar": 1,
-        "user_info.name": 1,
+        user_info: 1,
         thumb: 1,
         video: 1,
         // stream: {
@@ -378,47 +383,61 @@ const deleteVideo = async (req, res) => {
     throw new NotFoundError(`Not found video with id ${id}`);
   }
 
-  await Video.deleteOne({ _id: id });
-
-  res.status(StatusCodes.OK).json({ msg: "Video deleted successfully" });
+  const session = await mongoose.startSession();
+  session.startTransaction();
+  try {
+    await Video.deleteOne({ _id: id }, { session });
+    await session.commitTransaction();
+    res.status(StatusCodes.OK).json({ msg: "Video deleted successfully" });
+  } catch (error) {
+    await session.abortTransaction();
+    throw error;
+  } finally {
+    await session.endSession();
+  }
 };
 
 const deleteManyVideos = async (req, res) => {
-  const { idList } = req.body;
+  const { idList } = req.query;
 
   if (!idList) {
-    throw new BadRequestError("Please provide idList");
-  }
-  if (!Array.isArray(idList) || idList.length === 0) {
-    throw new BadRequestError("idList must be an array and can't be empty");
+    throw new BadRequestError("Please provide a list of video id to delete");
   }
 
-  let notFoundedVideos = await Promise.all(
-    idList.map(async (id) => {
-      const video = await Video.findById(id);
+  const idArray = idList.split(",");
 
-      if (!video) {
-        return id;
-      }
-      return null;
-    }),
+  const foundedVideos = await Video.find({ _id: { $in: idArray } }).select(
+    "_id",
   );
 
-  notFoundedVideos = notFoundedVideos.filter((id) => id !== null);
+  if (foundedVideos.length === 0) {
+    throw new NotFoundError(`Not found any video with these ids: ${idList}`);
+  } else if (foundedVideos.length !== idArray.length) {
+    const notFoundedList = [];
 
-  if (notFoundedVideos.length > 0) {
+    foundedVideos.forEach((video) => {
+      if (idArray.includes(video._id.toString())) {
+        notFoundedList.push(video._id);
+      }
+    });
+
     throw new NotFoundError(
-      `The following video IDs could not be found: ${notFoundedVideos.join(
-        ", ",
-      )}`,
+      `Not found any video with these ids: ${notFoundedList.join(", ")}`,
     );
   }
 
-  idList.forEach(async (id) => {
-    await Video.deleteOne({ _id: id });
-  });
-
-  res.status(StatusCodes.OK).json({ msg: "Videos deleted successfully" });
+  const session = await mongoose.startSession();
+  session.startTransaction();
+  try {
+    await Video.deleteMany({ _id: { $in: idArray } }, { session });
+    await session.commitTransaction();
+    res.status(StatusCodes.OK).json({ msg: "Videos deleted successfully" });
+  } catch (error) {
+    await session.abortTransaction();
+    throw error;
+  } finally {
+    await session.endSession();
+  }
 };
 
 module.exports = {
