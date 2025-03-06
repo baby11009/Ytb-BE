@@ -18,6 +18,7 @@ const mongoose = require("mongoose");
 const path = require("path");
 
 const avatarPath = path.join(__dirname, "../../assets/user avatar");
+
 const createUser = async (req, res) => {
   const session = await mongoose.startSession();
   session.startTransaction();

@@ -299,6 +299,7 @@ const getVideoDetails = async (req, res) => {
       },
     },
   ]);
+  
   if (!video) {
     throw new NotFoundError(`Not found video with id ${id}`);
   }
@@ -321,7 +322,7 @@ const updateVideo = async (req, res) => {
     throw new BadRequestError("There is nothing to update.");
   }
 
-  let updatedKey = ["title", "view", "like", "dislike", "image", "type", "tag"];
+  let updatedKey = ["title", "view", "like", "dislike", "type", "tag"];
 
   let updateData = {};
 

@@ -26,8 +26,10 @@ router
     async (req, res, next) => {
       fileLimitSizeMiddleware(req, res, next, { image: 4 });
     },
-    createTag
+    createTag,
   );
+
+router.route("/delete-many").delete(deleteManyTags);
 
 router
   .route("/:id")
@@ -38,10 +40,8 @@ router
     async (req, res, next) => {
       fileLimitSizeMiddleware(req, res, next, { image: 4 });
     },
-    updateTag
+    updateTag,
   )
   .delete(deleteTag);
-
-router.route("/delete-many").post(deleteManyTags);
 
 module.exports = router;

@@ -20,7 +20,7 @@ const Tag = new mongoose.Schema(
       required: [true, "Please provide an icon for the tag"],
     },
   },
-  { timestamps: true }
+  { timestamps: true },
 );
 
 module.exports = mongoose.model("Tag", Tag);

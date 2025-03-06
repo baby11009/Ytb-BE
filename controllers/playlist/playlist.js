@@ -1,4 +1,4 @@
-const { Playlist, Video } = require("../../models");
+const { Playlist, Video, User } = require("../../models");
 const {
   BadRequestError,
   NotFoundError,
@@ -9,56 +9,16 @@ const { StatusCodes } = require("http-status-codes");
 const createPlaylist = async (req, res) => {
   const { title, videoIdList = [], userId, privacy } = req.body;
 
-  if (!userId) {
-    throw new BadRequestError("Please provide user create playlist id");
-  }
-
-  if (!title || title === "") {
-    throw new BadRequestError("Please provide a playlist title");
-  }
-
-  if (videoIdList && videoIdList.length > 0) {
-    const foundedVideos = await Video.aggregate([
-      {
-        $addFields: {
-          _idStr: { $toString: "$_id" },
-        },
-      },
-      { $match: { _idStr: { $in: videoIdList } } },
-      { $group: { _id: null, idsFound: { $push: "$_idStr" } } },
-      {
-        $project: {
-          missingIds: { $setDifference: [videoIdList, "$idsFound"] },
-        },
-      },
-    ]);
-
-    if (foundedVideos.length === 0) {
-      throw new NotFoundError(
-        `The following videos with id: ${videoIdList.join(
-          ", ",
-        )} could not be found`,
-      );
-    }
-
-    if (foundedVideos[0]?.missingIds?.length > 0) {
-      throw new NotFoundError(
-        `The following videos with id: ${foundedVideos[0].missingIds.join(
-          ", ",
-        )} could not be found`,
-      );
-    }
-  }
-
-  if (type && type === "personal") {
-    throw new ForbiddenError("Cannot create personal playlist");
+  const user = await User.findById(userId);
+  
+  if (!user) {
+    throw new BadRequestError(`Not found user with id ${userId}`);
   }
 
   await Playlist.create({
     created_user_id: userId,
     title,
     itemList: videoIdList,
-    type: "playlist",
     privacy,
   });
 
@@ -66,7 +26,7 @@ const createPlaylist = async (req, res) => {
 };
 
 const getPlaylists = async (req, res) => {
-  const { limit, page, sort, ...matchParams } = req.query;
+  const { limit, page, sort, search } = req.query;
   const limitNumber = Number(limit) || 5;
   const pageNumber = Number(page) || 1;
 
@@ -83,8 +43,8 @@ const getPlaylists = async (req, res) => {
     },
   };
 
-  if (Object.keys(matchParams).length > 0) {
-    for (const [key, value] of Object.entries(matchParams)) {
+  if (Object.keys(search).length > 0) {
+    for (const [key, value] of Object.entries(search)) {
       const syntax = { $regex: value, $options: "i" };
       if (matchFuncObj[key] && value) {
         matchFuncObj[key](syntax);
@@ -98,26 +58,23 @@ const getPlaylists = async (req, res) => {
 
   let sortDateObj = {};
 
-  if (sort && Object.keys(sort).length > 0) {
-    const uniqueSortKeys = ["size"];
-    const sortKeys = ["createdAt", "title", "updatedAt"];
-    let unique = [];
-    let uniqueValue;
-    for (const [key, value] of Object.entries(sort)) {
-      if (sortKeys.includes(key)) {
-        sortDateObj[key] = Number(value);
-      } else if (uniqueSortKeys.includes(key)) {
-        unique.push(key);
-        uniqueValue = Number(value);
-      }
-    }
+  const sortKeys = sort ? Object.keys(sort) : undefined;
 
-    if (unique.length > 1) {
-      throw new BadRequestError(
-        `Only one sort key in ${uniqueSortKeys.join(", ")} is allowed`,
-      );
-    } else if (unique.length > 0) {
-      uniqueSortObj[unique[0]] = uniqueValue;
+  if (sortKeys && sortKeys.length > 0) {
+    const uniqueSortKeys = ["size"];
+    const defaultSortKeys = ["createdAt", "title", "updatedAt"];
+
+    for (const key of sortKeys) {
+      if (defaultSortKeys.includes(key)) {
+        sortDateObj[key] = Number(sort[key]);
+      } else if (uniqueSortKeys.includes(key)) {
+        uniqueSortObj[key] = Number(sort[key]);
+        if (Object.keys(uniqueSortObj).length > 1) {
+          throw new BadRequestError(
+            `Only one sort key in ${uniqueSortKeys.join(", ")} is allowed`,
+          );
+        }
+      }
     }
   } else {
     sortDateObj = {
@@ -267,37 +224,30 @@ const updatePlaylist = async (req, res) => {
   const notAllowData = [];
 
   const title = (value) => {
-    if (foundedPlaylist.type === "personal")
-      return next(new ForbiddenError("You can't modify personal playlist"));
     if (typeof value !== "string")
-      return next(new ForbiddenError("Data type must be a string"));
+      throw new ForbiddenError("Data type must be a string");
     if (foundedPlaylist.title === value) {
-      return next(
-        new BadRequestError("The new title of playlist is still the same"),
-      );
-    } else {
-      updateDatas.title = value;
+      throw new BadRequestError("The new title of playlist is still the same");
     }
+    updateDatas.title = value;
   };
+
   const privacy = (value) => {
-    if (foundedPlaylist.type !== "playlist")
-      throw new ForbiddenError("You can't modify this list");
     if (value === foundedPlaylist.privacy) {
       throw new BadRequestError(
         "The new privacy of playlist is still the same ",
       );
-    } else {
-      const validatePrivacy = ["private", "public"];
-      if (!validatePrivacy.includes(value)) {
-        return next(new BadRequestError("Invalid playlist type"));
-      } else {
-        updateDatas.privacy = value;
-      }
     }
+
+    const validatePrivacy = new Set(["private", "public"]);
+    if (!validatePrivacy.has(value)) {
+      throw new BadRequestError("Invalid playlist privacy");
+    }
+    updateDatas.privacy = value;
   };
 
   const updateList = async (videoIdList) => {
-    if (videoIdList.length > 0 && foundedPlaylist.type) {
+    if (videoIdList?.length > 0) {
       const foundedVideos = await Video.aggregate([
         {
           $addFields: {
@@ -308,6 +258,7 @@ const updatePlaylist = async (req, res) => {
         { $group: { _id: null, idsFound: { $push: "$_idStr" } } },
         {
           $project: {
+            itemList: 1,
             missingIds: {
               $setDifference: [videoIdList, "$idsFound"],
             },
@@ -331,37 +282,15 @@ const updatePlaylist = async (req, res) => {
         );
       }
 
-      const alreadyInPlaylistVideosId = videoIdList.reduce((acc, item) => {
-        if (foundedPlaylist.itemList.includes(item)) {
-          acc.push(item);
-        }
-        return acc;
-      }, []);
+      // Add the ID to the list if it does not exist; otherwise, remove it.
+      const finalItemList = [
+        ...videoIdList.filter((id) => !foundedPlaylist.itemList.includes(id)),
+        ...foundedPlaylist.itemList.filter((id) => !videoIdList.includes(id)),
+      ];
 
-      let notInplaylistVideosId = [];
-
-      if (alreadyInPlaylistVideosId.length > 0) {
-        await Playlist.updateOne(matchObj, {
-          $pullAll: { itemList: alreadyInPlaylistVideosId },
-        });
-
-        notInplaylistVideosId = videoIdList.reduce((acc, item) => {
-          if (!alreadyInPlaylistVideosId.includes(item)) {
-            acc.push(item);
-          }
-          return acc;
-        }, []);
-      } else {
-        notInplaylistVideosId = videoIdList;
-      }
-
-      if (notInplaylistVideosId.length > 0) {
-        await Playlist.updateOne(matchObj, {
-          $addToSet: { itemList: { $each: notInplaylistVideosId } },
-        });
-      }
+      updateDatas["itemList"] = finalItemList;
     } else {
-      await Playlist.updateOne({ _id: id }, { itemList: [] });
+      updateDatas["itemList"] = [];
     }
   };
 
@@ -375,37 +304,35 @@ const updatePlaylist = async (req, res) => {
     history: { videoIdList: updateList },
   };
 
-  if (Object.keys(bodyData).length > 0) {
-    for (const [key, value] of Object.entries(bodyData)) {
-      let func = updateFuncObj[foundedPlaylist.type];
-      if (func) {
-        func = func[key];
+  for (const [key, value] of Object.entries(bodyData)) {
+    let func = updateFuncObj[foundedPlaylist.type];
+    if (func) {
+      func = func[key];
+    } else {
+      throw new BadRequestError(
+        `Cannot update playlist with type ${foundedPlaylist.type}`,
+      );
+    }
+
+    if (func) {
+      if (func.constructor.name === "AsyncFunction") {
+        await func(value);
       } else {
-        throw new BadRequestError(
-          `Cannot update ${key} of list with type ${foundedPlaylist.type}`,
-        );
+        func(value);
       }
-      if (func) {
-        if (func.constructor.name === "AsyncFunction") {
-          await func(value);
-        } else {
-          func(value);
-        }
-      } else {
-        notAllowData.push(key);
-      }
+    } else {
+      notAllowData.push(key);
     }
   }
 
   if (notAllowData.length > 0) {
     throw new BadRequestError(
-      "You can't update these fields: " + notAllowData.join(", "),
+      `Playlist with ${foundedPlaylist.type} type cannot modify these fields: ` +
+        notAllowData.join(", "),
     );
   }
 
-  if (Object.keys(updateDatas).length > 0) {
-    await Playlist.updateOne({ _id: id }, updateDatas);
-  }
+  await Playlist.updateOne({ _id: id }, updateDatas);
 
   res.status(StatusCodes.OK).json({ msg: "Playlist updated successfullly" });
 };
@@ -451,11 +378,11 @@ const deleteManyPlaylist = async (req, res) => {
     },
   ]);
 
-  if (foundedPlaylists.length === 0) {
-    throw new NotFoundError(
-      `The following playlists with id: ${idList.join(", ")}could not be found`,
-    );
-  }
+  // if (foundedPlaylists.length === 0) {
+  //   throw new NotFoundError(
+  //     `The following playlists with id: ${idList.join(", ")}could not be found`,
+  //   );
+  // }
 
   if (foundedPlaylists[0]?.missingIds?.length > 0) {
     throw new NotFoundError(

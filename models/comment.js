@@ -1,6 +1,6 @@
 const mongoose = require("mongoose");
 
-const { NotFoundError } = require("../errors");
+const { NotFoundError, BadRequestError } = require("../errors");
 
 const Comment = new mongoose.Schema(
   {
@@ -27,6 +27,8 @@ const Comment = new mongoose.Schema(
     },
     cmtText: {
       type: String,
+      min: 1,
+      max: 255,
       required: [true, "Please provide comment text"],
     },
     like: {

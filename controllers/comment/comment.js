@@ -37,6 +37,12 @@ const createCmt = async (req, res) => {
     throw new NotFoundError(`Not found user with id ${userId}`);
   }
 
+  const video = await Video.findById(videoId);
+
+  if (!video) {
+    throw new NotFoundError(`Not found video with id ${videoId}`);
+  }
+
   const data = {
     user_id: userId,
     video_id: videoId,
@@ -78,10 +84,18 @@ const createCmt = async (req, res) => {
   if (dislike) {
     data.dislike = dislike;
   }
-
-  const cmt = await Comment.create(data);
-
-  res.status(StatusCodes.CREATED).json({ msg: "Comment created", data: cmt });
+  const session = await mongoose.startSession();
+  session.startTransaction();
+  try {
+    const cmt = await Comment.create(data);
+    await session.commitTransaction();
+    res.status(StatusCodes.CREATED).json({ msg: "Comment created", data: cmt });
+  } catch (error) {
+    await session.abortTransaction();
+    throw error;
+  } finally {
+    session.endSession();
+  }
 };
 
 const getCmts = async (req, res) => {

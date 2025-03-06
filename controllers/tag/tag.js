@@ -3,6 +3,7 @@ const { StatusCodes } = require("http-status-codes");
 const { BadRequestError, NotFoundError } = require("../../errors");
 const { deleteFile } = require("../../utils/file");
 const path = require("path");
+const { default: mongoose } = require("mongoose");
 const iconPath = path.join(__dirname, "../../assets/tag icon");
 
 const createTag = async (req, res) => {
@@ -51,7 +52,7 @@ const getTags = async (req, res) => {
     title: (title) => {
       matchObj.title = { $regex: title, $options: "i" };
     },
-  };  
+  };
 
   if (search) {
     for (const [key, value] of Object.entries(search)) {
@@ -114,54 +115,72 @@ const getTagDetails = async (req, res) => {
 const updateTag = async (req, res) => {
   const { id } = req.params;
 
-  const { title, slug } = req.body;
+  const bodyKeys = Object.keys(req.body);
 
   if (!id) {
     throw new BadRequestError("Please provide tag ID");
   }
 
-  if (!req.files?.image && !title) {
+  if (!req.files?.image && bodyKeys.length < 1) {
     throw new BadRequestError("Please provide data to update");
   }
 
-  try {
-    const foundedTag = await Tag.findById(id);
+  const foundedTag = await Tag.findById(id);
 
-    if (!foundedTag) {
-      throw new NotFoundError(`Cannot find tag with id ${id}`);
-    }
+  if (!foundedTag) {
+    throw new NotFoundError(`Cannot find tag with id ${id}`);
+  }
 
-    let updateData = {};
+  const updateDatas = {};
 
-    if (title) {
+  const updateBodyHandler = {
+    title: (title) => {
+      if (!title || typeof title !== "string") {
+        throw new BadRequestError("Title must be a non-empty string");
+      }
       if (foundedTag.title === title) {
         throw new BadRequestError("Tag's title is still the same");
       }
-      updateData.title = title;
-    }
+      updateDatas.title = title;
+    },
+    slug: (slug) => {
+      if (!slug || typeof slug !== "string") {
+        throw new BadRequestError("Slug must be a non-empty string");
+      }
 
-    if (slug) {
       if (foundedTag.slug === slug) {
         throw new BadRequestError("Tag's slug is still the same");
       }
 
-      updateData.slug = slug;
+      updateDatas.slug = slug;
+    },
+  };
+
+  for (const key of bodyKeys) {
+    if (updateBodyHandler[key]) {
+      updateBodyHandler[key](req.body[key]);
     }
+  }
 
-    if (req.files.image) {
-      updateData.icon = req.files.image[0].filename;
-    }
+  if (req.files && req.files?.image) {
+    updateDatas.icon = req.files.image[0].filename;
+  }
 
-    await Tag.updateOne({ _id: id }, updateData);
+  if (Object.keys(updateDatas).length < 1) {
+    throw new BadRequestError("No data to update");
+  }
 
-    if (req.files.image) {
+  try {
+    await Tag.updateOne({ _id: id }, updateDatas);
+
+    if (req.files && req.files?.image) {
       const imgPath = path.join(iconPath, foundedTag.icon);
-      deleteFile(imgPath);
+      await deleteFile(imgPath);
     }
 
     res.status(StatusCodes.OK).json({ msg: "Tag updated successfully" });
   } catch (error) {
-    if (req.files.image) {
+    if (req.files && req.files?.image) {
       const imgPath = path.join(iconPath, req.files.image[0].filename);
       deleteFile(imgPath);
     }
@@ -182,34 +201,50 @@ const deleteTag = async (req, res) => {
     throw new NotFoundError(`Cannot find tag with id ${id}`);
   }
 
-  await Tag.deleteOne({ _id: id });
+  const session = await mongoose.startSession();
 
-  if (foundedTag.icon) {
-    const imgPath = path.join(iconPath, foundedTag.icon);
-    deleteFile(imgPath);
+  session.startTransaction();
+
+  try {
+    await Tag.deleteOne({ _id: id }, { session });
+
+    deleteFile(path.join(iconPath, foundedTag.icon));
+
+    await session.commitTransaction();
+    res.status(StatusCodes.OK).json({ msg: "Tag deleted successfully" });
+  } catch (error) {
+    await session.abortTransaction();
+    throw error;
+  } finally {
+    session.endSession();
   }
-
-  res.status(StatusCodes.OK).json({ msg: "Tag deleted successfully" });
 };
 
 const deleteManyTags = async (req, res) => {
-  const { idList } = req.body;
+  const { idList } = req.query;
 
-  if (!idList || idList.length === 0) {
-    throw new BadRequestError("Must choose at least one tag");
+  if (!idList) {
+    throw new BadRequestError("Please provide list of tags to delete");
   }
 
-  const notFoundedTags = (
-    await Promise.all(
-      idList.map(async (id) => {
-        const tag = await Tag.findById(id);
-        if (!tag) {
-          return id;
-        }
-        return null;
-      }),
-    )
-  ).filter((id) => id !== null);
+  const idArray = idList.split(",");
+  console.log(idArray);
+  const foundedTags = await Tag.find({ _id: { $in: idArray } }).select(
+    "_id icon",
+  );
+
+  const foundedTagsIcon = [];
+
+  const foundedTagIds = [];
+
+  for (const tag of foundedTags) {
+    foundedTagsIcon.push(tag.icon);
+    foundedTagIds.push(tag._id.toString());
+  }
+
+  const notFoundedTags = idArray.filter(
+    (tagId) => !foundedTagIds.includes(tagId),
+  );
 
   if (notFoundedTags.length > 0) {
     throw new NotFoundError(
@@ -217,18 +252,22 @@ const deleteManyTags = async (req, res) => {
     );
   }
 
-  await Promise.all(
-    idList.map(async (id) => {
-      const tag = await Tag.findByIdAndDelete(id);
-      if (!tag) {
-        throw new BadRequestError(`Cannot delete tag with id ${id}`);
-      }
-      const imagePath = path.join(iconPath, tag.icon);
-      deleteFile(imagePath);
-    }),
-  );
+  const session = await mongoose.startSession();
+  session.startTransaction();
+  try {
+    await Tag.deleteMany({ _id: { $in: idArray } }, { session });
 
-  res.status(StatusCodes.OK).json({ msg: "Tags deleted successfully" });
+    for (const icon of foundedTagsIcon) {
+      await deleteFile(path.join(iconPath, icon));
+    }
+    await session.commitTransaction();
+    res.status(StatusCodes.OK).json({ msg: "Tags deleted successfully" });
+  } catch (error) {
+    await session.abortTransaction();
+    throw error;
+  } finally {
+    session.endSession();
+  }
 };
 
 module.exports = {
