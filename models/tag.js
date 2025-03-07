@@ -6,8 +6,8 @@ const Tag = new mongoose.Schema(
       type: String,
       required: [true, "Please provide a title for the tag"],
       unique: true,
-      minLength: 3,
-      maxLength: 50,
+      minLength: 5,
+      maxLength: 30,
       unique: true,
     },
     slug: {

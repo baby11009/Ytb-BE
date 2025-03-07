@@ -24,7 +24,7 @@ router
     createMulterUpload("tag icon").fields([{ name: "image", maxCount: 1 }]),
     multerErrorHandling,
     async (req, res, next) => {
-      fileLimitSizeMiddleware(req, res, next, { image: 4 });
+      fileLimitSizeMiddleware(req, res, next, { image: 3 });
     },
     createTag,
   );
