@@ -143,17 +143,6 @@ const updateTag = async (req, res) => {
       }
       updateDatas.title = title;
     },
-    slug: (slug) => {
-      if (!slug || typeof slug !== "string") {
-        throw new BadRequestError("Slug must be a non-empty string");
-      }
-
-      if (foundedTag.slug === slug) {
-        throw new BadRequestError("Tag's slug is still the same");
-      }
-
-      updateDatas.slug = slug;
-    },
   };
 
   for (const key of bodyKeys) {
@@ -171,14 +160,18 @@ const updateTag = async (req, res) => {
   }
 
   try {
-    await Tag.updateOne({ _id: id }, updateDatas);
+    const tagData = await Tag.findOneAndUpdate({ _id: id }, updateDatas, {
+      new: true,
+    }).select("-__v");
 
     if (req.files && req.files?.image) {
       const imgPath = path.join(iconPath, foundedTag.icon);
       await deleteFile(imgPath);
     }
 
-    res.status(StatusCodes.OK).json({ msg: "Tag updated successfully" });
+    res
+      .status(StatusCodes.OK)
+      .json({ msg: "Tag updated successfully", data: tagData });
   } catch (error) {
     if (req.files && req.files?.image) {
       const imgPath = path.join(iconPath, req.files.image[0].filename);

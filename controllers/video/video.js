@@ -110,6 +110,9 @@ const getVideos = async (req, res) => {
     type: (type) => {
       matchObj["type"] = type;
     },
+    title: (title) => {
+      matchObj["title"] = title;
+    },
   };
 
   const searchKeys = search ? Object.keys(search) : undefined;
@@ -126,7 +129,7 @@ const getVideos = async (req, res) => {
 
   let sortDateObj = {};
 
-  const uniqueSortKeys = [];
+  const uniqueSortKeys = ["view", "like", "dislike", "totalCmt"];
 
   const sortKeys = ["createdAt"];
 
@@ -188,21 +191,14 @@ const getVideos = async (req, res) => {
     {
       $project: {
         _id: 1,
-        title: 1, // Các trường bạn muốn giữ lại từ Video
+        title: 1,
         user_info: 1,
         thumb: 1,
-        video: 1,
-        // stream: {
-        //   $cond: {
-        //     if: { $ne: ["$stream", null] }, // Check if `stream` exists and is not null
-        //     then: "$stream", // Keep the `stream` value if it exists
-        //     else: null, // Set it to null if it doesn't exist
-        //   },
-        // },
         duration: { $ifNull: ["$duration", 0] },
         type: 1,
         view: 1,
         like: 1,
+        totalCmt: 1,
         dislike: 1,
         createdAt: 1,
       },
@@ -299,7 +295,7 @@ const getVideoDetails = async (req, res) => {
       },
     },
   ]);
-  
+
   if (!video) {
     throw new NotFoundError(`Not found video with id ${id}`);
   }

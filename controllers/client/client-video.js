@@ -85,6 +85,7 @@ const upLoadVideo = async (req, res) => {
 };
 
 const getVideos = async (req, res) => {
+  
   const { userId } = req.user;
 
   let limit = Number(req.query.limit) || 5;
@@ -102,12 +103,6 @@ const getVideos = async (req, res) => {
 
   findParams.forEach((item) => {
     switch (item) {
-      case "email":
-        findObj["user_info.email"] = { $regex: req.query[item], $options: "i" };
-        break;
-      case "id":
-        findObj["_idStr"] = { $regex: req.query[item], $options: "i" };
-        break;
       default:
         findObj[item] = { $regex: req.query[item], $options: "i" };
         break;
@@ -183,19 +178,19 @@ const getVideos = async (req, res) => {
       $project: {
         _id: 1,
         title: 1, // Các trường bạn muốn giữ lại từ Video
-        "user_info._id": 1,
-        "user_info.email": 1,
-        "user_info.avatar": 1,
-        "user_info.name": 1,
+        // "user_info._id": 1,
+        // "user_info.email": 1,
+        // "user_info.avatar": 1,
+        // "user_info.name": 1,
         thumb: 1,
         video: 1,
-        stream: {
-          $cond: {
-            if: { $ne: ["$stream", null] }, // Check if `stream` exists and is not null
-            then: "$stream", // Keep the `stream` value if it exists
-            else: null, // Set it to null if it doesn't exist
-          },
-        },
+        // stream: {
+        //   $cond: {
+        //     if: { $ne: ["$stream", null] }, // Check if `stream` exists and is not null
+        //     then: "$stream", // Keep the `stream` value if it exists
+        //     else: null, // Set it to null if it doesn't exist
+        //   },
+        // },
         duration: { $ifNull: ["$duration", 0] },
         type: 1,
         view: 1,
