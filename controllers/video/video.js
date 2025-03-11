@@ -98,66 +98,50 @@ const getVideos = async (req, res) => {
 
   let skip = (page - 1) * limit;
 
-  let matchObj = {};
+  let searchObj = {};
 
   const searchFuncsObj = {
     email: (email) => {
-      matchObj["user_info.email"] = { $regex: email, $options: "i" };
+      searchObj["user_info.email"] = { $regex: email, $options: "i" };
     },
     id: (id) => {
-      matchObj["_idStr"] = id;
+      searchObj["_idStr"] = id;
     },
     type: (type) => {
-      matchObj["type"] = type;
+      searchObj["type"] = type;
     },
     title: (title) => {
-      matchObj["title"] = title;
+      searchObj["title"] = { $regex: title, $options: "i" };
     },
   };
 
-  const searchKeys = search ? Object.keys(search) : undefined;
+  const searchEntries = Object.entries(search || {});
 
-  if (searchKeys && searchKeys.length > 0) {
-    searchKeys.forEach((key) => {
+  if (searchEntries.length > 0) {
+    for (const [key, value] of searchEntries) {
       if (searchFuncsObj[key]) {
-        searchFuncsObj[key](search[key]);
+        searchFuncsObj[key](value);
       }
-    });
+    }
   }
 
   const sortObj = {};
 
-  let sortDateObj = {};
+  const sortKeys = ["createdAt", "view", "like", "dislike", "totalCmt"];
 
-  const uniqueSortKeys = ["view", "like", "dislike", "totalCmt"];
+  const sortQueryEntries = Object.entries(sort || {});
 
-  const sortKeys = ["createdAt"];
-
-  if (sort && Object.keys(sort).length > 0) {
-    let unique = [];
-    let uniqueValue;
-    for (const [key, value] of Object.entries(sort)) {
+  if (sortQueryEntries.length > 0) {
+    for (const [key, value] of sortQueryEntries) {
       if (sortKeys.includes(key)) {
-        sortDateObj[key] = Number(value);
-      } else if (uniqueSortKeys.includes(key)) {
-        unique.push(key);
-        uniqueValue = Number(value);
+        sortObj[key] = Number(value);
       }
     }
-
-    if (unique.length > 1) {
-      throw new BadRequestError(
-        `Only one sort key in ${uniqueSortKeys.join(", ")} is allowed`,
-      );
-    } else if (unique.length > 0) {
-      sortObj[unique[0]] = uniqueValue;
-    }
   } else {
-    sortDateObj = {
+    sortObj = {
       createdAt: -1,
     };
   }
-  const combinedSort = { ...sortObj, ...sortDateObj };
 
   const pipeline = [
     {
@@ -186,7 +170,7 @@ const getVideos = async (req, res) => {
       },
     },
     {
-      $match: matchObj,
+      $match: searchObj,
     },
     {
       $project: {
@@ -204,7 +188,7 @@ const getVideos = async (req, res) => {
       },
     },
     {
-      $sort: combinedSort,
+      $sort: sortObj,
     },
     {
       $facet: {

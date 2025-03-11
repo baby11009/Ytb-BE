@@ -85,7 +85,6 @@ const upLoadVideo = async (req, res) => {
 };
 
 const getVideos = async (req, res) => {
-  
   const { userId } = req.user;
 
   let limit = Number(req.query.limit) || 5;
@@ -93,56 +92,48 @@ const getVideos = async (req, res) => {
 
   let skip = (page - 1) * limit;
 
-  const { sort } = req.query;
+  const { sort, search } = req.query;
 
-  const findParams = Object.keys(req.query).filter(
-    (key) => key !== "limit" && key !== "page" && key !== "sort",
-  );
+  const searchObj = {};
 
-  let findObj = {};
+  const searchFuncsObj = {
+    title: (title) => {
+      searchObj["title"] = { $regex: title, $options: "i" };
+    },
+    type: (type) => {
+      searchObj["type"] = type;
+    },
+  };
 
-  findParams.forEach((item) => {
-    switch (item) {
-      default:
-        findObj[item] = { $regex: req.query[item], $options: "i" };
-        break;
-    }
-  });
+  const searchEntries = Object.entries(search || {});
 
-  let sortObj = {};
-
-  let sortDateObj = {};
-
-  const uniqueSortKeys = ["view", "like", "dislike", "totalCmt"];
-
-  const sortKeys = ["createdAt"];
-
-  if (sort && Object.keys(sort).length > 0) {
-    let unique = [];
-    let uniqueValue;
-    for (const [key, value] of Object.entries(sort)) {
-      if (sortKeys.includes(key)) {
-        sortDateObj[key] = Number(value);
-      } else if (uniqueSortKeys.includes(key)) {
-        unique.push(key);
-        uniqueValue = Number(value);
+  if (searchEntries.length > 0) {
+    for (const [key, value] of searchEntries) {
+      if (searchFuncsObj[key]) {
+        searchFuncsObj[key](value);
       }
     }
+  }
 
-    if (unique.length > 1) {
-      throw new BadRequestError(
-        `Only one sort key in ${uniqueSortKeys.join(", ")} is allowed`,
-      );
-    } else if (unique.length > 0) {
-      sortObj[unique[0]] = uniqueValue;
+  console.log("🚀 ~ searchObj:", searchObj);
+
+  const sortObj = {};
+
+  const sortKeys = ["createdAt", "view", "like", "dislike", "totalCmt"];
+
+  const querySortEntries = Object.entries(sort || {});
+
+  if (querySortEntries.length > 0) {
+    for (const [key, value] of querySortEntries) {
+      if (sortKeys.includes(key)) {
+        sortObj[key] = Number(value);
+      }
     }
   } else {
-    sortDateObj = {
+    sortObj = {
       createdAt: -1,
     };
   }
-
-  const combinedSort = { ...sortObj, ...sortDateObj };
 
   const pipeline = [
     {
@@ -156,7 +147,7 @@ const getVideos = async (req, res) => {
       },
     },
     {
-      $match: findObj,
+      $match: searchObj,
     },
     {
       $lookup: {
@@ -202,7 +193,7 @@ const getVideos = async (req, res) => {
       },
     },
     {
-      $sort: combinedSort,
+      $sort: sortObj,
     },
     {
       $facet: {
