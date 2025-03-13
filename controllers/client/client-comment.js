@@ -148,72 +148,52 @@ const createCmt = async (req, res) => {
 
 const getCmts = async (req, res) => {
   const { userId } = req.user;
-  let limit = Number(req.query.limit) || 5;
-  let page = Number(req.query.page) || 1;
 
-  let skip = (page - 1) * limit;
-  const { sort } = req.query;
-  const findParams = Object.keys(req.query).filter(
-    (key) => key !== "limit" && key !== "page" && key !== "sort",
-  );
+  const { limit, page, search, sort } = req.query;
 
-  let findObj = {};
+  const limitNumber = Number(limit) || 5;
+  const pageNumber = Number(page) || 1;
 
-  const findFuncObj = {
-    videoId: (value) => {
-      findObj["video_info._id"] = { $regex: value, $options: "i" };
-    },
-    reply: (value) => {
-      findObj["replied_cmt_id"] = { $exists: JSON.parse(value) };
-    },
-    id: (value) => {
-      findObj["_idStr"] = { $regex: value, $options: "i" };
-    },
-    text: (value) => {
-      findObj["cmtText"] = { $regex: value, $options: "i" };
-    },
-  };
+  const skip = (pageNumber - 1) * limitNumber;
 
-  findParams.forEach((item) => {
-    if (findFuncObj[item]) {
-      findFuncObj[item](req.query[item]);
-    }
-  });
+  const searchObj = {};
 
-  let sortObj = {};
+  const searchEntries = Object.entries(search || {});
 
-  let sortDateObj = {};
+  if (searchEntries.length > 0) {
+    const searchFuncsObj = {
+      videoTitle: (title) => {
+        searchObj["video_info.title"] = { $regex: title, $options: "i" };
+      },
+      text: (value) => {
+        searchObj["cmtText"] = { $regex: value, $options: "i" };
+      },
+    };
 
-  const uniqueSortKeys = [];
-
-  const sortKeys = ["createdAt"];
-
-  if (Object.keys(sort).length > 0) {
-    let unique = [];
-    let uniqueValue;
-    for (const [key, value] of Object.entries(sort)) {
-      if (sortKeys.includes(key)) {
-        sortDateObj[key] = Number(value);
-      } else if (uniqueSortKeys.includes(key)) {
-        unique.push(key);
-        uniqueValue = Number(value);
+    for (const [key, value] of searchEntries) {
+      if (searchFuncsObj[key]) {
+        searchFuncsObj[key](value);
       }
     }
+  }
 
-    if (unique.length > 1) {
-      throw new BadRequestError(
-        `Only one sort key in ${uniqueSortKeys.join(", ")} is allowed`,
-      );
-    } else if (unique.length > 0) {
-      sortObj[unique[0]] = uniqueValue;
+  const sortObj = {};
+
+  const sortEntries = Object.entries(sort || {});
+
+  if (sortEntries.length > 0) {
+    const sortKeys = new Set(["createdAt", "like", "dislike"]);
+
+    for (const [key, value] of sortEntries) {
+      if (sortKeys.has(key)) {
+        sortObj[key] = Number(value);
+      }
     }
   } else {
-    sortDateObj = {
+    sortObj = {
       createdAt: -1,
     };
   }
-
-  const combinedSort = { ...sortObj, ...sortDateObj };
 
   const pipeline = [
     {
@@ -257,10 +237,10 @@ const getCmts = async (req, res) => {
       $unwind: "$video_info",
     },
     {
-      $match: findObj,
+      $match: searchObj,
     },
     {
-      $sort: combinedSort,
+      $sort: sortObj,
     },
     {
       $project: {
@@ -279,7 +259,7 @@ const getCmts = async (req, res) => {
     {
       $facet: {
         totalCount: [{ $count: "total" }],
-        data: [{ $skip: skip }, { $limit: limit }],
+        data: [{ $skip: skip }, { $limit: limitNumber }],
       },
     },
   ];

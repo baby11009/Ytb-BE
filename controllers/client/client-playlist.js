@@ -68,71 +68,58 @@ const getPlaylists = async (req, res) => {
     limit,
     page,
     exCludeTypes = [],
-    sort,
     videoLimit,
-    ...matchParams
+    sort,
+    search,
   } = req.query;
+
   const limitNumber = Number(limit) || 5;
   const pageNumber = Number(page) || 1;
   const skip = (pageNumber - 1) * limitNumber;
 
-  let matchObj = {
+  let searchObj = {
     type: { $nin: ["history", ...exCludeTypes] },
   };
 
-  const matchFuncObj = {
-    id: (syntax) => {
-      matchObj["_idStr"] = syntax;
-    },
-    email: (syntax) => {
-      matchObj["user_info.email"] = syntax;
-    },
-  };
+  const searchEntries = Object.entries(search || {});
 
-  if (Object.keys(matchParams).length > 0) {
-    for (const [key, value] of Object.entries(matchParams)) {
+  if (searchEntries.length > 0) {
+    const searchFuncsObj = {
+      id: (syntax) => {
+        searchObj["_idStr"] = syntax;
+      },
+      email: (syntax) => {
+        searchObj["user_info.email"] = syntax;
+      },
+    };
+
+    for (const [key, value] of searchEntries) {
       const syntax = { $regex: value, $options: "i" };
-      if (matchFuncObj[key] && value) {
-        matchFuncObj[item](syntax);
+      if (searchFuncsObj[key] && value) {
+        searchFuncsObj[item](syntax);
       } else if (value) {
-        matchObj[key] = syntax;
+        searchObj[key] = syntax;
       }
     }
   }
 
-  let uniqueSortObj = {};
+  const sortObj = {};
 
-  let sortDateObj = {};
+  const sortEntries = Object.entries(sort || {});
 
-  if (sort && Object.keys(sort).length > 0) {
-    const uniqueSortKeys = ["size"];
-    const sortKeys = ["createdAt", "title", "updatedAt"];
-    let unique = [];
-    let uniqueValue;
-    for (const [key, value] of Object.entries(sort)) {
-      if (sortKeys.includes(key)) {
-        sortDateObj[key] = Number(value);
-      } else if (uniqueSortKeys.includes(key)) {
-        unique.push(key);
-        uniqueValue = Number(value);
+  if (sortEntries.length > 0) {
+    const sortKeys = new Set(["createdAt", "title", "updatedAt", "size"]);
+
+    for (const [key, value] of sortEntries) {
+      if (sortKeys.has(key)) {
+        sortObj[key] = Number(value);
       }
-    }
-
-    if (unique.length > 1) {
-      throw new BadRequestError(
-        `Only one sort key in ${uniqueSortKeys.join(", ")} is allowed`,
-      );
-    } else if (unique.length > 0) {
-      uniqueSortObj[unique[0]] = uniqueValue;
     }
   } else {
-    sortDateObj = {
+    sortObj = {
       createdAt: -1,
     };
-    uniqueSortObj = { size: 1 };
   }
-
-  const combinedSort = { ...uniqueSortObj, ...sortDateObj };
 
   const pipeline = [
     {
@@ -148,10 +135,10 @@ const getPlaylists = async (req, res) => {
       },
     },
     {
-      $match: matchObj,
+      $match: searchObj,
     },
     {
-      $sort: combinedSort,
+      $sort: sortObj,
     },
   ];
 
@@ -271,7 +258,7 @@ const getPlaylistDetails = async (req, res) => {
           {
             $skip: (Number(videoPage) - 1) * Number(videoLimit),
           },
-          { 
+          {
             $limit: Number(videoLimit),
           },
           {
@@ -336,10 +323,10 @@ const updatePlaylist = async (req, res, next) => {
     throw new BadRequestError("Please provide atleast one data to update");
   }
 
-  let matchObj;
+  let searchObj;
 
   if (mongoose.Types.ObjectId.isValid(id)) {
-    matchObj = {
+    searchObj = {
       _id: id,
     };
   } else {
@@ -355,13 +342,13 @@ const updatePlaylist = async (req, res, next) => {
       throw new BadRequestError("Invalid list id");
     }
 
-    matchObj = {
+    searchObj = {
       type: listType,
       created_user_id: userId,
     };
   }
 
-  const foundedPlaylist = await Playlist.findOne(matchObj);
+  const foundedPlaylist = await Playlist.findOne(searchObj);
 
   if (!foundedPlaylist) {
     throw new NotFoundError("Playlist not found");
@@ -479,7 +466,7 @@ const updatePlaylist = async (req, res, next) => {
       let notInplaylistVideosId = [];
 
       if (alreadyInPlaylistVideosId.length > 0) {
-        await Playlist.updateOne(matchObj, {
+        await Playlist.updateOne(searchObj, {
           $pullAll: { itemList: alreadyInPlaylistVideosId },
         });
 
@@ -494,7 +481,7 @@ const updatePlaylist = async (req, res, next) => {
       }
 
       if (notInplaylistVideosId.length > 0) {
-        await Playlist.updateOne(matchObj, {
+        await Playlist.updateOne(searchObj, {
           $addToSet: { itemList: { $each: notInplaylistVideosId } },
         });
       }
@@ -542,7 +529,7 @@ const updatePlaylist = async (req, res, next) => {
   }
 
   if (Object.keys(updateDatas).length > 0) {
-    await Playlist.updateOne(matchObj, updateDatas);
+    await Playlist.updateOne(searchObj, updateDatas);
   }
 
   const pipeline = [

@@ -100,24 +100,24 @@ const getVideos = async (req, res) => {
 
   let searchObj = {};
 
-  const searchFuncsObj = {
-    email: (email) => {
-      searchObj["user_info.email"] = { $regex: email, $options: "i" };
-    },
-    id: (id) => {
-      searchObj["_idStr"] = id;
-    },
-    type: (type) => {
-      searchObj["type"] = type;
-    },
-    title: (title) => {
-      searchObj["title"] = { $regex: title, $options: "i" };
-    },
-  };
-
   const searchEntries = Object.entries(search || {});
 
   if (searchEntries.length > 0) {
+    const searchFuncsObj = {
+      email: (email) => {
+        searchObj["user_info.email"] = { $regex: email, $options: "i" };
+      },
+      id: (id) => {
+        searchObj["_idStr"] = id;
+      },
+      type: (type) => {
+        searchObj["type"] = type;
+      },
+      title: (title) => {
+        searchObj["title"] = { $regex: title, $options: "i" };
+      },
+    };
+
     for (const [key, value] of searchEntries) {
       if (searchFuncsObj[key]) {
         searchFuncsObj[key](value);
@@ -127,13 +127,20 @@ const getVideos = async (req, res) => {
 
   const sortObj = {};
 
-  const sortKeys = ["createdAt", "view", "like", "dislike", "totalCmt"];
-
   const sortQueryEntries = Object.entries(sort || {});
 
   if (sortQueryEntries.length > 0) {
+
+    const sortKeys = new Set([
+      "createdAt",
+      "view",
+      "like",
+      "dislike",
+      "totalCmt",
+    ]);
+
     for (const [key, value] of sortQueryEntries) {
-      if (sortKeys.includes(key)) {
+      if (sortKeys.has(key)) {
         sortObj[key] = Number(value);
       }
     }

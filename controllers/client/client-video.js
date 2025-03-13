@@ -96,18 +96,18 @@ const getVideos = async (req, res) => {
 
   const searchObj = {};
 
-  const searchFuncsObj = {
-    title: (title) => {
-      searchObj["title"] = { $regex: title, $options: "i" };
-    },
-    type: (type) => {
-      searchObj["type"] = type;
-    },
-  };
-
   const searchEntries = Object.entries(search || {});
 
   if (searchEntries.length > 0) {
+    const searchFuncsObj = {
+      title: (title) => {
+        searchObj["title"] = { $regex: title, $options: "i" };
+      },
+      type: (type) => {
+        searchObj["type"] = type;
+      },
+    };
+
     for (const [key, value] of searchEntries) {
       if (searchFuncsObj[key]) {
         searchFuncsObj[key](value);
@@ -115,17 +115,22 @@ const getVideos = async (req, res) => {
     }
   }
 
-  console.log("🚀 ~ searchObj:", searchObj);
-
   const sortObj = {};
 
-  const sortKeys = ["createdAt", "view", "like", "dislike", "totalCmt"];
+  const sortEntries = Object.entries(sort || {});
 
-  const querySortEntries = Object.entries(sort || {});
+  if (sortEntries.length > 0) {
+    
+    const sortKeys = new Set([
+      "createdAt",
+      "view",
+      "like",
+      "dislike",
+      "totalCmt",
+    ]);
 
-  if (querySortEntries.length > 0) {
-    for (const [key, value] of querySortEntries) {
-      if (sortKeys.includes(key)) {
+    for (const [key, value] of sortEntries) {
+      if (sortKeys.has(key)) {
         sortObj[key] = Number(value);
       }
     }
