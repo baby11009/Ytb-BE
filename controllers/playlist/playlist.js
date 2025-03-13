@@ -5,12 +5,13 @@ const {
   ForbiddenError,
 } = require("../../errors");
 const { StatusCodes } = require("http-status-codes");
+const { searchWithRegex, isObjectEmpty } = require("../../utils/other");
 
 const createPlaylist = async (req, res) => {
   const { title, videoIdList = [], userId, privacy } = req.body;
 
   const user = await User.findById(userId);
-  
+
   if (!user) {
     throw new BadRequestError(`Not found user with id ${userId}`);
   }
@@ -32,58 +33,44 @@ const getPlaylists = async (req, res) => {
 
   const skip = (pageNumber - 1) * limitNumber;
 
-  let matchObj = { type: { $ne: "liked" } };
+  const searchObj = { type: { $ne: "liked" } };
 
-  const matchFuncObj = {
-    id: (syntax) => {
-      matchObj["_idStr"] = syntax;
-    },
-    email: (syntax) => {
-      matchObj["user_info.email"] = syntax;
-    },
-  };
+  const searchEntries = Object.entries(search || {});
 
-  if (Object.keys(search).length > 0) {
-    for (const [key, value] of Object.entries(search)) {
-      const syntax = { $regex: value, $options: "i" };
-      if (matchFuncObj[key] && value) {
-        matchFuncObj[key](syntax);
-      } else if (value) {
-        matchObj[key] = syntax;
-      }
-    }
-  }
-
-  let uniqueSortObj = {};
-
-  let sortDateObj = {};
-
-  const sortKeys = sort ? Object.keys(sort) : undefined;
-
-  if (sortKeys && sortKeys.length > 0) {
-    const uniqueSortKeys = ["size"];
-    const defaultSortKeys = ["createdAt", "title", "updatedAt"];
-
-    for (const key of sortKeys) {
-      if (defaultSortKeys.includes(key)) {
-        sortDateObj[key] = Number(sort[key]);
-      } else if (uniqueSortKeys.includes(key)) {
-        uniqueSortObj[key] = Number(sort[key]);
-        if (Object.keys(uniqueSortObj).length > 1) {
-          throw new BadRequestError(
-            `Only one sort key in ${uniqueSortKeys.join(", ")} is allowed`,
-          );
-        }
-      }
-    }
-  } else {
-    sortDateObj = {
-      createdAt: -1,
+  if (searchEntries.length > 0) {
+    const searchFuncObj = {
+      title: (title) => {
+        searchObj["title"] = searchWithRegex(title);
+      },
+      email: (email) => {
+        searchObj["user_info.email"] = searchWithRegex(email);
+      },
     };
-    uniqueSortObj = { size: 1 };
+
+    for (const [key, value] of searchEntries) {
+      if (searchFuncObj[key] && value) {
+        searchFuncObj[key](value);
+      }
+    }
   }
 
-  const combinedSort = { ...uniqueSortObj, ...sortDateObj };
+  const sortObj = {};
+
+  const sortEntries = Object.entries(sort || {});
+
+  if (sortEntries.length > 0) {
+    const sortKeys = new Set(["createdAt", "title", "updatedAt", "size"]);
+
+    for (const [key, value] of sortEntries) {
+      if (sortKeys.has(key)) {
+        sortObj[key] = Number(value);
+      }
+    }
+  }
+
+  if (isObjectEmpty(sortObj)) {
+    sortObj.createdAt = -1;
+  }
 
   const pipeline = [
     {
@@ -109,7 +96,7 @@ const getPlaylists = async (req, res) => {
       },
     },
     {
-      $match: matchObj,
+      $match: searchObj,
     },
     {
       $project: {
@@ -124,7 +111,7 @@ const getPlaylists = async (req, res) => {
       },
     },
     {
-      $sort: combinedSort,
+      $sort: sortObj,
     },
     {
       $facet: {

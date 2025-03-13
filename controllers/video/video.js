@@ -11,6 +11,8 @@ const { deleteFile, getVideoDuration } = require("../../utils/file");
 const { createHls } = require("../../utils/createhls");
 const { clearUploadedVideoFiles } = require("../../utils/clear");
 
+const { searchWithRegex, isObjectEmpty } = require("../../utils/other");
+
 const asssetPath = path.join(__dirname, "../../assets");
 
 const upLoadVideo = async (req, res) => {
@@ -98,23 +100,23 @@ const getVideos = async (req, res) => {
 
   let skip = (page - 1) * limit;
 
-  let searchObj = {};
+  const searchObj = {};
 
   const searchEntries = Object.entries(search || {});
 
   if (searchEntries.length > 0) {
     const searchFuncsObj = {
       email: (email) => {
-        searchObj["user_info.email"] = { $regex: email, $options: "i" };
+        searchObj["user_info.email"] = searchWithRegex(email);
       },
-      id: (id) => {
-        searchObj["_idStr"] = id;
+      name: (name) => {
+        searchObj["user_info.name"] = searchWithRegex(name);
       },
       type: (type) => {
         searchObj["type"] = type;
       },
       title: (title) => {
-        searchObj["title"] = { $regex: title, $options: "i" };
+        searchObj["title"] = searchWithRegex(title);
       },
     };
 
@@ -127,9 +129,9 @@ const getVideos = async (req, res) => {
 
   const sortObj = {};
 
-  const sortQueryEntries = Object.entries(sort || {});
+  const sortEntries = Object.entries(sort || {});
 
-  if (sortQueryEntries.length > 0) {
+  if (sortEntries.length > 0) {
 
     const sortKeys = new Set([
       "createdAt",
@@ -139,15 +141,15 @@ const getVideos = async (req, res) => {
       "totalCmt",
     ]);
 
-    for (const [key, value] of sortQueryEntries) {
+    for (const [key, value] of sortEntries) {
       if (sortKeys.has(key)) {
         sortObj[key] = Number(value);
       }
     }
-  } else {
-    sortObj = {
-      createdAt: -1,
-    };
+  }
+
+  if (isObjectEmpty(sortObj)) {
+    sortObj.createdAt = -1;
   }
 
   const pipeline = [
@@ -205,9 +207,7 @@ const getVideos = async (req, res) => {
     },
   ];
 
-  let result = Video.aggregate(pipeline);
-
-  const videos = await result;
+  const videos = await Video.aggregate(pipeline);
 
   res.status(StatusCodes.OK).json({
     data: videos[0]?.data,

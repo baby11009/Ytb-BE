@@ -8,6 +8,8 @@ const {
   InternalServerError,
 } = require("../../errors");
 
+const { searchWithRegex, isObjectEmpty } = require("../../utils/other");
+
 const createCmt = async (req, res) => {
   const neededKeys = ["userId", "videoId", "cmtText"];
 
@@ -99,80 +101,60 @@ const createCmt = async (req, res) => {
 };
 
 const getCmts = async (req, res) => {
+  
   const { limit, page, sort, search } = req.query;
 
-  let limitNumber = Number(limit) || 5;
-  let pageNumber = Number(page) || 1;
+  const limitNumber = Number(limit) || 5;
+  const pageNumber = Number(page) || 1;
 
-  let skip = (pageNumber - 1) * limitNumber;
+  const skip = (pageNumber - 1) * limitNumber;
 
-  let matchObj = {};
+  const searchObj = {};
 
-  const matchFuncsObj = {
-    email: (email) => {
-      matchObj["user_info.email"] = { $regex: email, $options: "i" };
-    },
-    title: (title) => {
-      matchObj["video_info.title"] = { $regex: title, $options: "i" };
-    },
-    videoId: (videoId) => {
-      matchObj["_videoIdStr"] = videoId;
-    },
-    reply: (replyId) => {
-      matchObj["replied_cmt_id"] = { $exists: JSON.parse(replyId) };
-    },
-  };
+  const searchEntries = Object.entries(search || {});
 
-  if (search) {
-    const searchKeys = Object.keys(search);
-    if (searchKeys.length > 0) {
-      for (const key of searchKeys) {
-        if (matchFuncsObj[key]) {
-          matchFuncsObj[key](search[key]);
-        }
+  if (searchEntries.length > 0) {
+    const searchFuncObj = {
+      email: (email) => {
+        searchObj["user_info.email"] = searchWithRegex(email);
+      },
+      name: (name) => {
+        searchObj["user_info.name"] = searchWithRegex(name);
+      },
+      title: (title) => {
+        searchObj["video_info.title"] = searchWithRegex(title);
+      },
+    };
+
+    for (const [key, value] of searchEntries) {
+      if (searchFuncObj[key] && value) {
+        searchFuncObj[key](value);
       }
     }
   }
 
-  // findParams.forEach((item) => {
-  //   if (item === "email") {
-  //     matchObj["user_info.email"] = { $regex: req.query[item], $options: "i" };
-  //   } else if (item === "title") {
-  //     matchObj["video_info.title"] = { $regex: req.query[item], $options: "i" };
-  //   } else if (item === "reply") {
-  //     matchObj["replied_cmt_id"] = { $exists: JSON.parse(req.query[item]) };
-  //   } else if (item === "id") {
-  //     matchObj["_idStr"] = { $regex: req.query[item], $options: "i" };
-  //   } else if (item === "videoId") {
-  //     matchObj["_videoIdStr"] = { $regex: req.query[item], $options: "i" };
-  //   }
-  // });
-
   const sortObj = {};
 
-  const sortFuncsObj = {
-    createdAt: (value) => {
-      const valueList = new Set(["1", "-1"]);
-      if (valueList.has(value)) {
-        sortObj["createdAt"] = Number(value);
-      } else {
-        sortObj["createdAt"] = -1;
-      }
-    },
-  };
+  const sortEntries = Object.entries(sort || {});
 
-  const sortKeys = Object.keys(sort);
-  if (sortKeys && sortKeys.length > 0) {
-    const sortKeys = Object.keys(sort);
-    if (sortKeys.length > 0) {
-      for (const key of sortKeys) {
-        if (sortFuncsObj[key]) {
-          sortFuncsObj[key](sort[key]);
-        }
+  if (sortEntries.length > 0) {
+    const sortKeys = new Set([
+      "createdAt",
+      "view",
+      "like",
+      "dislike",
+      "totalCmt",
+    ]);
+
+    for (const [key, value] of sortEntries) {
+      if (sortKeys.has(key)) {
+        sortObj[key] = Number(value);
       }
     }
-  } else {
-    sortObj["createdAt"] = -1;
+  }
+
+  if (isObjectEmpty(sortObj)) {
+    sortObj.createdAt = -1;
   }
 
   const pipeline = [
@@ -223,11 +205,11 @@ const getCmts = async (req, res) => {
     },
     {
       $lookup: {
-        from: "videos", // Collection users mà bạn muốn join
-        localField: "video_id", // Trường trong collection videos (khóa ngoại)
-        foreignField: "_id", // Trường trong collection users (khóa chính)
+        from: "videos",
+        localField: "video_id",
+        foreignField: "_id",
         pipeline: [{ $project: { _id: 1, title: 1 } }],
-        as: "video_info", // Tên mảng để lưu kết quả join
+        as: "video_info",
       },
     },
     {
@@ -240,7 +222,7 @@ const getCmts = async (req, res) => {
       },
     },
     {
-      $match: matchObj,
+      $match: searchObj,
     },
     {
       $project: {
@@ -271,7 +253,6 @@ const getCmts = async (req, res) => {
   let result = Comment.aggregate(pipeline);
 
   const comments = await result;
-  console.log("🚀 ~ comments:", matchObj);
 
   res.status(StatusCodes.OK).json({
     data: comments[0]?.data,

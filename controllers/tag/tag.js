@@ -3,7 +3,9 @@ const { StatusCodes } = require("http-status-codes");
 const { BadRequestError, NotFoundError } = require("../../errors");
 const { deleteFile } = require("../../utils/file");
 const path = require("path");
-const { default: mongoose } = require("mongoose");
+const { mongoose } = require("mongoose");
+const { searchWithRegex, isObjectEmpty } = require("../../utils/other");
+
 const iconPath = path.join(__dirname, "../../assets/tag icon");
 
 const createTag = async (req, res) => {
@@ -46,47 +48,48 @@ const getTags = async (req, res) => {
 
   const skip = (dataPage - 1) * dataLimit;
 
-  let matchObj = {};
+  const searchObj = {};
 
-  const queryFuncObj = {
-    title: (title) => {
-      matchObj.title = { $regex: title, $options: "i" };
-    },
-  };
+  const searchEntries = Object.entries(search || {});
 
-  if (search) {
-    for (const [key, value] of Object.entries(search)) {
-      if (queryFuncObj[key] && value) {
-        queryFuncObj[key](value);
+  if (searchEntries.length > 0) {
+    const searchFuncObj = {
+      title: (title) => {
+        searchObj.title = searchWithRegex(title);
+      },
+    };
+
+    for (const [key, value] of searchEntries) {
+      if (searchFuncObj[key] && value) {
+        searchFuncObj[key](value);
       }
     }
   }
 
   const sortObj = { createdAt: -1 };
 
-  const sortFuncsObj = {
-    createdAt: (value) => {
-      const valueList = new Set([1, -1]);
-      if (valueList.has(Number(value))) {
-        sortObj.createdAt = Number(value);
-      }
-    },
-  };
+  const sortEntries = Object.entries(sort || {});
 
-  if (sort) {
-    for (const [key, value] of Object.entries(sort)) {
-      if (sortFuncsObj[key]) {
-        sortFuncsObj[key](value);
+  if (sortEntries.length > 0) {
+    const sortKeys = new Set(["createdAt"]);
+
+    for (const [key, value] of sortEntries) {
+      if (sortKeys.has(key)) {
+        sortObj[key] = Number(value);
       }
     }
   }
 
-  const tags = await Tag.find(matchObj)
+  if (isObjectEmpty(sortObj)) {
+    sortObj.createdAt = -1;
+  }
+
+  const tags = await Tag.find(searchObj)
     .limit(dataLimit)
     .skip(skip)
     .sort(sortObj);
 
-  const totalTags = await Tag.countDocuments(matchObj);
+  const totalTags = await Tag.countDocuments(searchObj);
 
   res.status(StatusCodes.OK).json({
     data: tags,
@@ -115,11 +118,11 @@ const getTagDetails = async (req, res) => {
 const updateTag = async (req, res) => {
   const { id } = req.params;
 
-  const bodyKeys = Object.keys(req.body);
-
   if (!id) {
     throw new BadRequestError("Please provide tag ID");
   }
+
+  const bodyKeys = Object.keys(req.body);
 
   if (!req.files?.image && bodyKeys.length < 1) {
     throw new BadRequestError("Please provide data to update");

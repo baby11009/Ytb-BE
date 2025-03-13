@@ -1,12 +1,4 @@
-const {
-  User,
-  Video,
-  Subscribe,
-  React,
-  Playlist,
-  Comment,
-  CmtReact,
-} = require("../../models");
+const { User } = require("../../models");
 const {
   BadRequestError,
   NotFoundError,
@@ -15,6 +7,8 @@ const {
 const { StatusCodes } = require("http-status-codes");
 const { deleteFile } = require("../../utils/file");
 const mongoose = require("mongoose");
+const { searchWithRegex, isObjectEmpty } = require("../../utils/other");
+
 const path = require("path");
 
 const avatarPath = path.join(__dirname, "../../assets/user avatar");
@@ -73,54 +67,55 @@ const getUsers = async (req, res) => {
 
   let skip = (pageNumber - 1) * limitNumber;
 
-  const matchObj = {};
+  const searchObj = {};
 
-  const searchFuncsObj = {
-    name: (name) => {
-      matchObj.name = { $regex: name, $options: "i" };
-    },
-    email: (email) => {
-      matchObj.email = { $regex: email, $options: "i" };
-    },
-    role: (role) => {
-      matchObj.role = role;
-    },
-    confirmed: (confirmed) => {
-      const valueList = { true: true, false: false };
-      matchObj.confirmed = valueList[confirmed];
-    },
-  };
+  const searchEntries = Object.entries(search || {});
 
-  if (search) {
-    for (const [key, value] of Object.entries(search)) {
+  if (searchEntries.length > 0) {
+    const searchFuncsObj = {
+      name: (name) => {
+        searchObj.name = searchWithRegex(name);
+      },
+      email: (email) => {
+        searchObj.email = searchWithRegex(email);
+      },
+      role: (role) => {
+        searchObj.role = role;
+      },
+      confirmed: (confirmed) => {
+        const valueList = { true: true, false: false };
+        searchObj.confirmed = valueList[confirmed];
+      },
+    };
+
+    for (const [key, value] of searchEntries) {
       if (searchFuncsObj[key]) {
         searchFuncsObj[key](value);
       }
     }
   }
 
-  const sortObj = { createdAt: -1 };
+  const sortObj = {};
 
-  const sortFuncsObj = {
-    createdAt: (value) => {
-      const valueList = new Set(["1", "-1"]);
-      if (valueList.has(value)) {
-        sortObj.createdAt = Number(value);
-      }
-    },
-  };
+  const sortEntries = Object.entries(sort || {});
 
-  if (sort) {
-    for (const [key, value] of Object.entries(sort)) {
-      if (sortFuncsObj[key]) {
-        sortFuncsObj[key](value);
+  if (sortEntries.length > 0) {
+    const sortKeys = new Set(["createdAt"]);
+    
+    for (const [key, value] of sortEntries) {
+      if (sortKeys.has(key)) {
+        sortObj[key] = Number(value);
       }
     }
   }
 
+  if (isObjectEmpty(sortObj)) {
+    sortObj.createdAt = -1;
+  }
+
   const pipeline = [
     {
-      $match: matchObj,
+      $match: searchObj,
     },
     {
       $project: {
@@ -218,7 +213,6 @@ const deleteUser = async (req, res) => {
 };
 
 const deleteManyUsers = async (req, res) => {
-  
   const { idList } = req.query;
 
   if (!idList) {
