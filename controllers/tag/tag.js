@@ -41,7 +41,7 @@ const createTag = async (req, res) => {
 };
 
 const getTags = async (req, res) => {
-  const { limit, page, sort, search } = req.query;
+  const { limit, page, sort, search, priorityList } = req.query;
 
   const dataLimit = Number(limit) || 5;
   const dataPage = Number(page) || 1;
@@ -66,7 +66,7 @@ const getTags = async (req, res) => {
     }
   }
 
-  const sortObj = { createdAt: -1 };
+  let sortObj = {};
 
   const sortEntries = Object.entries(sort || {});
 
@@ -84,19 +84,45 @@ const getTags = async (req, res) => {
     sortObj.createdAt = -1;
   }
 
-  const tags = await Tag.find(searchObj)
-    .limit(dataLimit)
-    .skip(skip)
-    .sort(sortObj);
+  const pipeline = [{ $match: searchObj }];
 
-  const totalTags = await Tag.countDocuments(searchObj);
+  if (priorityList && priorityList.length > 0) {
+    sortObj = { priority: -1, ...sortObj };
+
+    pipeline.push(
+      {
+        $addFields: {
+          _idStr: { $toString: "$_id" },
+        },
+      },
+      {
+        $set: {
+          priority: { $cond: [{ $in: ["$_idStr", priorityList] }, 1, 0] },
+        },
+      },
+    );
+  }
+
+  pipeline.push(
+    {
+      $sort: sortObj,
+    },
+    {
+      $facet: {
+        totalCount: [{ $count: "total" }],
+        data: [{ $skip: skip }, { $limit: dataLimit }],
+      },
+    },
+  );
+
+  const tags = await Tag.aggregate(pipeline);
 
   res.status(StatusCodes.OK).json({
-    data: tags,
-    qtt: tags.length,
-    totalQtt: totalTags,
+    data: tags[0]?.data,
+    qtt: tags[0]?.data?.length,
+    totalQtt: tags[0]?.totalCount[0]?.total,
     currPage: dataPage,
-    totalPages: Math.ceil(totalTags / limit),
+    totalPages: Math.ceil(tags[0]?.totalCount[0]?.total / dataLimit),
   });
 };
 

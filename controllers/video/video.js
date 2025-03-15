@@ -22,7 +22,7 @@ const upLoadVideo = async (req, res) => {
     userId,
     type,
     title,
-    tag = [],
+    tags = [],
     view = 0,
     like = 0,
     dislike = 0,
@@ -68,7 +68,7 @@ const upLoadVideo = async (req, res) => {
       stream: filename,
       thumb: image[0].filename,
       duration: videoDuration,
-      tag: tag,
+      tags: tags,
       view,
       like,
       dislike,
@@ -132,7 +132,6 @@ const getVideos = async (req, res) => {
   const sortEntries = Object.entries(sort || {});
 
   if (sortEntries.length > 0) {
-
     const sortKeys = new Set([
       "createdAt",
       "view",
@@ -227,19 +226,19 @@ const getVideoDetails = async (req, res) => {
     },
     {
       $lookup: {
-        from: "users", // Tên của collection chứa thông tin user
-        localField: "user_id", // Trường trong Video chứa user_id
-        foreignField: "_id", // Trường trong User chứa _id
-        as: "user_info", // Tên của trường mới chứa kết quả kết hợp
+        from: "users",
+        localField: "user_id",
+        foreignField: "_id",
+        as: "user_info",
       },
     },
     {
-      $unwind: "$user_info", // Tách kết quả kết hợp thành các tài liệu riêng lẻ
+      $unwind: "$user_info",
     },
     {
       $lookup: {
         from: "tags",
-        let: { tagIds: "$tag" },
+        let: { tagIds: "$tags" },
         pipeline: [
           {
             $addFields: {
@@ -259,7 +258,7 @@ const getVideoDetails = async (req, res) => {
             },
           },
         ],
-        as: "tag_info",
+        as: "tags_info",
       },
     },
     {
@@ -268,7 +267,8 @@ const getVideoDetails = async (req, res) => {
         title: 1, // Các trường bạn muốn giữ lại từ Video
         "user_info._id": 1,
         "user_info.email": 1,
-        tag_info: { $ifNull: ["$tag_info", []] },
+        tags_info: { $ifNull: ["$tags_info", []] },
+        tags: 1,
         thumb: 1,
         video: 1,
         stream: {
@@ -309,7 +309,15 @@ const updateVideo = async (req, res) => {
     throw new BadRequestError("There is nothing to update.");
   }
 
-  let updatedKey = ["title", "view", "like", "dislike", "type", "tag"];
+  let updatedKey = [
+    "title",
+    "view",
+    "like",
+    "dislike",
+    "type",
+    "tags",
+    "description",
+  ];
 
   let updateData = {};
 
@@ -322,7 +330,7 @@ const updateVideo = async (req, res) => {
       if (value === "") {
         emptyList.push(key);
       } else {
-        if (key === "tag") {
+        if (key === "tags") {
           value = JSON.parse(value);
         }
         updateData[key] = value;

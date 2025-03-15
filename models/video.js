@@ -37,9 +37,9 @@ const Video = new mongoose.Schema(
       required: [true, "Please provide video type"],
       enum: ["video", "short"],
     },
-    tag: {
+    tags: {
       type: Array,
-      required: [true, "Please provide video tag for video"],
+      default: [],
     },
     view: {
       type: Number,

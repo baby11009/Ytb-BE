@@ -21,7 +21,7 @@ const upLoadVideo = async (req, res) => {
 
   const { userId } = req.user;
 
-  const { type, title, tag = [], description = "" } = req.body;
+  const { type, title, tags = [], description = "" } = req.body;
 
   try {
     const fileErr = [];
@@ -63,7 +63,7 @@ const upLoadVideo = async (req, res) => {
       stream: filename,
       thumb: image[0].filename,
       duration: videoDuration,
-      tag: tag,
+      tags: tags,
       description,
     };
 
@@ -240,7 +240,7 @@ const getVideoDetails = async (req, res) => {
     {
       $lookup: {
         from: "tags",
-        let: { tagIds: "$tag" },
+        let: { tagIds: "$tags" },
         pipeline: [
           {
             $addFields: {
@@ -319,7 +319,7 @@ const updateVideo = async (req, res) => {
     throw new BadRequestError("There is nothing to update.");
   }
 
-  let updatedKey = new Set(["title", "image", "type", "tag", "description"]);
+  let updatedKey = new Set(["title", "image", "type", "tags", "description"]);
 
   let canBeEmpty = new Set(["description"]);
 
@@ -334,7 +334,7 @@ const updateVideo = async (req, res) => {
       if (value === "" && !canBeEmpty.has(key)) {
         emptyList.push(key);
       } else {
-        if (key === "tag") {
+        if (key === "tags") {
           value = JSON.parse(value);
         }
         updateData[key] = value;

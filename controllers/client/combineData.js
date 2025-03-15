@@ -83,7 +83,7 @@ const getVideoList = async (req, res) => {
         {
           $lookup: {
             from: "tags",
-            let: { tagIds: "$tag" },
+            let: { tagIds: "$tags" },
             pipeline: [
               {
                 $addFields: {
@@ -158,7 +158,7 @@ const getVideoList = async (req, res) => {
           else: null, // Set it to null if it doesn't exist
         },
       },
-      tag: 1,
+      tags: 1,
       thumb: 1,
       duration: { $ifNull: ["$duration", 0] },
       type: 1,
@@ -575,7 +575,7 @@ const getRandomShorts = async (req, res) => {
       {
         $lookup: {
           from: "tags",
-          let: { tagIds: "$tag" },
+          let: { tagIds: "$tags" },
           pipeline: [
             {
               $addFields: {
@@ -960,7 +960,7 @@ const getDataList = async (req, res) => {
         {
           $lookup: {
             from: "tags",
-            let: { tagIds: "$tag" },
+            let: { tagIds: "$tags" },
             pipeline: [
               {
                 $addFields: {
@@ -1453,7 +1453,7 @@ const getVideoDetails = async (req, res) => {
     {
       $lookup: {
         from: "tags",
-        let: { tagIds: "$tag" },
+        let: { tagIds: "$tags" },
         pipeline: [
           {
             $addFields: {

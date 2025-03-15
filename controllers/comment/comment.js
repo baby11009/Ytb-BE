@@ -1,4 +1,4 @@
-const { User, Video, Comment, CmtReact } = require("../../models");
+const { User, Video, Comment } = require("../../models");
 const { StatusCodes } = require("http-status-codes");
 const mongoose = require("mongoose");
 
@@ -101,7 +101,7 @@ const createCmt = async (req, res) => {
 };
 
 const getCmts = async (req, res) => {
-  
+
   const { limit, page, sort, search } = req.query;
 
   const limitNumber = Number(limit) || 5;
