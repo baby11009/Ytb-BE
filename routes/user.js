@@ -23,13 +23,13 @@ router
   .get(getUsers)
   .post(
     createMulterUpload("user avatar").fields([
-      { name: "image", maxCount: 1 },
+      { name: "avatar", maxCount: 1 },
       { name: "banner", maxCount: 1 },
     ]),
     multerErrorHandling,
     async (req, res, next) => {
       fileLimitSizeMiddleware(req, res, next, {
-        image: 4,
+        avatar: 4,
         banner: 6,
       });
     },
@@ -45,12 +45,12 @@ router
   .delete(deleteUser)
   .patch(
     createMulterUpload("user avatar").fields([
-      { name: "image", maxCount: 1 },
+      { name: "avatar", maxCount: 1 },
       { name: "banner", maxCount: 1 },
     ]),
     multerErrorHandling,
     async (req, res, next) => {
-      fileLimitSizeMiddleware(req, res, next, { image: 4, banner: 6 });
+      fileLimitSizeMiddleware(req, res, next, { avatar: 4, banner: 6 });
     },
     updateUser,
   );

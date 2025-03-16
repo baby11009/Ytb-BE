@@ -33,8 +33,8 @@ const createUser = async (req, res) => {
 
     let finalData = { ...req.body };
 
-    if (req.files.image && req.files.image[0]) {
-      finalData.avatar = req.files.image[0].filename;
+    if (req.files.avatar && req.files.avatar[0]) {
+      finalData.avatar = req.files.avatar[0].filename;
     }
 
     if (req.files.banner && req.files.banner[0]) {
@@ -101,7 +101,7 @@ const getUsers = async (req, res) => {
 
   if (sortEntries.length > 0) {
     const sortKeys = new Set(["createdAt"]);
-    
+
     for (const [key, value] of sortEntries) {
       if (sortKeys.has(key)) {
         sortObj[key] = Number(value);
@@ -338,8 +338,8 @@ const updateUser = async (req, res) => {
       );
     }
 
-    if (req.files?.image) {
-      finalObject.avatar = req.files.image[0].filename;
+    if (req.files?.avatar) {
+      finalObject.avatar = req.files.avatar[0].filename;
     }
 
     if (req.files?.banner) {

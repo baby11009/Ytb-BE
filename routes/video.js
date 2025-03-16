@@ -20,14 +20,14 @@ const {
 router.post(
   "/upload",
   createMulterUpload("video thumb", "videos", 2).fields([
-    { name: "image", maxCount: 1 },
+    { name: "thumbnail", maxCount: 1 },
     { name: "video", maxCount: 1 },
   ]),
   multerErrorHandling,
   async (req, res, next) => {
-    fileLimitSizeMiddleware(req, res, next, { image: 4 });
+    fileLimitSizeMiddleware(req, res, next, { thumbnail: 2 });
   },
-  upLoadVideo
+  upLoadVideo,
 );
 
 router.route("/").get(getVideos);
@@ -40,15 +40,15 @@ router
   .get(getVideoDetails)
   .patch(
     createMulterUpload("video thumb", undefined).fields([
-      { name: "image", maxCount: 1 },
+      { name: "thumbnail", maxCount: 1 },
     ]),
     multerErrorHandling,
     async (req, res, next) => {
       fileLimitSizeMiddleware(req, res, next, {
-        image: 4,
+        thumbnail: 2,
       });
     },
-    updateVideo
+    updateVideo,
   );
 
 module.exports = router;

@@ -16,7 +16,7 @@ const { searchWithRegex, isObjectEmpty } = require("../../utils/other");
 const asssetPath = path.join(__dirname, "../../assets");
 
 const upLoadVideo = async (req, res) => {
-  const { image, video } = req.files;
+  const { thumbnail, video } = req.files;
 
   const {
     userId,
@@ -35,7 +35,7 @@ const upLoadVideo = async (req, res) => {
       fileErr.push("video");
     }
 
-    if (!image || image.length === 0) {
+    if (!thumbnail || thumbnail.length === 0) {
       fileErr.push("image");
     }
 
@@ -66,7 +66,7 @@ const upLoadVideo = async (req, res) => {
       title: title,
       video: video[0].filename,
       stream: filename,
-      thumb: image[0].filename,
+      thumb: thumbnail[0].filename,
       duration: videoDuration,
       tags: tags,
       view,
@@ -303,8 +303,8 @@ const updateVideo = async (req, res) => {
 
   if (
     Object.keys(req.body).length === 0 &&
-    !req.files.image &&
-    !req.files.image[0]
+    !req.files.thumbnail &&
+    !req.files.thumbnail[0]
   ) {
     throw new BadRequestError("There is nothing to update.");
   }
@@ -352,13 +352,13 @@ const updateVideo = async (req, res) => {
     throw new BadRequestError(`${emptyList.join(", ")} cannot be empty`);
   }
 
-  if (req.files?.image && req.files?.image[0]) {
-    updateData.thumb = req.files?.image[0].filename;
+  if (req.files?.thumbnail && req.files?.thumbnail[0]) {
+    updateData.thumb = req.files?.thumbnail[0].filename;
   }
 
   const video = await Video.findByIdAndUpdate(id, updateData);
 
-  if (req.files?.image && req.files?.image[0]) {
+  if (req.files?.thumbnail && req.files?.thumbnail[0]) {
     const imgPath = path.join(asssetPath, "video thumb", video.thumb);
     deleteFile(imgPath);
   }

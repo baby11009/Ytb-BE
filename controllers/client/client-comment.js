@@ -10,10 +10,6 @@ const {
 } = require("../../errors");
 
 const createCmt = async (req, res) => {
-  const { userId } = req.user;
-
-  const { videoId, cmtText, replyId } = req.body;
-
   const neededKeys = ["videoId", "cmtText"];
 
   const io = getIo();
@@ -24,7 +20,7 @@ const createCmt = async (req, res) => {
     );
   }
 
-  let invalidFields = neededKeys.filter((key) => {
+  const invalidFields = neededKeys.filter((key) => {
     if (!req.body[key]) {
       return key;
     }
@@ -36,13 +32,17 @@ const createCmt = async (req, res) => {
     );
   }
 
+  const { userId } = req.user;
+
+  const { videoId, cmtText, replyId } = req.body;
+
   const user = await User.findById(userId);
 
   if (!user) {
     throw new NotFoundError(`Not found user with id ${userId}`);
   }
 
-  let data = {
+  const data = {
     user_id: userId,
     video_id: videoId,
     cmtText: cmtText,
@@ -136,6 +136,7 @@ const createCmt = async (req, res) => {
         },
       },
     ]);
+    
     let event = `create-comment-${userId}`;
     if (replyId) {
       event = `create-reply-comment-${userId}`;

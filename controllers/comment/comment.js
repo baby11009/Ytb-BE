@@ -12,14 +12,14 @@ const { searchWithRegex, isObjectEmpty } = require("../../utils/other");
 
 const createCmt = async (req, res) => {
   const neededKeys = ["userId", "videoId", "cmtText"];
-
+  console.log(req.body);
   if (Object.keys(req.body).length === 0) {
     throw new BadRequestError(
       `Please provide these ${neededKeys.join(" ")} fields to create comment `,
     );
   }
 
-  let invalidFields = neededKeys.filter((key) => {
+  const invalidFields = neededKeys.filter((key) => {
     if (!req.body[key]) {
       return key;
     }
@@ -64,16 +64,12 @@ const createCmt = async (req, res) => {
       );
     }
 
-    let cmtId = replyId;
-
     if (replyCmt?.replied_parent_cmt_id) {
       cmtId = replyCmt?.replied_parent_cmt_id;
       data["replied_parent_cmt_id"] = replyCmt?.replied_parent_cmt_id;
     } else {
       data["replied_parent_cmt_id"] = replyId;
     }
-
-    await Comment.updateOne({ _id: cmtId }, { $inc: { replied_cmt_total: 1 } });
 
     data["replied_cmt_id"] = replyId;
     data["replied_user_id"] = replyCmt.user_id;
@@ -89,7 +85,7 @@ const createCmt = async (req, res) => {
   const session = await mongoose.startSession();
   session.startTransaction();
   try {
-    const cmt = await Comment.create(data);
+    const cmt = await Comment.create([data], { session });
     await session.commitTransaction();
     res.status(StatusCodes.CREATED).json({ msg: "Comment created", data: cmt });
   } catch (error) {
@@ -101,7 +97,6 @@ const createCmt = async (req, res) => {
 };
 
 const getCmts = async (req, res) => {
-
   const { limit, page, sort, search } = req.query;
 
   const limitNumber = Number(limit) || 5;
@@ -121,8 +116,17 @@ const getCmts = async (req, res) => {
       name: (name) => {
         searchObj["user_info.name"] = searchWithRegex(name);
       },
+      videoId: (videoId) => {
+        searchObj["video_info._id"] = new mongoose.Types.ObjectId(videoId);
+      },
       title: (title) => {
         searchObj["video_info.title"] = searchWithRegex(title);
+      },
+      content: (content) => {
+        searchObj["cmtText"] = searchWithRegex(content);
+      },
+      type: (type) => {
+        searchObj["replied_parent_cmt_id"] = { $exists: type === "reply" };
       },
     };
 
@@ -181,34 +185,10 @@ const getCmts = async (req, res) => {
     },
     {
       $lookup: {
-        from: "users",
-        localField: "replied_user_id",
-        foreignField: "_id",
-        pipeline: [
-          {
-            $project: {
-              _id: 1,
-              name: 1,
-              email: 1,
-              avatar: 1,
-            },
-          },
-        ],
-        as: "replied_user_info",
-      },
-    },
-    {
-      $unwind: {
-        path: "$replied_user_info",
-        preserveNullAndEmptyArrays: true,
-      },
-    },
-    {
-      $lookup: {
         from: "videos",
         localField: "video_id",
         foreignField: "_id",
-        pipeline: [{ $project: { _id: 1, title: 1 } }],
+        pipeline: [{ $project: { _id: 1, title: 1, thumb: 1 } }],
         as: "video_info",
       },
     },
@@ -229,13 +209,12 @@ const getCmts = async (req, res) => {
         _id: 1,
         title: 1,
         user_info: 1,
-        replied_user_info: { $ifNull: ["$replied_user_info", null] },
         video_info: 1,
         cmtText: 1,
         createdAt: 1,
         like: 1,
         dislike: 1,
-        replied_cmt_id: 1,
+        replied_parent_cmt_id: 1,
         replied_cmt_total: 1,
       },
     },
@@ -298,24 +277,23 @@ const getCmtDetails = async (req, res) => {
     },
     {
       $lookup: {
-        from: "users",
-        localField: "replied_user_id",
+        from: "comments",
+        localField: "replied_parent_cmt_id",
         foreignField: "_id",
         pipeline: [
           {
             $project: {
               _id: 1,
-              name: 1,
-              email: 1,
+              cmtText: 1,
             },
           },
         ],
-        as: "replied_user_info",
+        as: "replied_cmt_info",
       },
     },
     {
       $unwind: {
-        path: "$replied_user_info",
+        path: "$replied_cmt_info",
         preserveNullAndEmptyArrays: true,
       },
     },
@@ -335,7 +313,7 @@ const getCmtDetails = async (req, res) => {
       $project: {
         _id: 1,
         user_info: 1,
-        replied_user_info: { $ifNull: ["$replied_user_info", null] },
+        replied_cmt_info: { $ifNull: ["$replied_cmt_info", null] },
         video_info: 1,
         replied_cmt_id: 1,
         replied_cmt_total: 1,

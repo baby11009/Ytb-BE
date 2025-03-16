@@ -10,7 +10,7 @@ const Comment = new mongoose.Schema(
     },
     video_id: {
       type: mongoose.Types.ObjectId,
-      required: [true, "Please provide video ID"],
+      required: [true, "Please provide video ID"],  
     },
     replied_user_id: {
       type: mongoose.Types.ObjectId,
@@ -51,14 +51,18 @@ Comment.pre("save", async function () {
 
   try {
     const Video = mongoose.model("Video");
-    const video = await Video.updateOne(
+    const Comment = mongoose.model("Comment");
+    await Video.updateOne(
       { _id: this.video_id.toString() },
       { $inc: { totalCmt: 1 } },
       { session },
     );
-
-    if (video.matchedCount === 0) {
-      throw new NotFoundError(`Not found video with id ${req.body.videoId}`);
+    if (this.replied_parent_cmt_id) {
+      await Comment.updateOne(
+        { _id: this.replied_parent_cmt_id },
+        { $inc: { replied_cmt_total: 1 } },
+        { session },
+      );
     }
   } catch (error) {
     throw error;
