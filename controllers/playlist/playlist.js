@@ -8,6 +8,7 @@ const { StatusCodes } = require("http-status-codes");
 const { searchWithRegex, isObjectEmpty } = require("../../utils/other");
 
 const createPlaylist = async (req, res) => {
+
   const { title, videoIdList = [], userId, privacy } = req.body;
 
   const user = await User.findById(userId);
@@ -33,7 +34,7 @@ const getPlaylists = async (req, res) => {
 
   const skip = (pageNumber - 1) * limitNumber;
 
-  const searchObj = { type: { $ne: "liked" } };
+  const searchObj = { type: "playlist" };
 
   const searchEntries = Object.entries(search || {});
 
@@ -44,6 +45,12 @@ const getPlaylists = async (req, res) => {
       },
       email: (email) => {
         searchObj["user_info.email"] = searchWithRegex(email);
+      },
+      name: (name) => {
+        searchObj["user_info.name"] = searchWithRegex(name);
+      },
+      privacy: (privacy) => {
+        searchObj["privacy"] = privacy;
       },
     };
 
@@ -59,7 +66,7 @@ const getPlaylists = async (req, res) => {
   const sortEntries = Object.entries(sort || {});
 
   if (sortEntries.length > 0) {
-    const sortKeys = new Set(["createdAt", "title", "updatedAt", "size"]);
+    const sortKeys = new Set(["createdAt", "updatedAt", "size"]);
 
     for (const [key, value] of sortEntries) {
       if (sortKeys.has(key)) {
@@ -89,9 +96,7 @@ const getPlaylists = async (req, res) => {
       },
     },
     {
-      $addFields: {
-        _idStr: { $toString: "$_id" },
-        _userIdStr: { $toString: "$created_user_id" },
+      $set: {
         size: { $size: "$itemList" },
       },
     },
@@ -99,15 +104,52 @@ const getPlaylists = async (req, res) => {
       $match: searchObj,
     },
     {
+      $lookup: {
+        from: "videos",
+        let: {
+          lastVideoId: {
+            $arrayElemAt: ["$itemList", { $subtract: ["$size", 1] }],
+          },
+        },
+        pipeline: [
+          {
+            $set: {
+              _idStr: { $toString: "$_id" },
+            },
+          },
+          {
+            $match: {
+              $expr: {
+                $eq: ["$_idStr", "$$lastVideoId"],
+              },
+            },
+          },
+          {   
+            $project: {
+              thumb: 1,
+            },
+          },
+        ],
+        as: "video_info",
+      },
+    },
+    {
+      $unwind: {
+        path: "$video_info",
+        preserveNullAndEmptyArrays: true,
+      },
+    },
+    {
       $project: {
         _id: 1,
-        created_user_id: 1,
         title: 1,
         itemList: 1,
-        createdAt: 1,
         user_info: 1,
-        type: 1,
+        video_info: 1,
+        size: 1,
         privacy: 1,
+        createdAt: 1,
+        updatedAt: 1,
       },
     },
     {
@@ -137,7 +179,7 @@ const getPlaylistDetails = async (req, res) => {
 
   const pipeline = [
     {
-      $addFields: {
+      $set: {
         _idStr: { $toString: "$_id" },
       },
     },
@@ -237,7 +279,7 @@ const updatePlaylist = async (req, res) => {
     if (videoIdList?.length > 0) {
       const foundedVideos = await Video.aggregate([
         {
-          $addFields: {
+          $set: {
             _idStr: { $toString: "$_id" },
           },
         },
@@ -351,7 +393,7 @@ const deleteManyPlaylist = async (req, res) => {
 
   const foundedPlaylists = await Playlist.aggregate([
     {
-      $addFields: {
+      $set: {
         _idStr: { $toString: "$_id" },
       },
     },

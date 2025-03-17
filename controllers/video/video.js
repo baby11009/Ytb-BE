@@ -173,7 +173,7 @@ const getVideos = async (req, res) => {
       $unwind: "$user_info",
     },
     {
-      $addFields: {
+      $set: {
         _idStr: { $toString: "$_id" },
       },
     },
@@ -241,7 +241,7 @@ const getVideoDetails = async (req, res) => {
         let: { tagIds: "$tags" },
         pipeline: [
           {
-            $addFields: {
+            $set: {
               _idStr: { $toString: "$_id" },
             },
           },

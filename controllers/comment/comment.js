@@ -196,7 +196,7 @@ const getCmts = async (req, res) => {
       $unwind: "$video_info",
     },
     {
-      $addFields: {
+      $set: {
         _idStr: { $toString: "$_id" },
         _videoIdStr: { $toString: "$video_id" },
       },
@@ -442,7 +442,7 @@ const deleteManyCmt = async (req, res) => {
   //  because in cascade deletion, the entire comment tree will be deleted if the root comment is removed.
   let commentListNeedToDelete = await Comment.aggregate([
     {
-      $addFields: {
+      $set: {
         _id_str: { $toString: "$_id" },
         replied_parent_cmt_id_str: { $toString: "$replied_parent_cmt_id" },
       },

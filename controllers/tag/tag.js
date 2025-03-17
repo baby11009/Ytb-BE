@@ -91,7 +91,7 @@ const getTags = async (req, res) => {
 
     pipeline.push(
       {
-        $addFields: {
+        $set: {
           _idStr: { $toString: "$_id" },
         },
       },
