@@ -82,7 +82,6 @@ const Playlist = new mongoose.Schema(
         values: ["private", "public"],
         message: "privacy not suppoting {VALUE}",
       },
-      default: "public",
       required: function () {
         return this.type === "playlist"; // Chỉ bắt buộc nếu type là 'playlist'
       },

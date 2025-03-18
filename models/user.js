@@ -94,31 +94,34 @@ User.post("save", async function () {
   try {
     const Playlist = mongoose.model("Playlist");
 
-    await Playlist.create(
+    await Playlist.bulkWrite(
       [
         {
-          created_user_id: this._id,
-          type: "watch_later",
+          insertOne: {
+            document: {
+              title: "Watch later",
+              created_user_id: this._id,
+              type: "watch_later",
+            },
+          },
         },
-      ],
-      { session },
-    );
-
-    await Playlist.create(
-      [
         {
-          created_user_id: this._id,
-          type: "history",
+          insertOne: {
+            document: {
+              title: "History",
+              created_user_id: this._id,
+              type: "history",
+            },
+          },
         },
-      ],
-      { session },
-    );
-
-    await Playlist.create(
-      [
         {
-          created_user_id: this._id,
-          type: "liked",
+          insertOne: {
+            document: {
+              title: "Liked videos",
+              created_user_id: this._id,
+              type: "liked",
+            },
+          },
         },
       ],
       { session },

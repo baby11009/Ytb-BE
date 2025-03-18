@@ -35,7 +35,7 @@ const getVideoList = async (req, res) => {
 
   const pipeline = [
     {
-      $addFields: videoAddFieldsObj,
+      $set: videoAddFieldsObj,
     },
     {
       $match: videoMatchObj,
@@ -61,7 +61,7 @@ const getVideoList = async (req, res) => {
     channelEmail: (value) => {
       pipeline.push(
         {
-          $addFields: {
+          $set: {
             email: "$channel_info.email",
           },
         },
@@ -86,7 +86,7 @@ const getVideoList = async (req, res) => {
             let: { tagIds: "$tags" },
             pipeline: [
               {
-                $addFields: {
+                $set: {
                   _idStr: { $toString: "$_id" },
                 },
               },
@@ -259,7 +259,7 @@ const getVideoList = async (req, res) => {
 //     //       let: { channelId: "$channel_info._id" },
 //     //       pipeline: [
 //     //         {
-//     //           $addFields: {
+//     //           $set: {
 //     //             subscriberIdStr: { $toString: "$subscriber_id" },
 //     //           },
 //     //         },
@@ -300,7 +300,7 @@ const getVideoList = async (req, res) => {
 //   if (shortId) {
 //     size = 2;
 //     foundedShort = await Video.aggregate([
-//       { $addFields: { _idStr: { $toString: "$_id" } } },
+//       { $set: { _idStr: { $toString: "$_id" } } },
 //       {
 //         $match: { _idStr: shortId },
 //       },
@@ -358,7 +358,7 @@ const getVideoList = async (req, res) => {
 
 //   pipeline.push(
 //     {
-//       $addFields: addFieldsObj,
+//       $set: addFieldsObj,
 //     },
 //     {
 //       $match: matchObj,
@@ -461,7 +461,7 @@ const getRandomShorts = async (req, res) => {
     }
 
     if (Object.keys(addFieldsObj).length > 0) {
-      pipeline.push({ $addFields: addFieldsObj });
+      pipeline.push({ $set: addFieldsObj });
     }
 
     pipeline.push({ $match: matchObj });
@@ -578,7 +578,7 @@ const getRandomShorts = async (req, res) => {
           let: { tagIds: "$tags" },
           pipeline: [
             {
-              $addFields: {
+              $set: {
                 _idStr: { $toString: "$_id" },
               },
             },
@@ -812,7 +812,7 @@ const getDataList = async (req, res) => {
 
     const playlistPipeline = [
       {
-        $addFields: {
+        $set: {
           ...addFieldsObj,
           objectIdVideoList: {
             $map: {
@@ -853,7 +853,7 @@ const getDataList = async (req, res) => {
           let: { videoIdList: "$objectIdVideoList" },
           pipeline: [
             {
-              $addFields: {
+              $set: {
                 videoIdList: "$$videoIdList",
                 order: {
                   $indexOfArray: ["$$videoIdList", "$_id"],
@@ -871,7 +871,7 @@ const getDataList = async (req, res) => {
         },
       },
       {
-        $addFields: {
+        $set: {
           count: { $size: "$videos" },
         },
       },
@@ -881,7 +881,7 @@ const getDataList = async (req, res) => {
           let: { videoIdList: "$objectIdVideoList" },
           pipeline: [
             {
-              $addFields: {
+              $set: {
                 videoIdList: "$$videoIdList",
                 order: {
                   $indexOfArray: ["$$videoIdList", "$_id"],
@@ -963,7 +963,7 @@ const getDataList = async (req, res) => {
             let: { tagIds: "$tags" },
             pipeline: [
               {
-                $addFields: {
+                $set: {
                   _idStr: { $toString: "$_id" },
                 },
               },
@@ -1025,7 +1025,7 @@ const getDataList = async (req, res) => {
 
   if (Object.keys(videoAddFieldsObj).length > 0) {
     videoPipeline.push({
-      $addFields: videoAddFieldsObj,
+      $set: videoAddFieldsObj,
     });
   }
 
@@ -1227,7 +1227,7 @@ const getChannelPlaylistVideos = async (req, res) => {
         let: { videoIdList: "$itemList" },
         pipeline: [
           {
-            $addFields: {
+            $set: {
               _idStr: { $toString: "$_id" },
               reverseIdList: { $reverseArray: "$$videoIdList" },
             },
@@ -1456,7 +1456,7 @@ const getVideoDetails = async (req, res) => {
         let: { tagIds: "$tags" },
         pipeline: [
           {
-            $addFields: {
+            $set: {
               _idStr: { $toString: "$_id" },
             },
           },
@@ -1562,7 +1562,7 @@ const getVideoCmts = async (req, res) => {
         if (key === "top") {
           sortObj.interact = Number(value);
           pipeline.push({
-            $addFields: {
+            $set: {
               interact: { $sum: ["$like", "$dislike", "$replied_cmt_total"] },
             },
           });
@@ -1679,7 +1679,7 @@ const getVideoCmts = async (req, res) => {
       },
     },
     {
-      $addFields: {
+      $set: {
         _idStr: { $toString: "$_id" },
       },
     },
@@ -1729,7 +1729,7 @@ const getVideoCmts = async (req, res) => {
     countObj.replied_cmt_id = { $exists: true };
   }
   const totalData = await Comment.aggregate([
-    { $addFields: { videoIdStr: { $toString: "$video_id" } } },
+    { $set: { videoIdStr: { $toString: "$video_id" } } },
     { $match: countObj },
     { $count: "total" },
   ]);
@@ -1793,7 +1793,7 @@ const getPlaylistDetails = async (req, res) => {
 
   const pipeline = [
     {
-      $addFields: {
+      $set: {
         _idStr: { $toString: "$_id" },
         objectIdVideoList: {
           $map: {
@@ -1829,7 +1829,7 @@ const getPlaylistDetails = async (req, res) => {
           let: { videoIdList: "$objectIdVideoList" },
           pipeline: [
             {
-              $addFields: {
+              $set: {
                 videoIdList: "$$videoIdList",
                 order: {
                   $indexOfArray: ["$$videoIdList", "$_id"],
@@ -1846,7 +1846,7 @@ const getPlaylistDetails = async (req, res) => {
         },
       },
       {
-        $addFields: {
+        $set: {
           count: { $size: "$videos" },
         },
       },
@@ -1856,7 +1856,7 @@ const getPlaylistDetails = async (req, res) => {
           let: { videoIdList: "$objectIdVideoList" },
           pipeline: [
             {
-              $addFields: {
+              $set: {
                 videoIdList: "$$videoIdList",
                 order: {
                   $indexOfArray: ["$$videoIdList", "$_id"],

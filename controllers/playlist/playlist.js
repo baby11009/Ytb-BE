@@ -8,7 +8,6 @@ const { StatusCodes } = require("http-status-codes");
 const { searchWithRegex, isObjectEmpty } = require("../../utils/other");
 
 const createPlaylist = async (req, res) => {
-
   const { title, videoIdList = [], userId, privacy } = req.body;
 
   const user = await User.findById(userId);
@@ -29,12 +28,13 @@ const createPlaylist = async (req, res) => {
 
 const getPlaylists = async (req, res) => {
   const { limit, page, sort, search } = req.query;
+
   const limitNumber = Number(limit) || 5;
   const pageNumber = Number(page) || 1;
 
   const skip = (pageNumber - 1) * limitNumber;
 
-  const searchObj = { type: "playlist" };
+  const searchObj = {};
 
   const searchEntries = Object.entries(search || {});
 
@@ -51,6 +51,9 @@ const getPlaylists = async (req, res) => {
       },
       privacy: (privacy) => {
         searchObj["privacy"] = privacy;
+      },
+      type: (type) => {
+        searchObj["type"] = type;
       },
     };
 
@@ -124,7 +127,7 @@ const getPlaylists = async (req, res) => {
               },
             },
           },
-          {   
+          {
             $project: {
               thumb: 1,
             },
@@ -147,7 +150,17 @@ const getPlaylists = async (req, res) => {
         user_info: 1,
         video_info: 1,
         size: 1,
-        privacy: 1,
+        privacy: { $ifNull: ["$privacy", "Null"] },
+        type: {
+          $switch: {
+            branches: [
+              { case: { $eq: ["$type", "watch_later"] }, then: "Watch later" },
+              { case: { $eq: ["$type", "liked"] }, then: "Liked" },
+              { case: { $eq: ["$type", "history"] }, then: "History" },
+            ],
+            default: "Playlist",
+          },
+        },
         createdAt: 1,
         updatedAt: 1,
       },
@@ -165,17 +178,65 @@ const getPlaylists = async (req, res) => {
 
   const playlists = await Playlist.aggregate(pipeline);
 
+  const { data, totalCount } = playlists[0];
+
   res.status(StatusCodes.OK).json({
-    data: playlists[0]?.data,
-    qtt: playlists[0]?.data?.length,
-    totalQtt: playlists[0]?.totalCount[0]?.total,
-    currPage: page,
-    totalPages: Math.ceil(playlists[0]?.totalCount[0]?.total / limit),
+    data: data || [],
+    qtt: data?.length || 0,
+    totalQtt: totalCount[0]?.total || 0,
+    currPage: pageNumber,
+    totalPages: Math.ceil(totalCount[0]?.total / limit || 0),
   });
 };
 
 const getPlaylistDetails = async (req, res) => {
   const { id } = req.params;
+
+  const { search, sort, videoLimit, videoPage } = req.query;
+
+  const limitNum = Number(videoLimit) || 10;
+  const pageNum = Number(videoPage) || 1;
+  const skip = (pageNum - 1) * limitNum;
+
+  const videoSearchObj = {
+    $expr: {
+      $in: ["$_idStr", "$$videoIds"],
+    },
+  };
+
+  const searchEntries = Object.entries(search || {});
+
+  if (searchEntries.length > 0) {
+    const searchFuncObj = {
+      title: (title) => {
+        videoSearchObj["title"] = searchWithRegex(title);
+      },
+    };
+
+    for (const [key, value] of searchEntries) {
+      if (searchFuncObj[key] && value) {
+        searchFuncObj[key](value);
+      }
+    }
+  }
+
+  const videoSortObj = {};
+
+  const sortEntries = Object.entries(sort || {});
+
+  if (sortEntries.length > 0) {
+    const sortKeys = new Set(["order"]);
+
+    for (const [key, value] of sortEntries) {
+      if (sortKeys.has(key)) {
+        videoSortObj[key] = Number(value);
+      }
+    }
+  }
+
+  if (isObjectEmpty(videoSortObj)) {
+    videoSortObj.order = -1;
+  }
 
   const pipeline = [
     {
@@ -209,9 +270,81 @@ const getPlaylistDetails = async (req, res) => {
       },
     },
     {
+      $lookup: {
+        from: "videos",
+        let: {
+          videoIds: "$itemList",
+        },
+        pipeline: [
+          {
+            $set: {
+              _idStr: { $toString: "$_id" },
+            },
+          },
+          {
+            $set: {
+              order: {
+                $indexOfArray: ["$$videoIds", "$_idStr"],
+              },
+            },
+          },
+          {
+            $match: videoSearchObj,
+          },
+          {
+            $sort: videoSortObj,
+          },
+          {
+            $lookup: {
+              from: "users",
+              localField: "user_id",
+              foreignField: "_id",
+              pipeline: [
+                {
+                  $project: {
+                    name: 1,
+                    email: 1,
+                    avatar: 1,
+                  },
+                },
+              ],
+              as: "video_user_info",
+            },
+          },
+          {
+            $unwind: "$video_user_info",
+          },
+          {
+            $project: {
+              title: 1,
+              thumb: 1,
+              video_user_info: 1,
+              order: 1,
+            },
+          },
+          {
+            $facet: {
+              totalCount: [{ $count: "total" }],
+              videoList: [{ $skip: skip }, { $limit: limitNum }],
+            },
+          },
+        ],
+        as: "video_info",
+      },
+    },
+    {
+      $unwind: {
+        path: "$video_info",
+        preserveNullAndEmptyArrays: true,
+      },
+    },
+    {
       $project: {
         _id: 1,
         created_user_id: 1,
+        video_info: { $ifNull: ["$video_info", null] },
+        type: 1,
+        privacy: 1,
         title: 1,
         itemList: 1,
         createdAt: 1,
@@ -226,7 +359,23 @@ const getPlaylistDetails = async (req, res) => {
     throw new NotFoundError("Playlist not found");
   }
 
-  res.status(StatusCodes.OK).json({ data: playlist[0] });
+  const {
+    video_info: { videoList, totalCount },
+    ...playlistData
+  } = playlist[0];
+
+  if (videoSortObj.order !== 1) {
+    playlistData.itemList = playlistData.itemList.reverse();
+  }
+
+  res.status(StatusCodes.OK).json({
+    data: playlistData,
+    videoList: videoList,
+    qtt: videoList?.length || 0,
+    totalQtt: totalCount[0]?.total || 0,
+    currPage: pageNum,
+    totalPages: Math.ceil(totalCount[0]?.total / limitNum || 0),
+  });
 };
 
 const updatePlaylist = async (req, res) => {
@@ -251,6 +400,8 @@ const updatePlaylist = async (req, res) => {
   const updateDatas = {};
 
   const notAllowData = [];
+
+  const itemListBulkWrites = [];
 
   const title = (value) => {
     if (typeof value !== "string")
@@ -287,7 +438,7 @@ const updatePlaylist = async (req, res) => {
         { $group: { _id: null, idsFound: { $push: "$_idStr" } } },
         {
           $project: {
-            itemList: 1,
+            _id: 1,
             missingIds: {
               $setDifference: [videoIdList, "$idsFound"],
             },
@@ -311,15 +462,38 @@ const updatePlaylist = async (req, res) => {
         );
       }
 
-      // Add the ID to the list if it does not exist; otherwise, remove it.
-      const finalItemList = [
-        ...videoIdList.filter((id) => !foundedPlaylist.itemList.includes(id)),
-        ...foundedPlaylist.itemList.filter((id) => !videoIdList.includes(id)),
-      ];
+      const alreadyExistIds = [];
+      const newVideoIds = [];
 
-      updateDatas["itemList"] = finalItemList;
+      const itemListSet = new Set(foundedPlaylist.itemList);
+
+      videoIdList.forEach((id) => {
+        if (itemListSet.has(id)) {
+          alreadyExistIds.push(id);
+        } else {
+          newVideoIds.push(id);
+        }
+      });
+
+      if (alreadyExistIds.length > 0) {
+        itemListBulkWrites.push({
+          updateOne: {
+            filter: { _id: id },
+            update: { $pull: { itemList: { $in: alreadyExistIds } } },
+          },
+        });
+      }
+
+      if (newVideoIds.length > 0) {
+        itemListBulkWrites.push({
+          updateOne: {
+            filter: { _id: id },
+            update: { $addToSet: { itemList: { $each: newVideoIds } } },
+          },
+        });
+      }
     } else {
-      updateDatas["itemList"] = [];
+      itemListBulkWrites.push({ updateOne: { filter: { _id: id } } });
     }
   };
 
@@ -361,7 +535,14 @@ const updatePlaylist = async (req, res) => {
     );
   }
 
-  await Playlist.updateOne({ _id: id }, updateDatas);
+  const defaultBulkWrite = {
+    updateOne: {
+      filter: { _id: id },
+      update: { $set: updateDatas },
+    },
+  };
+
+  await Playlist.bulkWrite([defaultBulkWrite, ...itemListBulkWrites]);
 
   res.status(StatusCodes.OK).json({ msg: "Playlist updated successfullly" });
 };
