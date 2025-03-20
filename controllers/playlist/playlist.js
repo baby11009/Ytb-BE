@@ -6,6 +6,7 @@ const {
 } = require("../../errors");
 const { StatusCodes } = require("http-status-codes");
 const { searchWithRegex, isObjectEmpty } = require("../../utils/other");
+const { validators } = require("../../utils/validate");
 
 const createPlaylist = async (req, res) => {
   const { title, videoIdList = [], userId, privacy } = req.body;
@@ -369,12 +370,14 @@ const getPlaylistDetails = async (req, res) => {
   }
 
   res.status(StatusCodes.OK).json({
-    data: playlistData,
-    videoList: videoList,
-    qtt: videoList?.length || 0,
-    totalQtt: totalCount[0]?.total || 0,
-    currPage: pageNum,
-    totalPages: Math.ceil(totalCount[0]?.total / limitNum || 0),
+    playlistInfor: playlistData,
+    videoList: {
+      data: videoList,
+      qtt: videoList?.length || 0,
+      totalQtt: totalCount[0]?.total || 0,
+      currPage: pageNum,
+      totalPages: Math.ceil(totalCount[0]?.total / limitNum || 0),
+    },
   });
 };
 
@@ -404,11 +407,10 @@ const updatePlaylist = async (req, res) => {
   const itemListBulkWrites = [];
 
   const title = (value) => {
-    if (typeof value !== "string")
-      throw new ForbiddenError("Data type must be a string");
-    if (foundedPlaylist.title === value) {
-      throw new BadRequestError("The new title of playlist is still the same");
-    }
+    validators.isString(value, "title");
+
+    validators.isNotTheSame(value, foundedPlaylist.title, "title");
+
     updateDatas.title = value;
   };
 
@@ -566,39 +568,33 @@ const deletePlaylist = async (req, res) => {
 };
 
 const deleteManyPlaylist = async (req, res) => {
-  const { idList } = req.body;
+  const { idList } = req.query;
 
-  if (!idList || idList.length === 0) {
-    throw new BadRequestError("Must choose at least one playlist");
+  if (!idList) {
+    throw new BadRequestError("Please provide a list of user's id to delete");
   }
 
-  const foundedPlaylists = await Playlist.aggregate([
-    {
-      $set: {
-        _idStr: { $toString: "$_id" },
-      },
-    },
-    { $match: { _idStr: { $in: idList } } },
-    { $group: { _id: null, idsFound: { $push: "$_idStr" } } },
-    {
-      $project: {
-        missingIds: { $setDifference: [idList, "$idsFound"] },
-        type: 1,
-      },
-    },
-  ]);
+  const idArray = idList.split(",");
 
-  // if (foundedPlaylists.length === 0) {
-  //   throw new NotFoundError(
-  //     `The following playlists with id: ${idList.join(", ")}could not be found`,
-  //   );
-  // }
+  const foundedPlaylists = await Playlist.find({
+    _id: { $in: idArray },
+  }).select("_id type");
 
-  if (foundedPlaylists[0]?.missingIds?.length > 0) {
+  if (foundedPlaylists.length === 0) {
+    throw new NotFoundError(`No user found with these ids ${idList}`);
+  }
+
+  if (foundedPlaylists.length !== idArray.length) {
+    const notFoundedList = [];
+
+    foundedPlaylists.forEach((user) => {
+      if (idArray.includes(user._id.toString())) {
+        notFoundedList.push(user._id);
+      }
+    });
+
     throw new NotFoundError(
-      `The following playlists with id: ${foundedPlaylists[0].missingIds.join(
-        ", ",
-      )} could not be found`,
+      `No user found with these ids : ${notFoundedList.join(", ")}`,
     );
   }
 
@@ -612,10 +608,10 @@ const deleteManyPlaylist = async (req, res) => {
     throw new ForbiddenError("You can't delete these playlists");
   }
 
-  await Playlist.deleteMany({ _id: { $in: idList } });
+  await Playlist.deleteMany({ _id: { $in: idArray } });
 
   res.status(StatusCodes.OK).json({
-    msg: `Successfully deleted playlist with following id: ${idList.join(
+    msg: `Successfully deleted playlist with following id: ${idArray.join(
       ", ",
     )}`,
   });

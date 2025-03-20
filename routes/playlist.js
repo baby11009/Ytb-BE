@@ -13,7 +13,7 @@ const router = express.Router();
 
 router.route("/").get(getPlaylists).post(createPlaylist);
 
-router.route("/delete-many").post(deleteManyPlaylist);
+router.route("/delete-many").delete(deleteManyPlaylist);
 
 router
   .route("/:id")

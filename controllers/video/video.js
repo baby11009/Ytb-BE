@@ -118,6 +118,13 @@ const getVideos = async (req, res) => {
       title: (title) => {
         searchObj["title"] = searchWithRegex(title);
       },
+      exclude: (excludeIdList) => {
+       
+        // In FE i have converted excludeIdList to json to make sure express will not automatically
+        // converted my array in to object if it contains to much elements
+        const idList = JSON.parse(excludeIdList);
+        searchObj["_idStr"] = { $nin: idList };
+      },
     };
 
     for (const [key, value] of searchEntries) {
