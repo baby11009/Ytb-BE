@@ -5,8 +5,9 @@ const fs = require("fs");
 const assetsPath = path.join(__dirname, "../assets");
 
 const fileFilter = (req, file, cb) => {
+  const validImageFieldNames = ["image", "thumbnail", "banner", "avatar"];
   if (
-    (file.fieldname === "image" || file.fieldname === "thumbnail" || file.fieldname === "banner") &&
+    validImageFieldNames.includes(file.fieldname) &&
     file.mimetype.startsWith("image/")
   ) {
     cb(null, true);
@@ -38,7 +39,7 @@ function createMulterUpload(imageDes, videoDes) {
         path.basename(file.originalname, path.extname(file.originalname)) +
           "_" +
           Date.now() +
-          path.extname(file.originalname)
+          path.extname(file.originalname),
       );
     },
   });

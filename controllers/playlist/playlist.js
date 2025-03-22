@@ -6,7 +6,8 @@ const {
 } = require("../../errors");
 const { StatusCodes } = require("http-status-codes");
 const { searchWithRegex, isObjectEmpty } = require("../../utils/other");
-const { validators } = require("../../utils/validate");
+const { PlaylistValidator } = require("../../utils/validate");
+const { default: mongoose } = require("mongoose");
 
 const createPlaylist = async (req, res) => {
   const { title, videoIdList = [], userId, privacy } = req.body;
@@ -35,7 +36,7 @@ const getPlaylists = async (req, res) => {
 
   const skip = (pageNumber - 1) * limitNumber;
 
-  const searchObj = {};
+  const searchObj = { type: { $ne: "liked" } };
 
   const searchEntries = Object.entries(search || {});
 
@@ -400,153 +401,24 @@ const updatePlaylist = async (req, res) => {
     throw new NotFoundError("Playlist not found");
   }
 
-  const updateDatas = {};
+  const bulkWrites = await new PlaylistValidator(
+    bodyData,
+    foundedPlaylist,
+  ).getValidatedUpdateData();
 
-  const notAllowData = [];
-
-  const itemListBulkWrites = [];
-
-  const title = (value) => {
-    validators.isString(value, "title");
-
-    validators.isNotTheSame(value, foundedPlaylist.title, "title");
-
-    updateDatas.title = value;
-  };
-
-  const privacy = (value) => {
-    if (value === foundedPlaylist.privacy) {
-      throw new BadRequestError(
-        "The new privacy of playlist is still the same ",
-      );
-    }
-
-    const validatePrivacy = new Set(["private", "public"]);
-    if (!validatePrivacy.has(value)) {
-      throw new BadRequestError("Invalid playlist privacy");
-    }
-    updateDatas.privacy = value;
-  };
-
-  const updateList = async (videoIdList) => {
-    if (videoIdList?.length > 0) {
-      const foundedVideos = await Video.aggregate([
-        {
-          $set: {
-            _idStr: { $toString: "$_id" },
-          },
-        },
-        { $match: { _idStr: { $in: videoIdList } } },
-        { $group: { _id: null, idsFound: { $push: "$_idStr" } } },
-        {
-          $project: {
-            _id: 1,
-            missingIds: {
-              $setDifference: [videoIdList, "$idsFound"],
-            },
-          },
-        },
-      ]);
-
-      if (foundedVideos.length === 0) {
-        throw new NotFoundError(
-          `The following videos with id: ${videoIdList.join(
-            ", ",
-          )} could not be found`,
-        );
-      }
-
-      if (foundedVideos[0]?.missingIds?.length > 0) {
-        throw new NotFoundError(
-          `The following videos with id: ${foundedVideos[0].missingIds.join(
-            ", ",
-          )} could not be found`,
-        );
-      }
-
-      const alreadyExistIds = [];
-      const newVideoIds = [];
-
-      const itemListSet = new Set(foundedPlaylist.itemList);
-
-      videoIdList.forEach((id) => {
-        if (itemListSet.has(id)) {
-          alreadyExistIds.push(id);
-        } else {
-          newVideoIds.push(id);
-        }
-      });
-
-      if (alreadyExistIds.length > 0) {
-        itemListBulkWrites.push({
-          updateOne: {
-            filter: { _id: id },
-            update: { $pull: { itemList: { $in: alreadyExistIds } } },
-          },
-        });
-      }
-
-      if (newVideoIds.length > 0) {
-        itemListBulkWrites.push({
-          updateOne: {
-            filter: { _id: id },
-            update: { $addToSet: { itemList: { $each: newVideoIds } } },
-          },
-        });
-      }
-    } else {
-      itemListBulkWrites.push({ updateOne: { filter: { _id: id } } });
-    }
-  };
-
-  const updateFuncObj = {
-    playlist: {
-      title,
-      privacy,
-      videoIdList: updateList,
-    },
-    watch_later: { videoIdList: updateList },
-    history: { videoIdList: updateList },
-  };
-
-  for (const [key, value] of Object.entries(bodyData)) {
-    let func = updateFuncObj[foundedPlaylist.type];
-    if (func) {
-      func = func[key];
-    } else {
-      throw new BadRequestError(
-        `Cannot update playlist with type ${foundedPlaylist.type}`,
-      );
-    }
-
-    if (func) {
-      if (func.constructor.name === "AsyncFunction") {
-        await func(value);
-      } else {
-        func(value);
-      }
-    } else {
-      notAllowData.push(key);
-    }
+  let session;
+  try {
+    session = await mongoose.startSession();
+    session.startTransaction();
+    await Playlist.bulkWrite(bulkWrites, { session });
+    await session.commitTransaction();
+    res.status(StatusCodes.OK).json({ msg: "Playlist updated successfullly" });
+  } catch (error) {
+    await session.abortTransaction();
+    throw error;
+  } finally {
+    session.endSession();
   }
-
-  if (notAllowData.length > 0) {
-    throw new BadRequestError(
-      `Playlist with ${foundedPlaylist.type} type cannot modify these fields: ` +
-        notAllowData.join(", "),
-    );
-  }
-
-  const defaultBulkWrite = {
-    updateOne: {
-      filter: { _id: id },
-      update: { $set: updateDatas },
-    },
-  };
-
-  await Playlist.bulkWrite([defaultBulkWrite, ...itemListBulkWrites]);
-
-  res.status(StatusCodes.OK).json({ msg: "Playlist updated successfullly" });
 };
 
 const deletePlaylist = async (req, res) => {

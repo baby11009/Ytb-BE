@@ -12,6 +12,7 @@ const { createHls } = require("../../utils/createhls");
 const { clearUploadedVideoFiles } = require("../../utils/clear");
 
 const { searchWithRegex, isObjectEmpty } = require("../../utils/other");
+const { VideoValidator } = require("../../utils/validate");
 
 const asssetPath = path.join(__dirname, "../../assets");
 
@@ -119,7 +120,6 @@ const getVideos = async (req, res) => {
         searchObj["title"] = searchWithRegex(title);
       },
       exclude: (excludeIdList) => {
-       
         // In FE i have converted excludeIdList to json to make sure express will not automatically
         // converted my array in to object if it contains to much elements
         const idList = JSON.parse(excludeIdList);
@@ -308,62 +308,29 @@ const updateVideo = async (req, res) => {
     throw new BadRequestError("Please provide video id");
   }
 
-  if (
-    Object.keys(req.body).length === 0 &&
-    !req.files.thumbnail &&
-    !req.files.thumbnail[0]
-  ) {
+  if (Object.keys(req.body).length === 0 && !req.files.thumbnail) {
     throw new BadRequestError("There is nothing to update.");
   }
 
-  let updatedKey = [
-    "title",
-    "view",
-    "like",
-    "dislike",
-    "type",
-    "tags",
-    "description",
-  ];
+  const foundedVideo = await Video.findById(id);
 
-  let updateData = {};
-
-  let emptyList = [];
-
-  let notAllowValue = [];
-
-  for (let [key, value] of Object.entries(req.body)) {
-    if (updatedKey.includes(key)) {
-      if (value === "") {
-        emptyList.push(key);
-      } else {
-        if (key === "tags") {
-          value = JSON.parse(value);
-        }
-        updateData[key] = value;
-      }
-    } else {
-      notAllowValue.push(key);
-    }
+  if (!foundedVideo) {
+    throw new NotFoundError(`Not found video with id ${id}`);
   }
 
-  if (notAllowValue.length > 0) {
-    throw new BadRequestError(
-      `The comment cannot contain the following fields: ${notAllowValue.join(
-        ", ",
-      )}`,
-    );
-  }
+  const updateDatas = await new VideoValidator(
+    {
+      ...req.body,
+      ...req.files,
+    },
+    foundedVideo,
+  ).getValidatedUpdateData();
 
-  if (emptyList.length > 0) {
-    throw new BadRequestError(`${emptyList.join(", ")} cannot be empty`);
-  }
+  const video = await Video.updateOne(id, updateDatas);
 
-  if (req.files?.thumbnail && req.files?.thumbnail[0]) {
-    updateData.thumb = req.files?.thumbnail[0].filename;
+  if (video.modifiedCount === 0) {
+    throw new InternalServerError("Failed to update user");
   }
-
-  const video = await Video.findByIdAndUpdate(id, updateData);
 
   if (req.files?.thumbnail && req.files?.thumbnail[0]) {
     const imgPath = path.join(asssetPath, "video thumb", video.thumb);

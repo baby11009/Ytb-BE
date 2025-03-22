@@ -3,11 +3,13 @@ const {
   BadRequestError,
   NotFoundError,
   InternalServerError,
+  InvalidError,
 } = require("../../errors");
 const { StatusCodes } = require("http-status-codes");
 const { deleteFile } = require("../../utils/file");
 const mongoose = require("mongoose");
 const { searchWithRegex, isObjectEmpty } = require("../../utils/other");
+const { UserValidator } = require("../../utils/validate");
 
 const path = require("path");
 
@@ -178,79 +180,47 @@ const updateUser = async (req, res) => {
 
   const data = req.body;
 
-  let foundedUser;
-
   try {
-    const dataEntries = Object.entries(data);
-
-    if (dataEntries.length === 0 && !req.files) {
+    if (Object.keys(data).length === 0 && !req.files) {
       throw new BadRequestError("No data provided to update");
     }
 
-    foundedUser = await User.findOne({ _id: id }).select(
-      "name password role confirmed subscriber totalVids banner avatar",
-    );
+    const foundedUser = await User.findOne({ _id: id });
 
     if (!foundedUser) {
       throw new NotFoundError("User not found");
     }
 
-    const updateFuncObj = {
-      name: () => {},
-      password: () => {},
-      role: () => {},
-      confirmed: () => {},
-      subscriber: () => {},
-      totalVids: () => {},
-      description: () => {},
-    };
+    const updateDatas = await new UserValidator(
+      { ...data, ...req.files },
+      foundedUser,
+    ).getValidatedUpdateData();
 
-    const updateObj = {};
-
-    const sameValueFields = [];
-
-    if (dataEntries.length > 0) {
-      for (const [key, value] of dataEntries) {
-        
-      }
-    }
-
-    if (sameValueFields.length > 0) {
-      throw new BadRequestError(
-        `These fields's value is still the same: ${sameValueFields.join(", ")}`,
-      );
-    }
-
-    if (req.files?.avatar) {
-      updateObj.avatar = req.files.avatar[0].filename;
-    }
-
-    if (req.files?.banner) {
-      updateObj.banner = req.files.banner[0].filename;
-    }
-
-    const user = await User.updateOne({ _id: id }, updateObj);
+    const user = await User.updateOne({ _id: id }, updateDatas);
 
     if (user.modifiedCount === 0) {
       throw new InternalServerError("Failed to update user");
     }
 
-    if (foundedUser.avatar !== "df.jpg" && updateObj.avatar) {
+    if (foundedUser.avatar !== "df.jpg" && updateDatas.avatar) {
       deleteFile(path.join(avatarPath, foundedUser.avatar));
     }
 
-    if (foundedUser.banner !== "df-banner.jpg" && updateObj.banner) {
+    if (foundedUser.banner !== "df-banner.jpg" && updateDatas.banner) {
       deleteFile(path.join(avatarPath, foundedUser.banner));
     }
 
     res.status(StatusCodes.OK).json({ msg: "User updated successfully" });
   } catch (error) {
-    if (req.files?.image) {
-      deleteFile(req.files.image[0].path);
+    if (req.files?.avatar) {
+      deleteFile(req.files.avatar[0].path);
     }
 
     if (req.files?.banner) {
       deleteFile(req.files.banner[0].path);
+    }
+    if (error instanceof InvalidError) {
+      return res.status(StatusCodes.BAD_REQUEST).json({ errors: error.errorObj });
     }
     throw error;
   }

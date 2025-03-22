@@ -17,6 +17,7 @@ const multerErrorHandling = (err, req, res, next) => {
       });
     }
   } else if (err) {
+    console.log("🚀 ~ err:", err)
     // An unknown error occurred when uploading
     return res.status(500).json({ message: "Failed to upload file" });
   }

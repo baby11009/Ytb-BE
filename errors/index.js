@@ -4,6 +4,7 @@ const NotFoundError = require("./not-found");
 const BadRequestError = require("./bad-request");
 const ForbiddenError = require("./forbidden");
 const InternalServerError = require("./internal-server-error");
+const InvalidError = require("./invalid-error");
 
 module.exports = {
   CustomAPIError,
@@ -12,4 +13,5 @@ module.exports = {
   BadRequestError,
   ForbiddenError,
   InternalServerError,
+  InvalidError,
 };

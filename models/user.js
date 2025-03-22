@@ -67,6 +67,7 @@ const User = new mongoose.Schema(
     description: {
       type: String,
       default: "",
+      maxLength: 5000,
     },
     watchedHistory: {
       type: mongoose.Types.ObjectId,
@@ -129,27 +130,6 @@ User.post("save", async function () {
   } catch (error) {
     throw error;
   }
-});
-
-User.pre(["update", "updateOne", "findOneAndUpdate"], async function (next) {
-  const update = this.getUpdate();
-
-  if (update.password) {
-    // Xác thực độ dài mật khẩu
-    if (update.password.length < 6) {
-      return next(new Error("Password must be at least 6 characters long"));
-    }
-
-    const salt = await bcrypt.genSalt(10);
-    update.password = await bcrypt.hash(update.password, salt);
-  }
-
-  if (update.name) {
-    if (update.name.length > 15) {
-      return next(new Error("User name cannot exceed 15 characters"));
-    }
-  }
-  next();
 });
 
 // Cascade when deleting user
