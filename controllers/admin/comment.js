@@ -6,13 +6,15 @@ const {
   NotFoundError,
   BadRequestError,
   InternalServerError,
+  InvalidError,
 } = require("../../errors");
 
 const { searchWithRegex, isObjectEmpty } = require("../../utils/other");
+const { CommentValidator } = require("../../utils/validate");
 
 const createCmt = async (req, res) => {
   const neededKeys = ["userId", "videoId", "cmtText"];
-  console.log(req.body);
+
   if (Object.keys(req.body).length === 0) {
     throw new BadRequestError(
       `Please provide these ${neededKeys.join(" ")} fields to create comment `,
@@ -83,7 +85,9 @@ const createCmt = async (req, res) => {
     data.dislike = dislike;
   }
   const session = await mongoose.startSession();
+
   session.startTransaction();
+
   try {
     const cmt = await Comment.create([data], { session });
     await session.commitTransaction();
@@ -342,45 +346,29 @@ const updateCmt = async (req, res) => {
     throw new BadRequestError("There is nothing to update.");
   }
 
-  const updatedKey = ["cmtText", "like", "dislike"];
+  try {
+    const foundedCmt = await Comment.findById(id);
 
-  let updateData = {};
+    const updateDatas = new CommentValidator(
+      req.body,
+      foundedCmt,
+    ).getValidatedUpdateData();
 
-  let emptyList = [];
+    const cmt = await Comment.updateOne({ _id: id }, updateDatas);
 
-  let notAllowValue = [];
-
-  for (const [key, value] of Object.entries(req.body)) {
-    if (updatedKey.includes(key)) {
-      if (value === "") {
-        emptyList.push(key);
-      } else {
-        updateData[key] = value;
-      }
-    } else {
-      notAllowValue.push(key);
+    if (cmt.modifiedCount === 0) {
+      throw new InternalServerError(`Failed to update comment`);
     }
+
+    res.status(StatusCodes.OK).json({ msg: "Comment updated" });
+  } catch (error) {
+    if (error instanceof InvalidError) {
+      return res
+        .status(StatusCodes.BAD_REQUEST)
+        .json({ errors: error.errorObj });
+    }
+    throw error;
   }
-
-  if (notAllowValue.length > 0) {
-    throw new BadRequestError(
-      `The comment cannot contain the following fields: ${notAllowValue.join(
-        ", ",
-      )}`,
-    );
-  }
-
-  if (emptyList.length > 0) {
-    throw new BadRequestError(`${emptyList.join(", ")} cannot be empty`);
-  }
-
-  const cmt = await Comment.updateOne({ _id: id }, updateData);
-
-  if (cmt.modifiedCount === 0) {
-    throw new InternalServerError(`Failed to update comment`);
-  }
-
-  res.status(StatusCodes.OK).json({ msg: "Comment updated" });
 };
 
 const deleteCmt = async (req, res) => {

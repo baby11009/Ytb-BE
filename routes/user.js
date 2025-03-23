@@ -1,58 +1,27 @@
 const express = require("express");
 
+const userRouter = require("./user/user");
+const videoRouter = require("./user/video");
+const playlistRouter = require("./user/playlist");
+const commentRouter = require("./user/comment");
+const videoReactRouter = require("./user/video-react");
+const commentReactRouter = require("./user/comment-react");
+const subscriptionRouter = require("./user/subscription");
+
 const router = express.Router();
 
-const {
-  createMulterUpload,
-  multerErrorHandling,
-  fileLimitSizeMiddleware,
-} = require("../middlewares");
+router.use("/user", userRouter);
 
-const {
-  createUser,
-  getUsers,
-  getUserDetails,
-  deleteUser,
-  deleteManyUsers,
-  updateUser,
-  testDlt,
-} = require("../controllers/user/user");
+router.use("/video", videoRouter);
 
-router
-  .route("/")
-  .get(getUsers)
-  .post(
-    createMulterUpload("user avatar").fields([
-      { name: "avatar", maxCount: 1 },
-      { name: "banner", maxCount: 1 },
-    ]),
-    multerErrorHandling,
-    async (req, res, next) => {
-      fileLimitSizeMiddleware(req, res, next, {
-        avatar: 4,
-        banner: 6,
-      });
-    },
-    createUser,
-  );
+router.use("/playlist", playlistRouter);
 
-router.route("/delete-many").delete(deleteManyUsers);
-router.route("/test").delete(testDlt);
+router.use("/comment", commentRouter);
 
-router
-  .route("/:id")
-  .get(getUserDetails)
-  .delete(deleteUser)
-  .patch(
-    createMulterUpload("user avatar").fields([
-      { name: "avatar", maxCount: 1 },
-      { name: "banner", maxCount: 1 },
-    ]),
-    multerErrorHandling,
-    async (req, res, next) => {
-      fileLimitSizeMiddleware(req, res, next, { avatar: 4, banner: 6 });
-    },
-    updateUser,
-  );
+router.use("/video-react", videoReactRouter);
+
+router.use("/comment-react", commentReactRouter);
+
+router.use("/subscription", subscriptionRouter);
 
 module.exports = router;

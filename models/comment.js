@@ -1,7 +1,5 @@
 const mongoose = require("mongoose");
 
-const { NotFoundError, BadRequestError } = require("../errors");
-
 const Comment = new mongoose.Schema(
   {
     user_id: {
@@ -10,7 +8,7 @@ const Comment = new mongoose.Schema(
     },
     video_id: {
       type: mongoose.Types.ObjectId,
-      required: [true, "Please provide video ID"],  
+      required: [true, "Please provide video ID"],
     },
     replied_user_id: {
       type: mongoose.Types.ObjectId,

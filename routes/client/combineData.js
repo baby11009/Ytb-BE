@@ -9,7 +9,7 @@ const {
   getVideoCmts,
   getRandomShorts,
   getPlaylistDetails,
-} = require("../controllers/client/combineData");
+} = require("../../controllers/client/combineData");
 
 const router = express.Router();
 

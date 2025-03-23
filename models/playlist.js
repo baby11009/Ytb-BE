@@ -83,7 +83,7 @@ const Playlist = new mongoose.Schema(
         message: "privacy not suppoting {VALUE}",
       },
       required: function () {
-        return this.type === "playlist"; // Chỉ bắt buộc nếu type là 'playlist'
+        return this.type === "playlist";
       },
     },
   },

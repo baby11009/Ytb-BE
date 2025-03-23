@@ -2,7 +2,6 @@ const mongoose = require("mongoose");
 const User = require("./user");
 const path = require("path");
 const asssetPath = path.join(__dirname, "../assets");
-const { deleteFile } = require("../utils/file");
 const { clearUploadedVideoFiles } = require("../utils/clear");
 
 const Video = new mongoose.Schema(
@@ -163,13 +162,13 @@ Video.pre("deleteMany", async function () {
         }
 
         // Delete video and thumbnail belong to this video
-        // const videoPath = path.join(asssetPath, "videos", video.video);
-        // const imagePath = path.join(asssetPath, "video thumb", video.thumb);
-        // let args = { videoPath, imagePath };
-        // if (video?.stream) {
-        //   args.streamFolderName = video.stream;
-        // }
-        // await clearUploadedVideoFiles(args);
+        const videoPath = path.join(asssetPath, "videos", video.video);
+        const imagePath = path.join(asssetPath, "video thumb", video.thumb);
+        let args = { videoPath, imagePath };
+        if (video?.stream) {
+          args.streamFolderName = video.stream;
+        }
+        await clearUploadedVideoFiles(args);
 
         // Delete all the React belong to videos
         const reactCount = await React.countDocuments(
@@ -207,4 +206,5 @@ Video.pre("deleteMany", async function () {
     }
   }
 });
+
 module.exports = mongoose.model("Video", Video);

@@ -7,7 +7,6 @@ const helmet = require("helmet");
 const cors = require("cors");
 const connectDb = require("./db/connect");
 const { init } = require("./socket");
-const { User, Playlist } = require("./models");
 const {
   authMiddleware,
   notFoundMiddleware,
@@ -18,15 +17,11 @@ const {
 
 const {
   authRouter,
-  userRouter,
   fileRouter,
-  videoRouter,
-  commentRouter,
-  playlistRouter,
-  tagRouter,
   combineRouter,
-  clientRouter,
   redisRouter,
+  adminRouter,
+  userRouter,
 } = require("./routes");
 
 app.use(cors());
@@ -38,30 +33,17 @@ app.get("/", (req, res) => {
   res.send("Hello, world!");
 });
 
-// Admin
-app.use("/api/v1/admin", authMiddleware, permissionMiddleware);
 // Client
-app.use("/api/v1/client", authMiddleware, clientRouter);
-
-// Both site
 app.use("/api/v1/auth", authRouter);
 app.use("/api/v1/file", fileRouter);
-
-// User site
 app.use("/api/v1/data", getAccountInfoMiddleware, combineRouter);
 app.use("/api/v1/redis", redisRouter);
 
-// Admin site
-app.use("/api/v1/user", authMiddleware, permissionMiddleware, userRouter);
-app.use("/api/v1/tag", authMiddleware, permissionMiddleware, tagRouter);
-app.use("/api/v1/video", authMiddleware, permissionMiddleware, videoRouter);
-app.use("/api/v1/comment", authMiddleware, permissionMiddleware, commentRouter);
-app.use(
-  "/api/v1/playlist",
-  authMiddleware,
-  permissionMiddleware,
-  playlistRouter,
-);
+// Admin
+app.use("/api/v1/admin", authMiddleware, permissionMiddleware, adminRouter);
+
+// User
+app.use("/api/v1/user", authMiddleware, userRouter);
 
 app.use(notFoundMiddleware);
 app.use(errorHandlerMiddleware);

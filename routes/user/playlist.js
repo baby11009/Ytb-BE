@@ -1,5 +1,4 @@
 const express = require("express");
-
 const {
   createPlaylist,
   getPlaylists,
@@ -7,13 +6,13 @@ const {
   updatePlaylist,
   deletePlaylist,
   deleteManyPlaylist,
-} = require("../controllers/playlist/playlist");
+} = require("../../controllers/user/playlist");
 
 const router = express.Router();
 
 router.route("/").get(getPlaylists).post(createPlaylist);
 
-router.route("/delete-many").delete(deleteManyPlaylist);
+router.post("/delete-many", deleteManyPlaylist);
 
 router
   .route("/:id")

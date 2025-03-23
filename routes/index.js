@@ -1,23 +1,20 @@
-const authRouter = require("./auth");
+// Client
+const authRouter = require("./auth/auth");
+const fileRouter = require("./client/file");
+const redisRouter = require("./client/redis");
+const combineRouter = require("./client/combineData");
+
+// Admin
+const adminRouter = require("./admin");
+
+// User
 const userRouter = require("./user");
-const fileRouter = require("./file");
-const videoRouter = require("./video");
-const commentRouter = require("./comment");
-const playlistRouter = require("./playlist");
-const tagRouter = require("./tag");
-const combineRouter = require("./combineData");
-const clientRouter = require("./client");
-const redisRouter = require("./redis");
 
 module.exports = {
+  adminRouter,
   authRouter,
-  userRouter,
   fileRouter,
-  videoRouter,
-  commentRouter,
-  playlistRouter,
-  tagRouter,
   combineRouter,
-  clientRouter,
-  redisRouter
+  userRouter,
+  redisRouter,
 };

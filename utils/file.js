@@ -2,20 +2,6 @@ const fs = require("fs");
 const { getVideoDurationInSeconds } = require("get-video-duration");
 const path = require("path");
 
-// const deleteFile = async (filePath) => {
-//   try {
-//     if (fs.existsSync(filePath)) {
-//       await fs.promises.unlink(filePath); // Deletes the file
-//       console.log(`File ${filePath} deleted successfully.`);
-//     } else {
-//       throw new Error("File not exited");
-//     }
-//   } catch (err) {
-//     console.error(`Error deleting file ${filePath}:`, err.message);
-//     throw err;
-//   }
-// };
-
 const deleteFile = async (filePath) => {
   try {
     // Sử dụng fs.promises.access để kiểm tra quyền truy cập file
@@ -67,7 +53,7 @@ const deleteFolderWithSameName = async (startPath, folderName) => {
       if (item === folderName) {
         // Nếu tên thư mục trùng khớp, xóa nó
         fs.rmSync(fullPath, { recursive: true, force: true });
-        console.log(`Đã xóa folder: ${fullPath}`);
+        console.log(`Folder deleted: ${fullPath}`);
       } else {
         // Nếu không, tiếp tục tìm kiếm trong thư mục con
         deleteFolderWithSameName(fullPath, folderName);

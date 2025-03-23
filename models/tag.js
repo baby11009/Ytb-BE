@@ -6,7 +6,7 @@ const Tag = new mongoose.Schema(
       type: String,
       required: [true, "Please provide a title for the tag"],
       unique: true,
-      minLength: 5,
+      minLength: 3,
       maxLength: 30,
       unique: true,
     },
@@ -22,5 +22,17 @@ const Tag = new mongoose.Schema(
   },
   { timestamps: true },
 );
+
+Tag.pre(["findOneAndUpdate", "updateOne"], function () {
+  const update = this.getUpdate();
+
+  if (update.title) {
+    this.setUpdate({
+      ...update,
+      slug: update.title.toLowerCase().replace(/[^\w]+/g, "-"),
+    });
+  }
+  
+});
 
 module.exports = mongoose.model("Tag", Tag);

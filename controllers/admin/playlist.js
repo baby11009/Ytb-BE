@@ -1,8 +1,9 @@
-const { Playlist, Video, User } = require("../../models");
+const { Playlist, User } = require("../../models");
 const {
   BadRequestError,
   NotFoundError,
   ForbiddenError,
+  InvalidError,
 } = require("../../errors");
 const { StatusCodes } = require("http-status-codes");
 const { searchWithRegex, isObjectEmpty } = require("../../utils/other");
@@ -22,6 +23,7 @@ const createPlaylist = async (req, res) => {
     created_user_id: userId,
     title,
     itemList: videoIdList,
+    type: "playlist",
     privacy,
   });
 
@@ -385,39 +387,51 @@ const getPlaylistDetails = async (req, res) => {
 const updatePlaylist = async (req, res) => {
   const { id } = req.params;
 
-  if (!id || id === "") {
-    throw new BadRequestError("Please provide playlist id to update");
-  }
-
-  const bodyData = req.body;
-
-  if (Object.keys(bodyData).length < 1) {
-    throw new BadRequestError("Please provide at least one data to update");
-  }
-
-  const foundedPlaylist = await Playlist.findById(id);
-
-  if (!foundedPlaylist) {
-    throw new NotFoundError("Playlist not found");
-  }
-
-  const bulkWrites = await new PlaylistValidator(
-    bodyData,
-    foundedPlaylist,
-  ).getValidatedUpdateData();
-
   let session;
+
   try {
+    if (!id || id === "") {
+      throw new BadRequestError("Please provide playlist id to update");
+    }
+
+    if (Object.keys(req.body).length < 1) {
+      throw new BadRequestError("Please provide at least one data to update");
+    }
+
+    const foundedPlaylist = await Playlist.findById(id);
+
+    if (!foundedPlaylist) {
+      throw new NotFoundError("Playlist not found");
+    }
+
+    const bulkWrites = await new PlaylistValidator(
+      req.body,
+      foundedPlaylist,
+    ).getValidatedUpdateData();
+
     session = await mongoose.startSession();
+
     session.startTransaction();
+
     await Playlist.bulkWrite(bulkWrites, { session });
+
     await session.commitTransaction();
+
     res.status(StatusCodes.OK).json({ msg: "Playlist updated successfullly" });
   } catch (error) {
-    await session.abortTransaction();
+    if (session) {
+      await session.abortTransaction();
+    }
+    if (error instanceof InvalidError) {
+      return res
+        .status(StatusCodes.BAD_REQUEST)
+        .json({ errors: error.errorObj });
+    }
     throw error;
   } finally {
-    session.endSession();
+    if (session) {
+      session.endSession();
+    }
   }
 };
 

@@ -1,19 +1,29 @@
 const { Tag } = require("../../models");
 const { StatusCodes } = require("http-status-codes");
-const { BadRequestError, NotFoundError } = require("../../errors");
+const {
+  BadRequestError,
+  NotFoundError,
+  InvalidError,
+} = require("../../errors");
 const { deleteFile } = require("../../utils/file");
 const path = require("path");
 const { mongoose } = require("mongoose");
 const { searchWithRegex, isObjectEmpty } = require("../../utils/other");
-
+const { TagValidator } = require("../../utils/validate");
 const iconPath = path.join(__dirname, "../../assets/tag icon");
 
 const createTag = async (req, res) => {
   try {
-    if (Object.keys(req.body).length === 0) {
+    if (
+      Object.keys(req.body).length === 0 ||
+      req.files?.icon ||
+      req.files.icon.length
+    ) {
       throw new BadRequestError("Please provide data to register");
     }
+
     const { title } = req.body;
+
     const foundedTag = await Tag.findOne({ title: title });
 
     if (foundedTag) {
@@ -23,17 +33,14 @@ const createTag = async (req, res) => {
     const data = {
       title: title,
       slug: title.toLowerCase().replace(/[^\w]+/g, "-"),
+      icon: req.files.image[0].filename,
     };
-
-    if (req.files.image) {
-      data.icon = req.files.image[0].filename;
-    }
 
     const tag = await Tag.create(data);
     res.status(StatusCodes.CREATED).json({ data: tag });
   } catch (error) {
-    if (req.files.image) {
-      const imgPath = path.join(iconPath, req.files.image[0].filename);
+    if (req.files?.icon && req.files.icon.length) {
+      const imgPath = path.join(iconPath, req.files.icon && [0].filename);
       deleteFile(imgPath);
     }
     throw error;
@@ -148,9 +155,7 @@ const updateTag = async (req, res) => {
     throw new BadRequestError("Please provide tag ID");
   }
 
-  const bodyKeys = Object.keys(req.body);
-
-  if (!req.files?.image && bodyKeys.length < 1) {
+  if (!req.files?.icon && Object.keys(req.body) < 1) {
     throw new BadRequestError("Please provide data to update");
   }
 
@@ -160,40 +165,20 @@ const updateTag = async (req, res) => {
     throw new NotFoundError(`Cannot find tag with id ${id}`);
   }
 
-  const updateDatas = {};
-
-  const updateBodyHandler = {
-    title: (title) => {
-      if (!title || typeof title !== "string") {
-        throw new BadRequestError("Title must be a non-empty string");
-      }
-      if (foundedTag.title === title) {
-        throw new BadRequestError("Tag's title is still the same");
-      }
-      updateDatas.title = title;
-    },
-  };
-
-  for (const key of bodyKeys) {
-    if (updateBodyHandler[key]) {
-      updateBodyHandler[key](req.body[key]);
-    }
-  }
-
-  if (req.files && req.files?.image) {
-    updateDatas.icon = req.files.image[0].filename;
-  }
-
-  if (Object.keys(updateDatas).length < 1) {
-    throw new BadRequestError("No data to update");
-  }
-
   try {
+    const updateDatas = new TagValidator(
+      {
+        ...req.body,
+        ...req.files,
+      },
+      foundedTag,
+    ).getValidatedUpdateData();
+
     const tagData = await Tag.findOneAndUpdate({ _id: id }, updateDatas, {
       new: true,
     }).select("-__v");
 
-    if (req.files && req.files?.image) {
+    if (req.files?.icon && req.files.icon.length) {
       const imgPath = path.join(iconPath, foundedTag.icon);
       await deleteFile(imgPath);
     }
@@ -202,9 +187,14 @@ const updateTag = async (req, res) => {
       .status(StatusCodes.OK)
       .json({ msg: "Tag updated successfully", data: tagData });
   } catch (error) {
-    if (req.files && req.files?.image) {
-      const imgPath = path.join(iconPath, req.files.image[0].filename);
-      deleteFile(imgPath);
+    if (req.files?.icon && req.files.icon.length) {
+      deleteFile(req.files.icon[0].path);
+    }
+
+    if (error instanceof InvalidError) {
+      return res
+        .status(StatusCodes.BAD_REQUEST)
+        .json({ errors: error.errorObj });
     }
     throw error;
   }

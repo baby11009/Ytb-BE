@@ -5,7 +5,13 @@ const fs = require("fs");
 const assetsPath = path.join(__dirname, "../assets");
 
 const fileFilter = (req, file, cb) => {
-  const validImageFieldNames = ["image", "thumbnail", "banner", "avatar"];
+  const validImageFieldNames = [
+    "image",
+    "thumbnail",
+    "banner",
+    "avatar",
+    "icon",
+  ];
   if (
     validImageFieldNames.includes(file.fieldname) &&
     file.mimetype.startsWith("image/")

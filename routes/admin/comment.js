@@ -8,7 +8,7 @@ const {
   updateCmt,
   deleteCmt,
   deleteManyCmt,
-} = require("../controllers/comment/comment");
+} = require("../../controllers/admin/comment");
 
 router.route("/").post(createCmt).get(getCmts);
 

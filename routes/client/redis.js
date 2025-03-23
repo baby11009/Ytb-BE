@@ -1,5 +1,5 @@
 const express = require("express");
-const { removeRedisKey } = require("../controllers/redis/redis.js");
+const { removeRedisKey } = require("../../controllers/client/redis");
 
 const router = express.Router();
 

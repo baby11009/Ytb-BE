@@ -1,4 +1,4 @@
-const { User, Video, Comment, CmtReact } = require("../../models");
+const { User, Video, Comment, CmtReact } = require("../../models/index.js");
 const { StatusCodes } = require("http-status-codes");
 const { getIo } = require("../../socket.js");
 const mongoose = require("mongoose");
@@ -7,7 +7,7 @@ const {
   NotFoundError,
   BadRequestError,
   InternalServerError,
-} = require("../../errors");
+} = require("../../errors/index.js");
 
 const createCmt = async (req, res) => {
   const neededKeys = ["videoId", "cmtText"];
@@ -136,7 +136,7 @@ const createCmt = async (req, res) => {
         },
       },
     ]);
-    
+
     let event = `create-comment-${userId}`;
     if (replyId) {
       event = `create-reply-comment-${userId}`;

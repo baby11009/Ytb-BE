@@ -7,7 +7,7 @@ const {
   handleStreamVideoOptions,
   handleStreamVideo,
   handleStreamVideoSegment,
-} = require("../controllers/file/file");
+} = require("../../controllers/client/file");
 
 router.route("/avatar/:name").get(async (req, res) => {
   try {

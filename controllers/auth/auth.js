@@ -31,14 +31,14 @@ const register = async (req, res) => {
     codeExpires: confirmCodeExpires,
   };
 
-  const user = await User.create(userData);
+  await User.create(userData);
 
   await sendEmailConfirm(
     email,
     "Account confirmation email",
     `
     <h1>Your confirmation code is ${confirmCode}</h1>
-    `
+    `,
   );
 
   res
@@ -67,9 +67,9 @@ const verifyAccount = async (req, res) => {
     throw new BadRequestError("Confirmation code is wrong");
   }
 
-  const updatedUser = await User.updateOne(
+  await User.updateOne(
     { email },
-    { confirmed: true, codeType: "", privateCode: "" }
+    { confirmed: true, codeType: "", privateCode: "" },
   );
 
   res.status(StatusCodes.OK).send({ msg: "Account verification successful" });
@@ -95,7 +95,7 @@ const resendConfirmCode = async (req, res) => {
 
   const user = await User.updateOne(
     { email },
-    { privateCode: confirmCode, codeExpires: confirmCodeExpires }
+    { privateCode: confirmCode, codeExpires: confirmCodeExpires },
   );
 
   await sendEmailConfirm(email, confirmCode);
@@ -211,7 +211,7 @@ const sendConfirmCode = async (req, res) => {
       privateCode: confirmCode,
       codeType: type,
       codeExpires: expires,
-    }
+    },
   ).select("-password");
 
   await sendEmailConfirm(
@@ -220,7 +220,7 @@ const sendConfirmCode = async (req, res) => {
     `
     <h1>Your ${type} code is ${confirmCode}</h1>
     <p>The code will expire after 10 minutes</p>
-    `
+    `,
   );
 
   res.status(StatusCodes.OK).json({ msg: "Check your email to get code" });
@@ -249,7 +249,7 @@ const sendCode = async (req, res) => {
       privateCode: confirmCode,
       codeType: type,
       codeExpires: expires,
-    }
+    },
   ).select("-password");
 
   await sendEmailConfirm(
@@ -258,7 +258,7 @@ const sendCode = async (req, res) => {
     `
     <h1>Your ${type} code is ${confirmCode}</h1>
     <p>The code will expire after 10 minutes</p>
-    `
+    `,
   );
 
   res.status(StatusCodes.OK).json({ msg: "Check your email to get code" });
@@ -288,7 +288,7 @@ const changePassword = async (req, res) => {
 
   const user = await User.updateOne(
     { email },
-    { password, privateCode: "", codeType: "" }
+    { password, privateCode: "", codeType: "" },
   );
 
   let msg;
@@ -353,7 +353,7 @@ const resetPassword = async (req, res) => {
 
   const user = await User.updateOne(
     { email },
-    { password, privateCode: "", codeType: "" }
+    { password, privateCode: "", codeType: "" },
   );
 
   res.status(StatusCodes.OK).send({ msg: "Password reset successfully" });

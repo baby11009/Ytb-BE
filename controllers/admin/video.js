@@ -5,7 +5,11 @@ const path = require("path");
 
 const { StatusCodes } = require("http-status-codes");
 
-const { BadRequestError, NotFoundError } = require("../../errors");
+const {
+  BadRequestError,
+  NotFoundError,
+  InvalidError,
+} = require("../../errors");
 
 const { deleteFile, getVideoDuration } = require("../../utils/file");
 const { createHls } = require("../../utils/createhls");
@@ -14,7 +18,7 @@ const { clearUploadedVideoFiles } = require("../../utils/clear");
 const { searchWithRegex, isObjectEmpty } = require("../../utils/other");
 const { VideoValidator } = require("../../utils/validate");
 
-const asssetPath = path.join(__dirname, "../../assets");
+const videoFolderPath = path.join(__dirname, "../../assets/video thumb");
 
 const upLoadVideo = async (req, res) => {
   const { thumbnail, video } = req.files;
@@ -54,7 +58,7 @@ const upLoadVideo = async (req, res) => {
       throw new NotFoundError(`Not found user with id ${userId}`);
     }
 
-    const videoPath = video[0].path; // Đường dẫn đến video vừa upload
+    const videoPath = video[0].path;
     const filename = video[0].filename.split(".")[0];
 
     await createHls(filename, videoPath, type);
@@ -304,40 +308,53 @@ const getVideoDetails = async (req, res) => {
 const updateVideo = async (req, res) => {
   const { id } = req.params;
 
-  if (id === "" || id === ":id") {
-    throw new BadRequestError("Please provide video id");
+  try {
+    if (id === "" || id === ":id") {
+      throw new BadRequestError("Please provide video id");
+    }
+
+    if (Object.keys(req.body).length === 0 && !req.files.thumbnail) {
+      throw new BadRequestError("There is nothing to update.");
+    }
+
+    const foundedVideo = await Video.findById(id);
+
+    if (!foundedVideo) {
+      throw new NotFoundError(`Not found video with id ${id}`);
+    }
+
+    const updateDatas = await new VideoValidator(
+      {
+        ...req.body,
+        ...req.files,
+      },
+      foundedVideo,
+    ).getValidatedUpdateData();
+
+    const video = await Video.updateOne({ _id: id }, updateDatas);
+
+    if (video.modifiedCount === 0) {
+      throw new InternalServerError("Failed to update user");
+    }
+
+    if (req.files?.thumbnail && req.files?.thumbnail.length) {
+      const imgPath = path.join(videoFolderPath, video.thumb);
+      deleteFile(imgPath);
+    }
+
+    res.status(StatusCodes.OK).json({ msg: "Video updated successfully" });
+  } catch (error) {
+    if (req.files?.thumbnail && req.files?.thumbnail.length) {
+      deleteFile(req.files.thumbnail[0].path);
+    }
+
+    if (error instanceof InvalidError) {
+      return res
+        .status(StatusCodes.BAD_REQUEST)
+        .json({ errors: error.errorObj });
+    }
+    throw error;
   }
-
-  if (Object.keys(req.body).length === 0 && !req.files.thumbnail) {
-    throw new BadRequestError("There is nothing to update.");
-  }
-
-  const foundedVideo = await Video.findById(id);
-
-  if (!foundedVideo) {
-    throw new NotFoundError(`Not found video with id ${id}`);
-  }
-
-  const updateDatas = await new VideoValidator(
-    {
-      ...req.body,
-      ...req.files,
-    },
-    foundedVideo,
-  ).getValidatedUpdateData();
-
-  const video = await Video.updateOne(id, updateDatas);
-
-  if (video.modifiedCount === 0) {
-    throw new InternalServerError("Failed to update user");
-  }
-
-  if (req.files?.thumbnail && req.files?.thumbnail[0]) {
-    const imgPath = path.join(asssetPath, "video thumb", video.thumb);
-    deleteFile(imgPath);
-  }
-
-  res.status(StatusCodes.OK).json({ msg: "Video updated successfully" });
 };
 
 const deleteVideo = async (req, res) => {

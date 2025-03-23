@@ -1,48 +1,48 @@
 // Utility functions for type validation
-const { BadRequestError, NotFoundError, InvalidError } = require("../errors");
-const { Playlist, Video, Tag } = require("../models");
+const { BadRequestError, InvalidError, DataFieldError } = require("../errors");
+const { Video, Tag } = require("../models");
 
 const bcrypt = require("bcryptjs");
 
 class Validator {
   isString(fieldName, value) {
     if (typeof value !== "string") {
-      throw new Error(`${fieldName} must be a string`);
+      throw new DataFieldError(`${fieldName} must be a string`);
     }
     return true;
   }
 
   isBoolean(fieldName, value) {
     if (typeof value !== "boolean") {
-      throw new Error(`${fieldName} must be a boolean`);
+      throw new DataFieldError(`${fieldName} must be a boolean`);
     }
     return true;
   }
 
   isNumber(fieldName, value) {
     if (typeof value !== "number" || isNaN(value)) {
-      throw new Error(`${fieldName} must be a number`);
+      throw new DataFieldError(`${fieldName} must be a number`);
     }
     return true;
   }
 
   isInteger(fieldName, value) {
     if (Number.isInteger(value)) {
-      throw new Error(`${fieldName} must be an integer`);
+      throw new DataFieldError(`${fieldName} must be an integer`);
     }
     return true;
   }
 
   isArray(fieldName, value) {
     if (!Array.isArray(value)) {
-      throw new Error(`${fieldName} must be an array`);
+      throw new DataFieldError(`${fieldName} must be an array`);
     }
     return true;
   }
 
   isEnum(fieldName, allowedValues, value) {
     if (!allowedValues.includes(value)) {
-      throw new Error(
+      throw new DataFieldError(
         `${fieldName} must be one of: ${allowedValues.join(", ")}`,
       );
     }
@@ -51,7 +51,7 @@ class Validator {
 
   stringMinLength(fieldName, value, minLength) {
     if (value.trim().length < minLength) {
-      throw new Error(
+      throw new DataFieldError(
         `${fieldName} must be at least ${minLength} characters long`,
       );
     }
@@ -59,19 +59,33 @@ class Validator {
 
   stringMaxLength(fieldName, value, maxLength) {
     if (value.trim().length > maxLength) {
-      throw new Error(`${fieldName} must not exceed ${maxLength} characters`);
+      throw new DataFieldError(
+        `${fieldName} must not exceed ${maxLength} characters`,
+      );
+    }
+  }
+
+  numberMin(fieldName, value, min) {
+    if (value < min) {
+      throw new DataFieldError(`${fieldName} cannot be less than ${min}`);
+    }
+  }
+
+  numberMax(fieldName, value, max) {
+    if (value > max) {
+      throw new DataFieldError(`${fieldName} cannot be greater than ${max}`);
     }
   }
 
   isNotTheSame(fieldName, newValue, oldValue) {
     if (JSON.stringify(newValue) === JSON.stringify(oldValue)) {
-      throw new Error(`New ${fieldName} value is still the same`);
+      throw new DataFieldError(`New ${fieldName} value is still the same`);
     }
   }
 
   isImageFile(fieldName, file) {
     if (typeof file !== "object" || !file.mimetype.startsWith("image/")) {
-      throw new Error(`${fieldName} must be an image file`);
+      throw new DataFieldError(`${fieldName} must be an image file`);
     }
   }
 }
@@ -92,10 +106,13 @@ class UserValidator {
   ];
   #errors = {};
 
-  constructor(data, currentData) {
+  constructor(data, currentData, allowedFields) {
     this.#data = data;
     this.#currentData = currentData;
     this.#validator = new Validator();
+    if (allowedFields) {
+      this.#allowedFields = allowedFields;
+    }
   }
 
   #sanitizeData() {
@@ -138,14 +155,22 @@ class UserValidator {
       );
 
       if (isMatch) {
-        throw new Error("New password is the same as the old password");
+        throw new DataFieldError(
+          "New password is the same as the old password",
+        );
       }
 
       const salt = await bcrypt.genSalt(10);
+
       const newPassword = await bcrypt.hash(this.#data.password, salt);
       return newPassword;
     } catch (error) {
-      this.#errors.password = error.message;
+      if (error instanceof DataFieldError) {
+        this.#errors.password = error.message;
+        return;
+      }
+
+      throw error;
     }
   }
 
@@ -203,14 +228,6 @@ class UserValidator {
     }
   }
 
-  checkAndGetErros() {
-    if (Object.keys(this.#errors).length > 0) {
-      return this.#errors;
-    }
-
-    return undefined;
-  }
-
   async getValidatedUpdateData() {
     this.#sanitizeData();
 
@@ -247,8 +264,6 @@ class UserValidator {
       updateDatas[field] = await validators[field]();
     }
 
-    console.log("validate.js", this.#errors);
-
     if (Object.keys(this.#errors).length > 0) {
       throw new InvalidError(this.#errors);
     }
@@ -273,10 +288,13 @@ class VideoValidator {
   ];
   #errors = {};
 
-  constructor(data, currentData) {
+  constructor(data, currentData, allowedFields) {
     this.#data = data;
     this.#currentData = currentData;
     this.#validator = new Validator();
+    if (allowedFields) {
+      this.#allowedFields = allowedFields;
+    }
   }
 
   #sanitizeData() {
@@ -376,7 +394,12 @@ class VideoValidator {
 
       return this.#data.tags;
     } catch (error) {
-      this.#errors.tags = error.message;
+      if (error instanceof DataFieldError) {
+        this.#errors.password = error.message;
+        return;
+      }
+
+      throw error;
     }
   }
 
@@ -440,6 +463,115 @@ class VideoValidator {
       updateDatas[field] = await validators[field]();
     }
 
+    if (Object.keys(this.#errors).length > 0) {
+      throw new InvalidError(this.#errors);
+    }
+
+    return updateDatas;
+  }
+}
+
+class CommentValidator {
+  #data;
+  #currentData;
+  #validator;
+  #allowedFields = ["cmtText", "like", "dislike"];
+  #errors = {};
+
+  constructor(data, currentData, allowedFields) {
+    this.#data = data;
+    this.#currentData = currentData;
+    this.#validator = new Validator();
+    if (allowedFields) {
+      this.#allowedFields = allowedFields;
+    }
+  }
+
+  #sanitizeData() {
+    const invalidFields = Object.keys(this.#data).filter(
+      (field) => !this.#allowedFields.includes(field),
+    );
+
+    if (invalidFields.length > 0) {
+      throw new BadRequestError(
+        `Invalid fields in user update request: ${invalidFields.join(", ")}`,
+      );
+    }
+  }
+
+  #validateCmtText() {
+    try {
+      this.#validator.isString("cmtText", this.#data.cmtText);
+      this.#validator.stringMinLength("cmtText", this.#data.cmtText, 1);
+      this.#validator.isNotTheSame(
+        "cmtText",
+        this.#data.cmtText,
+        this.#currentData.cmtText,
+      );
+
+      return this.#data.cmtText;
+    } catch (error) {
+      this.#errors.cmtText = error.message;
+    }
+  }
+
+  #validateLike() {
+    try {
+      this.#validator.isNumber("like", this.#data.like);
+      this.#validator.numberMin("like", this.#data.like, 0);
+      this.#validator.isNotTheSame(
+        "like",
+        this.#data.like,
+        this.#currentData.like,
+      );
+
+      return this.#data.like;
+    } catch (error) {
+      this.#errors.like = error.message;
+    }
+  }
+
+  #validateDislike() {
+    try {
+      this.#validator.isNumber("dislike", this.#data.dislike);
+      this.#validator.numberMin("dislike", this.#data.dislike, 0);
+      this.#validator.isNotTheSame(
+        "dislike",
+        this.#data.dislike,
+        this.#currentData.dislike,
+      );
+
+      return this.#data.dislike;
+    } catch (error) {
+      this.#errors.dislike = error.message;
+    }
+  }
+
+  getValidatedUpdateData() {
+    this.#sanitizeData();
+
+    const validators = {
+      cmtText: () => {
+        return this.#validateCmtText();
+      },
+      like: () => {
+        return this.#validateLike();
+      },
+      dislike: () => {
+        return this.#validateDislike();
+      },
+    };
+
+    const updateDatas = {};
+
+    for (const field in this.#data) {
+      updateDatas[field] = validators[field]();
+    }
+
+    if (Object.keys(this.#errors).length > 0) {
+      throw new InvalidError(this.#errors);
+    }
+
     return updateDatas;
   }
 }
@@ -453,11 +585,15 @@ class PlaylistValidator {
     watch_later: ["videoIdList"],
     history: ["videoIdList"],
   };
+  #errors = {};
 
-  constructor(data, currentData) {
+  constructor(data, currentData, allowedFields) {
     this.#data = data;
     this.#currentData = currentData;
     this.#validator = new Validator();
+    if (allowedFields) {
+      this.#allowedFields = allowedFields;
+    }
   }
   #sanitizeData() {
     const allowedFieldsForType = this.#allowedFields[this.#currentData.type];
@@ -482,77 +618,91 @@ class PlaylistValidator {
   }
 
   #validateTitle() {
-    this.#validator.isString("title", this.#data.title);
+    try {
+      this.#validator.isString("title", this.#data.title);
 
-    this.#validator.stringMinLength("title", this.#data.title, 1);
+      this.#validator.stringMinLength("title", this.#data.title, 1);
 
-    this.#validator.stringMaxLength("title", this.#data.title, 200);
+      this.#validator.stringMaxLength("title", this.#data.title, 200);
 
-    this.#validator.isNotTheSame(
-      "title",
-      this.#data.title,
-      this.#currentData.title,
-    );
+      this.#validator.isNotTheSame(
+        "title",
+        this.#data.title,
+        this.#currentData.title,
+      );
 
-    return this.#data.title;
+      return this.#data.title;
+    } catch (error) {
+      this.#errors.title = error.message;
+    }
   }
 
   #validatePrivacy() {
-    this.#validator.isEnum(
-      "privacy",
-      ["private", "public"],
-      this.#data.privacy,
-    );
+    try {
+      this.#validator.isEnum(
+        "privacy",
+        ["private", "public"],
+        this.#data.privacy,
+      );
 
-    this.#validator.isNotTheSame(
-      "privacy",
-      this.#data.privacy,
-      this.#currentData.privacy,
-    );
+      this.#validator.isNotTheSame(
+        "privacy",
+        this.#data.privacy,
+        this.#currentData.privacy,
+      );
 
-    return this.#data.privacy;
+      return this.#data.privacy;
+    } catch (error) {
+      this.#errors.privacy = error.message;
+    }
   }
 
   async #validateVideoIdList() {
-    this.#validator.isArray("videoIdList", this.#data.videoIdList);
+    try {
+      this.#validator.isArray("videoIdList", this.#data.videoIdList);
 
-    if (this.#data.videoIdList.length > 0) {
-      const foundedVideos = await Video.aggregate([
-        {
-          $set: {
-            _idStr: { $toString: "$_id" },
-          },
-        },
-        { $match: { _idStr: { $in: this.#data.videoIdList } } },
-        { $group: { _id: null, idsFound: { $push: "$_idStr" } } },
-        {
-          $project: {
-            _id: 1,
-            missingIds: {
-              $setDifference: [this.#data.videoIdList, "$idsFound"],
+      if (this.#data.videoIdList.length > 0) {
+        const foundedVideos = await Video.aggregate([
+          {
+            $set: {
+              _idStr: { $toString: "$_id" },
             },
           },
-        },
-      ]);
+          { $match: { _idStr: { $in: this.#data.videoIdList } } },
+          { $group: { _id: null, idsFound: { $push: "$_idStr" } } },
+          {
+            $project: {
+              _id: 1,
+              missingIds: {
+                $setDifference: [this.#data.videoIdList, "$idsFound"],
+              },
+            },
+          },
+        ]);
 
-      if (foundedVideos.length === 0) {
-        throw new NotFoundError(
-          `The following videos with id: ${this.#data.videoIdList.join(
-            ", ",
-          )} could not be found`,
-        );
+        if (foundedVideos.length === 0) {
+          throw new DataFieldError(
+            `The following videos with id: ${this.#data.videoIdList.join(
+              ", ",
+            )} could not be found`,
+          );
+        } else if (foundedVideos[0]?.missingIds?.length > 0) {
+          throw new DataFieldError(
+            `The following videos with id: ${foundedVideos[0].missingIds.join(
+              ", ",
+            )} could not be found`,
+          );
+        }
       }
 
-      if (foundedVideos[0]?.missingIds?.length > 0) {
-        throw new NotFoundError(
-          `The following videos with id: ${foundedVideos[0].missingIds.join(
-            ", ",
-          )} could not be found`,
-        );
+      return this.#data.videoIdList;
+    } catch (error) {
+      if (error instanceof DataFieldError) {
+        this.#errors.videoIdList = error.message;
+        return;
       }
+      throw error;
     }
-
-    return this.#data.videoIdList;
   }
 
   async getValidatedUpdateData() {
@@ -615,6 +765,10 @@ class PlaylistValidator {
       await validators[field]();
     }
 
+    if (Object.keys(this.#errors).length > 0) {
+      throw new InvalidError(this.#errors);
+    }
+
     if (Object.keys(updateDatas).length > 0) {
       bulkWrites.push({
         updateOne: {
@@ -628,8 +782,90 @@ class PlaylistValidator {
   }
 }
 
+class TagValidator {
+  #data;
+  #currentData;
+  #validator;
+  #allowedFields = ["title", "icon"];
+  #errors = {};
+
+  constructor(data, currentData, allowedFields) {
+    this.#data = data;
+    this.#currentData = currentData;
+    this.#validator = new Validator();
+    if (allowedFields) {
+      this.#allowedFields = allowedFields;
+    }
+  }
+
+  #sanitizeData() {
+    const invalidFields = Object.keys(this.#data).filter(
+      (field) => !this.#allowedFields.includes(field),
+    );
+
+    if (invalidFields.length > 0) {
+      throw new BadRequestError(
+        `Invalid fields in user update request: ${invalidFields.join(", ")}`,
+      );
+    }
+  }
+
+  #validateTitle() {
+    try {
+      this.#validator.isString("title", this.#data.title);
+      this.#validator.stringMinLength("title", this.#data.title, 3);
+      this.#validator.stringMaxLength("title", this.#data.title, 30);
+      this.#validator.isNotTheSame(
+        "title",
+        this.#data.title,
+        this.#currentData.title,
+      );
+
+      return this.#data.title;
+    } catch (error) {
+      this.#errors.title = error.message;
+    }
+  }
+
+  #validateIcon() {
+    try {
+      this.#validator.isImageFile("icon", this.#data.icon[0]);
+      return this.#data.icon[0].filename;
+    } catch (error) {
+      this.#errors.icon = error.message;
+    }
+  }
+
+  getValidatedUpdateData() {
+    this.#sanitizeData();
+
+    const validators = {
+      title: () => {
+        return this.#validateTitle();
+      },
+      icon: () => {
+        return this.#validateIcon();
+      },
+    };
+
+    const updateDatas = {};
+
+    for (const field in this.#data) {
+      updateDatas[field] = validators[field]();
+    }
+
+    if (Object.keys(this.#errors).length > 0) {
+      throw new InvalidError(this.#errors);
+    }
+
+    return updateDatas;
+  }
+}
+
 module.exports = {
   UserValidator,
   VideoValidator,
+  CommentValidator,
   PlaylistValidator,
+  TagValidator,
 };
