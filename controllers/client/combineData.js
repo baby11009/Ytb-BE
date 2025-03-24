@@ -15,9 +15,6 @@ const {
   setKeyExpire,
 } = require("../../utils/redis");
 
-// const redis = require("redis");
-// const client = redis.createClient();
-
 const { generateSessionId } = require("../../utils/generator");
 
 const getVideoList = async (req, res) => {

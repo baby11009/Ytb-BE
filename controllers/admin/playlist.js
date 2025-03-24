@@ -7,7 +7,7 @@ const {
 } = require("../../errors");
 const { StatusCodes } = require("http-status-codes");
 const { searchWithRegex, isObjectEmpty } = require("../../utils/other");
-const { PlaylistValidator } = require("../../utils/validate");
+const { PlaylistValidator, Validator } = require("../../utils/validate");
 const { default: mongoose } = require("mongoose");
 
 const createPlaylist = async (req, res) => {
@@ -38,6 +38,13 @@ const getPlaylists = async (req, res) => {
 
   const skip = (pageNumber - 1) * limitNumber;
 
+  const validator = new Validator();
+
+  const errors = {
+    invalidKey: [],
+    invalidValue: [],
+  };
+
   const searchObj = { type: { $ne: "liked" } };
 
   const searchEntries = Object.entries(search || {});
@@ -45,25 +52,40 @@ const getPlaylists = async (req, res) => {
   if (searchEntries.length > 0) {
     const searchFuncObj = {
       title: (title) => {
+        validator.isString("title", title);
         searchObj["title"] = searchWithRegex(title);
       },
       email: (email) => {
+        validator.isString("email", email);
+
         searchObj["user_info.email"] = searchWithRegex(email);
       },
       name: (name) => {
+        validator.isString("name", name);
+
         searchObj["user_info.name"] = searchWithRegex(name);
       },
       privacy: (privacy) => {
+        validator.isEnum("privacy", ["public", "private"], privacy);
         searchObj["privacy"] = privacy;
       },
       type: (type) => {
+        validator.isEnum("type", ["playlist", "watch_later", "history"], type);
+
         searchObj["type"] = type;
       },
     };
 
     for (const [key, value] of searchEntries) {
-      if (searchFuncObj[key] && value) {
+      if (!searchFuncObj[key]) {
+        errors.invalidKey.push(key);
+        continue;
+      }
+
+      try {
         searchFuncObj[key](value);
+      } catch (error) {
+        errors.invalidValue.push(key);
       }
     }
   }
@@ -75,10 +97,29 @@ const getPlaylists = async (req, res) => {
   if (sortEntries.length > 0) {
     const sortKeys = new Set(["createdAt", "updatedAt", "size"]);
 
+    const sortValueEnum = {
+      1: 1,
+      "-1": -1,
+    };
+
     for (const [key, value] of sortEntries) {
-      if (sortKeys.has(key)) {
-        sortObj[key] = Number(value);
+      if (!sortKeys.has(key)) {
+        errors.invalidKey(key);
+        continue;
       }
+
+      if (!sortValueEnum[value]) {
+        errors.invalidValue(value);
+        continue;
+      }
+
+      sortObj[key] = sortValueEnum[value];
+    }
+  }
+
+  for (const error in errors) {
+    if (errors[error].length > 0) {
+      return res.status(StatusCodes.BAD_REQUEST).json(errors);
     }
   }
 

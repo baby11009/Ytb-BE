@@ -1,17 +1,22 @@
 const { StatusCodes } = require("http-status-codes");
-const { BadRequestError } = require("../../errors");
+const {
+  BadRequestError,
+  InvalidError,
+  DataFieldError,
+} = require("../../errors");
 const { deleteFile } = require("../../utils/file");
 const path = require("path");
 const { Subscribe, User, Video, Playlist, React } = require("../../models");
 const avatarPath = path.join(__dirname, "../../assets/user avatar");
-const { UserValidator } = require("../../utils/validate");
+const { UserValidator, Validator } = require("../../utils/validate");
+const { isObjectEmpty } = require("../../utils/other");
 
 const getAccountInfo = async (req, res) => {
-  const id = req.user.userId;
+  const { userId } = req.user;
 
   const user = await User.aggregate([
     { $addFields: { _idStr: { $toString: "$_id" } } },
-    { $match: { _idStr: id } },
+    { $match: { _idStr: userId } },
     {
       $lookup: {
         from: "subscribes",
@@ -23,7 +28,7 @@ const getAccountInfo = async (req, res) => {
           },
           {
             $match: {
-              subscriber_idStr: id,
+              subscriber_idStr: userId,
             },
           },
           {
@@ -45,10 +50,7 @@ const getAccountInfo = async (req, res) => {
           },
           {
             $project: {
-              "channel_info._id": 1,
-              "channel_info.email": 1,
-              "channel_info.name": 1,
-              "channel_info.avatar": 1,
+              channel_info: 1,
             },
           },
         ],
@@ -78,88 +80,24 @@ const getAccountInfo = async (req, res) => {
 const settingAccount = async (req, res) => {
   const id = req.user.userId;
 
-  const { ...data } = req.body;
   try {
-    if (Object.keys(data).length === 0 && !req.files) {
+    if (Object.keys(req.body).length === 0 && !req.files) {
       throw new BadRequestError("No data provided to update");
     }
 
-    const foundedUser = await User.findOne({ _id: id }).select(
-      "name password role confirmed subscriber totalVids banner avatar description",
-    );
+    const foundedUser = await User.findOne({ _id: id });
 
     if (!foundedUser) {
       throw new NotFoundError("User not found");
     }
 
-    const notValidateFields = [];
+    const updateDatas = await new UserValidator(
+      { ...data, ...req.files },
+      foundedUser,
+      ["name", "password", "description", "avatar", "banner"],
+    ).getValidatedUpdateData();
 
-    const finalObject = {};
-
-    const sameValueFields = [];
-
-    const queryFuncObj = {
-      name: (value) => {
-        if (foundedUser.name === value) {
-          console.log(data);
-          sameValueFields.push("name");
-          return;
-        }
-        finalObject["name"] = value;
-      },
-      password: async (value) => {
-        const samePassword = await foundedUser.comparePassword(value);
-        if (samePassword) {
-          sameValueFields.push("password");
-        } else {
-          finalObject["password"] = value;
-        }
-      },
-      description: (value) => {
-        if (foundedUser.description === value) {
-          sameValueFields.push("description");
-          return;
-        }
-        finalObject["description"] = value;
-      },
-    };
-
-    if (Object.keys(data).length > 0) {
-      for (const [key, value] of Object.entries(data)) {
-        if (queryFuncObj[key]) {
-          const func = queryFuncObj[key];
-          if (func.constructor.name === "AsyncFunction") {
-            await func(value);
-          } else {
-            func(value);
-          }
-        } else {
-          notValidateFields.push(key);
-        }
-      }
-    }
-
-    if (notValidateFields.length > 0) {
-      throw new BadRequestError(
-        `Not accepted theses fields: ${notValidateFields.join(", ")}`,
-      );
-    }
-
-    if (sameValueFields.length > 0) {
-      throw new BadRequestError(
-        `These fields's value is still the same: ${sameValueFields.join(", ")}`,
-      );
-    }
-
-    if (req.files?.avatar) {
-      finalObject.avatar = req.files.avatar[0].filename;
-    }
-
-    if (req.files?.banner) {
-      finalObject.banner = req.files.banner[0].filename;
-    }
-
-    await User.updateOne({ _id: id }, finalObject);
+    await User.updateOne({ _id: id }, updateDatas);
 
     if (foundedUser.avatar !== "df.jpg" && finalObject.avatar) {
       deleteFile(path.join(avatarPath, foundedUser.avatar));
@@ -171,12 +109,18 @@ const settingAccount = async (req, res) => {
 
     res.status(StatusCodes.OK).json({ msg: "User updated successfully" });
   } catch (error) {
-    if (req.files?.avatar) {
+    if (req.files?.avatar && req.files.avatar.length) {
       deleteFile(req.files.avatar[0].path);
     }
 
-    if (req.files?.banner) {
+    if (req.files?.banner && req.files.banner.length) {
       deleteFile(req.files.banner[0].path);
+    }
+
+    if (error instanceof InvalidError) {
+      return res
+        .status(StatusCodes.BAD_REQUEST)
+        .json({ errors: error.errorObj });
     }
     throw error;
   }
@@ -190,33 +134,16 @@ const getSubscribedChannels = async (req, res) => {
     const dataPage = Number(page) || 1;
     const dataLimit = Number(limit) || 12;
     const skip = (dataPage - 1) * dataLimit;
+
     const pipeline = [
       {
         $addFields: {
           subscriber_idStr: { $toString: "$subscriber_id" },
         },
       },
-    ];
-
-    // Handle addfields if available or to extend the project
-    const addFieldsObj = {
-      subscriber_idStr: { $toString: "$subscriber_id" },
-    };
-
-    pipeline.push({
-      $addFields: addFieldsObj,
-    });
-
-    // Handle match object if available or to extend the project
-    const matchObj = {
-      subscriber_idStr: userId,
-    };
-
-    pipeline.push({
-      $match: matchObj,
-    });
-
-    pipeline.push(
+      {
+        $match: { subscriber_idStr: userId },
+      },
       {
         $lookup: {
           from: "users",
@@ -242,42 +169,47 @@ const getSubscribedChannels = async (req, res) => {
       {
         $unwind: "$channel_info",
       },
-    );
+    ];
 
     const sortObj = {};
-    if (sort && Object.keys(sort).length > 0) {
-      const sortEntries = {
-        createdAt: {
-          value: [1, -1],
-          cb: (value) => {
-            sortObj["createdAt"] = Number(value);
-          },
-        },
-        name: {
-          value: [1, -1],
-          cb: (value) => {
-            sortObj["name"] = Number(value);
-          },
-        },
-        newAct: {
-          value: [-1, 1],
-          cb: (value) => {
-            sortObj["channel_updatedAt"] = Number(value);
-          },
-        },
+
+    const sortEntries = Object.entries(sort || {});
+
+    const errors = {
+      invalidKey: [],
+      invalidValue: [],
+    };
+
+    if (sortEntries.length > 0) {
+      const sortKeys = new Set(["createdAt", "name", "channel_updatedAt"]);
+      const sortEnum = {
+        1: 1,
+        "-1": -1,
       };
-      for (const [key, value] of Object.entries(sort)) {
-        if (
-          sortEntries[key] &&
-          sortEntries[key].value.includes(Number(value))
-        ) {
-          sortEntries[key].cb(Number(value));
+
+      for (const [key, value] of sortEntries) {
+        if (!sortKeys.has(key)) {
+          errors.invalidKey.push(key);
+          continue;
         }
+
+        if (!sortEnum[value]) {
+          errors.invalidValue.push(key);
+          continue;
+        }
+
+        sortObj[key] = sortEnum[value];
       }
     }
 
-    if (Object.keys(sortObj).length < 1) {
-      sortObj["createdAt"] = -1; // Set default sort by createdAt if no sort field provided
+    for (const error in errors) {
+      if (errors[error].length > 0) {
+        return res.status(StatusCodes.BAD_REQUEST).json(errors);
+      }
+    }
+
+    if (isObjectEmpty(sortObj)) {
+      sortObj.createdAt = -1;
     }
 
     pipeline.push(
@@ -331,315 +263,331 @@ const getSubscribedChannels = async (req, res) => {
 };
 
 const getSubscribedChannelsVideos = async (req, res) => {
-  try {
-    const { userId } = req.user;
+  const { userId } = req.user;
 
-    const { page, limit, sort } = req.query;
+  const { page, limit, sort, search } = req.query;
 
-    const dataPage = Number(page) || 1;
-    const dataLimit = Number(limit) || 12;
-    const skip = (dataPage - 1) * dataLimit;
+  const dataPage = Number(page) || 1;
+  const dataLimit = Number(limit) || 12;
+  const skip = (dataPage - 1) * dataLimit;
 
-    const channels = await Subscribe.aggregate([
-      {
-        $addFields: {
-          subscriber_idStr: { $toString: "$subscriber_id" },
-        },
+  const channels = await Subscribe.aggregate([
+    {
+      $addFields: {
+        subscriber_idStr: { $toString: "$subscriber_id" },
       },
-      {
-        $match: {
-          subscriber_idStr: userId,
-        },
+    },
+    {
+      $match: {
+        subscriber_idStr: userId,
       },
-      {
-        $project: {
-          channel_id: 1,
-        },
+    },
+    {
+      $project: {
+        channel_id: 1,
       },
-    ]);
+    },
+  ]);
 
-    const resturnData = {
-      data: [],
-      qtt: 0,
-      totalQtt: 0,
-      currPage: dataPage,
-      totalPage: 0,
+  const resturnData = {
+    data: [],
+    qtt: 0,
+    totalQtt: 0,
+    currPage: dataPage,
+    totalPage: 0,
+  };
+
+  if (channels.length > 0) {
+    const channelIdList = channels.map((ch) => ch.channel_id);
+
+    const validator = new Validator();
+
+    const searchObj = {
+      type: "video",
+      user_id: { $in: channelIdList },
     };
 
-    if (channels.length > 0) {
-      const channelIdList = channels.map((ch) => ch.channel_id);
+    const searchEntries = Object.entries(search || {});
 
-      const pipeline = [];
-      const matchQueriese = Object.keys(req.query).filter(
-        (key) => key !== "page" && key !== "limit" && key !== "sort",
-      );
-      // handle addFields
+    const errors = {
+      invalidKey: [],
+      invalidValue: [],
+    };
 
-      // handle match
-      const matchObj = {
-        type: "video",
-        user_id: { $in: channelIdList },
+    if (searchEntries.length > 0) {
+      const searchFuncObj = {
+        type: (value) => {
+     
+            validator.isEnum("type",  ["short", "video"], value);
+
+            searchObj["type"] = value;
+         
+        },
       };
 
-      if (matchQueriese.length > 0) {
-        const matchFuncObj = {
-          type: (value) => {
-            const validValues = new Set(["short", "video"]);
+      for (const [key, value] of searchEntries) {
+        if (!searchFuncObj[key]) {
+          errors.invalidKey.push(key);
+          continue;
+        }
 
-            if (validValues.has(value)) {
-              matchObj["type"] = value;
-            }
-          },
-        };
-
-        matchQueriese.forEach((query) => {
-          if (matchFuncObj[query]) {
-            matchFuncObj[query](req.query[query]);
-          }
-        });
-      }
-
-      pipeline.push({
-        $match: matchObj,
-      });
-
-      const sortObj = {};
-      // handle sort
-      if (sort && Object.keys(sort).length > 0) {
-        const sortEntries = {
-          createdAt: [1, -1],
-        };
-
-        for (const [key, value] of Object.entries(sort)) {
-          if (sortEntries[key] && sortEntries[key].includes(value)) {
-            sortObj[key] = value;
-          }
+        try {
+          searchFuncObj[key](value);
+        } catch (error) {
+          errors.invalidValue.push(key);
         }
       }
-
-      if (Object.keys(sortObj).length < 1) {
-        sortObj.createdAt = -1;
-      }
-
-      pipeline.push(
-        {
-          $sort: sortObj,
-        },
-        {
-          $lookup: {
-            from: "users",
-            localField: "user_id",
-            foreignField: "_id",
-            pipeline: [
-              {
-                $project: {
-                  email: 1,
-                  name: 1,
-                  avatar: 1,
-                  subscriber: 1,
-                  description: 1,
-                },
-              },
-            ],
-            as: "channel_info",
-          },
-        },
-        {
-          $unwind: "$channel_info",
-        },
-        {
-          $project: {
-            _id: 1,
-            title: 1,
-            thumb: 1,
-            channel_info: 1,
-            createdAt: 1,
-            like: 1,
-            dislike: 1,
-            type: 1,
-            comment: 1,
-            view: 1,
-            duration: 1,
-            description: 1,
-            createdAt: 1,
-          },
-        },
-        {
-          $facet: {
-            totalFound: [{ $count: "count" }],
-            paginationData: [{ $skip: skip }, { $limit: dataLimit }],
-          },
-        },
-        {
-          $project: {
-            totalFound: { $arrayElemAt: ["$totalFound.count", 0] }, // Tổng số bản ghi tìm thấy
-            totalReturned: { $size: "$paginationData" }, // Tổng số trả về thực tế
-            data: "$paginationData",
-          },
-        },
-      );
-
-      const videos = await Video.aggregate(pipeline);
-
-      resturnData.data = videos[0].data;
-      resturnData.qtt = videos[0].totalReturned;
-      resturnData.totalQtt = videos[0].totalFound;
-      resturnData.totalPage = Math.ceil(videos[0].totalFound / dataLimit) || 0;
     }
 
-    res.status(StatusCodes.OK).json(resturnData);
-  } catch (error) {
-    console.error(error);
-    throw error;
-  }
-};
+    const sortObj = {};
 
-const getWatchLaterDetails = async (req, res) => {
-  try {
-    const { userId } = req.user;
+    const sortEntries = Object.entries(sort || {});
 
-    const { page, limit = 12, type } = req.query;
+    if (sortEntries.length > 0) {
+      const sortKeys = ["createdAt"];
+      const sortValueEnum = {
+        1: 1,
+        "-1": -1,
+      };
 
-    const dataPage = Number(page) || 1;
-    const dataLimit = Number(limit) || 12;
-    const skip = (dataPage - 1) * dataLimit;
+      for (const [key, value] of sortEntries) {
+        if (!sortKeys.includes(key)) {
+          errors.invalidKey.push(key);
+          continue;
+        }
 
-    const matchObj = {};
+        if (!sortValueEnum[value]) {
+          errors.invalidValue.push(key);
+          continue;
+        }
 
-    const matchType = ["video", "short"];
+        sortObj[key] = sortValueEnum[value];
+      }
+    }
 
-    if (matchType.includes(type)) {
-      matchObj.type = type;
+    for (const error in errors) {
+      if (errors[error].length > 0) {
+        return res.status(StatusCodes.BAD_REQUEST).json(errors);
+      }
+    }
+
+    if (Object.keys(sortObj).length < 1) {
+      sortObj.createdAt = -1;
     }
 
     const pipeline = [
       {
-        $addFields: {
-          created_user_idStr: { $toString: "$created_user_id" },
-          objectIdVideoList: {
-            $map: {
-              input: "$itemList",
-              as: "id",
-              in: { $toObjectId: "$$id" },
-            },
-          },
-        },
+        $match: searchObj,
       },
       {
-        $match: {
-          created_user_idStr: userId,
-          type: "watch_later",
-        },
+        $sort: sortObj,
       },
       {
         $lookup: {
-          from: "videos",
-          let: { videoIdList: "$objectIdVideoList" },
+          from: "users",
+          localField: "user_id",
+          foreignField: "_id",
           pipeline: [
-            {
-              $addFields: {
-                videoIdList: "$$videoIdList",
-                order: {
-                  $indexOfArray: ["$$videoIdList", "$_id"],
-                },
-              },
-            },
-            {
-              $match: {
-                $expr: { $in: ["$_id", "$videoIdList"] },
-                ...matchObj,
-              },
-            },
-          ],
-          as: "videos",
-        },
-      },
-      {
-        $addFields: {
-          count: { $size: "$videos" },
-        },
-      },
-      {
-        $lookup: {
-          from: "videos",
-          let: { videoIdList: "$objectIdVideoList" },
-          pipeline: [
-            {
-              $addFields: {
-                videoIdList: "$$videoIdList",
-                order: {
-                  $indexOfArray: ["$$videoIdList", "$_id"],
-                },
-              },
-            },
-            {
-              $match: {
-                $expr: { $in: ["$_id", "$videoIdList"] },
-                ...matchObj,
-              },
-            },
-            {
-              $sort: {
-                order: -1, // Sắp xếp theo thứ tự tăng dần của `order`
-              },
-            },
-            {
-              $skip: skip,
-            },
-            {
-              $limit: dataLimit,
-            },
-            {
-              $lookup: {
-                from: "users",
-                localField: "user_id",
-                foreignField: "_id",
-                pipeline: [{ $project: { name: 1, email: 1, avatar: 1 } }],
-                as: "channel_info",
-              },
-            },
-            {
-              $unwind: "$channel_info",
-            },
             {
               $project: {
-                _id: 1,
-                thumb: 1,
-                title: 1,
-                view: 1,
-                type: 1,
-                createdAt: 1,
-                duration: 1,
-                channel_info: 1,
+                email: 1,
+                name: 1,
+                avatar: 1,
+                subscriber: 1,
+                description: 1,
               },
             },
           ],
-          as: "video_list",
+          as: "channel_info",
         },
+      },
+      {
+        $unwind: "$channel_info",
       },
       {
         $project: {
           _id: 1,
           title: 1,
-          updatedAt: 1,
-          video_list: "$video_list",
-          size: { $size: "$itemList" },
-          count: 1,
+          thumb: 1,
+          channel_info: 1,
+          createdAt: 1,
+          like: 1,
+          dislike: 1,
+          type: 1,
+          comment: 1,
+          view: 1,
+          duration: 1,
+          description: 1,
+          createdAt: 1,
+        },
+      },
+      {
+        $facet: {
+          totalFound: [{ $count: "count" }],
+          paginationData: [{ $skip: skip }, { $limit: dataLimit }],
+        },
+      },
+      {
+        $project: {
+          totalFound: { $arrayElemAt: ["$totalFound.count", 0] }, // Tổng số bản ghi tìm thấy
+          totalReturned: { $size: "$paginationData" }, // Tổng số trả về thực tế
+          data: "$paginationData",
         },
       },
     ];
 
-    const playlist = await Playlist.aggregate(pipeline);
+    const videos = await Video.aggregate(pipeline);
 
-    res.status(StatusCodes.OK).json({
-      data: playlist[0],
-      currPage: dataPage,
-      totalPage: Math.ceil(playlist[0].count / dataLimit),
-    });
-  } catch (error) {
-    console.error(error);
-    throw error;
+    resturnData.data = videos[0].data;
+    resturnData.qtt = videos[0].totalReturned;
+    resturnData.totalQtt = videos[0].totalFound;
+    resturnData.totalPage = Math.ceil(videos[0].totalFound / dataLimit) || 0;
   }
+
+  res.status(StatusCodes.OK).json(resturnData);
+};
+
+const getWatchLaterDetails = async (req, res) => {
+  const { userId } = req.user;
+
+  const { page, limit = 12, search } = req.query;
+
+  const dataPage = Number(page) || 1;
+  const dataLimit = Number(limit) || 12;
+  const skip = (dataPage - 1) * dataLimit;
+
+  const searchObj = {};
+
+  const searchEntries = Object.entries(search || {});
+
+  const validator = new Validator();
+
+  const errors = { invalidKey: [], invalidValue: [] };
+
+  if (searchEntries.length > 0) {
+    const searchFuncObj = {
+      type: (type) => {
+        validator.isEnum("type", ["video", "short"], type);
+
+        searchObj.type = type;
+      },
+    };
+
+    for (const [key, value] of searchEntries) {
+      if (!searchFuncObj[key]) {
+        errors.invalidKey.push(key);
+        continue;
+      }
+
+      try {
+        searchFuncObj[key](value);
+      } catch (error) {
+        errors.invalidValue.push(key);
+      }
+    }
+  }
+
+  for (const error in errors) {
+    if (errors[error].length > 0) {
+      return res.status(StatusCodes.BAD_REQUEST).json(errors);
+    }
+  }
+
+  const pipeline = [
+    {
+      $addFields: {
+        created_user_idStr: { $toString: "$created_user_id" },
+        objectIdVideoList: {
+          $map: {
+            input: "$itemList",
+            as: "id",
+            in: { $toObjectId: "$$id" },
+          },
+        },
+      },
+    },
+    {
+      $match: {
+        created_user_idStr: userId,
+        type: "watch_later",
+      },
+    },
+    {
+      $lookup: {
+        from: "videos",
+        let: { videoIdList: "$objectIdVideoList" },
+        pipeline: [
+          {
+            $addFields: {
+              videoIdList: "$$videoIdList",
+              order: {
+                $indexOfArray: ["$$videoIdList", "$_id"],
+              },
+            },
+          },
+          {
+            $match: {
+              $expr: { $in: ["$_id", "$videoIdList"] },
+              ...searchObj,
+            },
+          },
+          {
+            $sort: {
+              order: -1, // Sắp xếp theo thứ tự tăng dần của `order`
+            },
+          },
+          {
+            $skip: skip,
+          },
+          {
+            $limit: dataLimit,
+          },
+          {
+            $lookup: {
+              from: "users",
+              localField: "user_id",
+              foreignField: "_id",
+              pipeline: [{ $project: { name: 1, email: 1, avatar: 1 } }],
+              as: "channel_info",
+            },
+          },
+          {
+            $unwind: "$channel_info",
+          },
+          {
+            $project: {
+              _id: 1,
+              thumb: 1,
+              title: 1,
+              view: 1,
+              type: 1,
+              createdAt: 1,
+              duration: 1,
+              channel_info: 1,
+            },
+          },
+        ],
+        as: "video_list",
+      },
+    },
+    {
+      $project: {
+        _id: 1,
+        title: 1,
+        updatedAt: 1,
+        video_list: "$video_list",
+        size: { $size: "$itemList" },
+      },
+    },
+  ];
+
+  const playlist = await Playlist.aggregate(pipeline);
+
+  res.status(StatusCodes.OK).json({
+    data: playlist[0],
+    currPage: dataPage,
+    totalPage: Math.ceil(playlist[0].size / dataLimit),
+  });
 };
 
 // Get liked videos by using react data
@@ -758,151 +706,150 @@ const getWatchLaterDetails = async (req, res) => {
 
 // Get liked vidoe by using  liked videos playlist
 const getLikedVideoList = async (req, res) => {
-  try {
-    const { userId } = req.user;
+  const { userId } = req.user;
 
-    const { page, limit = 12, type } = req.query;
+  const { page, limit = 12, search } = req.query;
 
-    const dataPage = Number(page) || 1;
-    const dataLimit = Number(limit) || 12;
-    const skip = (dataPage - 1) * dataLimit;
+  const dataPage = Number(page) || 1;
+  const dataLimit = Number(limit) || 12;
+  const skip = (dataPage - 1) * dataLimit;
 
-    const matchObj = {};
+  const matchObj = {};
 
-    const matchType = ["video", "short"];
+  const searchObj = {};
 
-    if (matchType.includes(type)) {
-      matchObj.type = type;
+  const searchEntries = Object.entries(search || {});
+
+  const validator = new Validator();
+
+  const errors = {
+    invalidKey: [],
+    invalidValue: [],
+  };
+
+  if (searchEntries.length > 0) {
+    const searchFuncObj = {
+      type: (type) => {
+        validator.isEnum("type", ["video", "short"], type);
+        searchObj.type = type;
+      },
+    };
+
+    for (const [key, value] of searchEntries) {
+      if (!searchFuncObj[key]) {
+        errors.invalidKey.push(key);
+        continue;
+      }
+
+      try {
+        searchFuncObj[key](value);
+      } catch (error) {
+        errors.invalidValue.push(key);
+      }
     }
+  }
 
-    const pipeline = [
-      {
-        $addFields: {
-          created_user_idStr: { $toString: "$created_user_id" },
-          objectIdVideoList: {
-            $map: {
-              input: "$itemList",
-              as: "id",
-              in: { $toObjectId: "$$id" },
-            },
+  for (const error in errors) {
+    if (errors[error].length > 0) {
+      return res.status(StatusCodes.BAD_REQUEST).json(errors);
+    }
+  }
+
+  const pipeline = [
+    {
+      $addFields: {
+        created_user_idStr: { $toString: "$created_user_id" },
+        objectIdVideoList: {
+          $map: {
+            input: "$itemList",
+            as: "id",
+            in: { $toObjectId: "$$id" },
           },
         },
       },
-      {
-        $match: {
-          created_user_idStr: userId,
-          type: "liked",
-        },
+    },
+    {
+      $match: {
+        created_user_idStr: userId,
+        type: "liked",
       },
-      {
-        $lookup: {
-          from: "videos",
-          let: { videoIdList: "$objectIdVideoList" },
-          pipeline: [
-            {
-              $addFields: {
-                videoIdList: "$$videoIdList",
-                order: {
-                  $indexOfArray: ["$$videoIdList", "$_id"],
-                },
+    },
+    {
+      $lookup: {
+        from: "videos",
+        let: { videoIdList: "$objectIdVideoList" },
+        pipeline: [
+          {
+            $addFields: {
+              videoIdList: "$$videoIdList",
+              order: {
+                $indexOfArray: ["$$videoIdList", "$_id"],
               },
             },
-            {
-              $match: {
-                $expr: { $in: ["$_id", "$videoIdList"] },
-                ...matchObj,
-              },
+          },
+          {
+            $match: {
+              $expr: { $in: ["$_id", "$videoIdList"] },
+              ...matchObj,
             },
-          ],
-          as: "videos",
-        },
+          },
+          {
+            $sort: {
+              order: -1, // Sắp xếp theo thứ tự tăng dần của `order`
+            },
+          },
+          {
+            $skip: skip,
+          },
+          {
+            $limit: dataLimit,
+          },
+          {
+            $lookup: {
+              from: "users",
+              localField: "user_id",
+              foreignField: "_id",
+              pipeline: [{ $project: { name: 1, email: 1, avatar: 1 } }],
+              as: "channel_info",
+            },
+          },
+          {
+            $unwind: "$channel_info",
+          },
+          {
+            $project: {
+              _id: 1,
+              thumb: 1,
+              title: 1,
+              view: 1,
+              type: 1,
+              createdAt: 1,
+              duration: 1,
+              channel_info: 1,
+            },
+          },
+        ],
+        as: "video_list",
       },
-      {
-        $addFields: {
-          count: { $size: "$videos" },
-        },
+    },
+    {
+      $project: {
+        _id: 1,
+        title: 1,
+        updatedAt: 1,
+        video_list: "$video_list",
+        size: { $size: "$itemList" },
       },
-      {
-        $lookup: {
-          from: "videos",
-          let: { videoIdList: "$objectIdVideoList" },
-          pipeline: [
-            {
-              $addFields: {
-                videoIdList: "$$videoIdList",
-                order: {
-                  $indexOfArray: ["$$videoIdList", "$_id"],
-                },
-              },
-            },
-            {
-              $match: {
-                $expr: { $in: ["$_id", "$videoIdList"] },
-                ...matchObj,
-              },
-            },
-            {
-              $sort: {
-                order: -1, // Sắp xếp theo thứ tự tăng dần của `order`
-              },
-            },
-            {
-              $skip: skip,
-            },
-            {
-              $limit: dataLimit,
-            },
-            {
-              $lookup: {
-                from: "users",
-                localField: "user_id",
-                foreignField: "_id",
-                pipeline: [{ $project: { name: 1, email: 1, avatar: 1 } }],
-                as: "channel_info",
-              },
-            },
-            {
-              $unwind: "$channel_info",
-            },
-            {
-              $project: {
-                _id: 1,
-                thumb: 1,
-                title: 1,
-                view: 1,
-                type: 1,
-                createdAt: 1,
-                duration: 1,
-                channel_info: 1,
-              },
-            },
-          ],
-          as: "video_list",
-        },
-      },
-      {
-        $project: {
-          _id: 1,
-          title: 1,
-          updatedAt: 1,
-          video_list: "$video_list",
-          size: { $size: "$itemList" },
-          count: 1,
-        },
-      },
-    ];
+    },
+  ];
 
-    const playlist = await Playlist.aggregate(pipeline);
+  const playlist = await Playlist.aggregate(pipeline);
 
-    res.status(StatusCodes.OK).json({
-      data: playlist[0],
-      currPage: dataPage,
-      totalPage: Math.ceil(playlist[0].count / dataLimit),
-    });
-  } catch (error) {
-    console.error(error);
-    throw error;
-  }
+  res.status(StatusCodes.OK).json({
+    data: playlist[0],
+    currPage: dataPage,
+    totalPage: Math.ceil(playlist[0].size / dataLimit),
+  });
 };
 
 module.exports = {

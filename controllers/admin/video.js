@@ -16,7 +16,7 @@ const { createHls } = require("../../utils/createhls");
 const { clearUploadedVideoFiles } = require("../../utils/clear");
 
 const { searchWithRegex, isObjectEmpty } = require("../../utils/other");
-const { VideoValidator } = require("../../utils/validate");
+const { VideoValidato, Validator } = require("../../utils/validate");
 
 const videoFolderPath = path.join(__dirname, "../../assets/video thumb");
 
@@ -105,6 +105,13 @@ const getVideos = async (req, res) => {
 
   let skip = (page - 1) * limit;
 
+  const validator = new Validator();
+
+  const errors = {
+    invalidKey: [],
+    invalidValue: [],
+  };
+
   const searchObj = {};
 
   const searchEntries = Object.entries(search || {});
@@ -112,28 +119,42 @@ const getVideos = async (req, res) => {
   if (searchEntries.length > 0) {
     const searchFuncsObj = {
       email: (email) => {
+        validator.isString("email", email);
         searchObj["user_info.email"] = searchWithRegex(email);
       },
       name: (name) => {
+        validator.isString("name", name);
+
         searchObj["user_info.name"] = searchWithRegex(name);
       },
       type: (type) => {
+        validator.isEnum("type", ["short", "video"], type);
+
         searchObj["type"] = type;
       },
       title: (title) => {
+        validator.isString("title", title);
         searchObj["title"] = searchWithRegex(title);
       },
       exclude: (excludeIdList) => {
         // In FE i have converted excludeIdList to json to make sure express will not automatically
         // converted my array in to object if it contains to much elements
         const idList = JSON.parse(excludeIdList);
+        validator.isArray("exclude", idList);
         searchObj["_idStr"] = { $nin: idList };
       },
     };
 
     for (const [key, value] of searchEntries) {
-      if (searchFuncsObj[key]) {
+      if (!searchFuncsObj[key]) {
+        errors.invalidKey.push(key);
+        continue;
+      }
+
+      try {
         searchFuncsObj[key](value);
+      } catch (error) {
+        errors.invalidValue.push(key);
       }
     }
   }
@@ -151,10 +172,29 @@ const getVideos = async (req, res) => {
       "totalCmt",
     ]);
 
+    const sortValueEnum = {
+      1: 1,
+      "-1": -1,
+    };
+
     for (const [key, value] of sortEntries) {
-      if (sortKeys.has(key)) {
-        sortObj[key] = Number(value);
+      if (!sortKeys.has(key)) {
+        errors.invalidKey.push(key);
+        continue;
       }
+
+      if (!sortValueEnum[value]) {
+        errors.invalidValue.push(key);
+        continue;
+      }
+
+      sortObj[key] = sortValueEnum[value];
+    }
+  }
+
+  for (const error in errors) {
+    if (errors[error].length > 0) {
+      return res.status(StatusCodes.BAD_REQUEST).json(errors);
     }
   }
 

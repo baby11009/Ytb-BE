@@ -9,7 +9,7 @@ const { deleteFile } = require("../../utils/file");
 const path = require("path");
 const { mongoose } = require("mongoose");
 const { searchWithRegex, isObjectEmpty } = require("../../utils/other");
-const { TagValidator } = require("../../utils/validate");
+const { TagValidator, Validator } = require("../../utils/validate");
 const iconPath = path.join(__dirname, "../../assets/tag icon");
 
 const createTag = async (req, res) => {
@@ -55,6 +55,13 @@ const getTags = async (req, res) => {
 
   const skip = (dataPage - 1) * dataLimit;
 
+  const validator = new Validator();
+
+  const errors = {
+    invalidKey: [],
+    invalidValue: [],
+  };
+
   const searchObj = {};
 
   const searchEntries = Object.entries(search || {});
@@ -62,13 +69,21 @@ const getTags = async (req, res) => {
   if (searchEntries.length > 0) {
     const searchFuncObj = {
       title: (title) => {
+        validator.isString("title", title);
         searchObj.title = searchWithRegex(title);
       },
     };
 
     for (const [key, value] of searchEntries) {
-      if (searchFuncObj[key] && value) {
+      if (!searchFuncObj[key]) {
+        errors.invalidKey.push(key);
+        continue;
+      }
+
+      try {
         searchFuncObj[key](value);
+      } catch (error) {
+        errors.invalidValue.push(key);
       }
     }
   }
@@ -79,11 +94,29 @@ const getTags = async (req, res) => {
 
   if (sortEntries.length > 0) {
     const sortKeys = new Set(["createdAt"]);
+    const sortValueEnum = {
+      1: 1,
+      "-1": -1,
+    };
 
     for (const [key, value] of sortEntries) {
-      if (sortKeys.has(key)) {
-        sortObj[key] = Number(value);
+      if (!sortKeys.has(key)) {
+        errors.invalidKey(key);
+        continue;
       }
+
+      if (!sortValueEnum[value]) {
+        errors.invalidValue(value);
+        continue;
+      }
+
+      sortObj[key] = sortValueEnum[value];
+    }
+  }
+
+  for (const error in errors) {
+    if (errors[error].length > 0) {
+      return res.status(StatusCodes.BAD_REQUEST).json(errors);
     }
   }
 

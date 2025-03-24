@@ -10,7 +10,7 @@ const {
 } = require("../../errors");
 
 const { searchWithRegex, isObjectEmpty } = require("../../utils/other");
-const { CommentValidator } = require("../../utils/validate");
+const { CommentValidator, Validator } = require("../../utils/validate");
 
 const createCmt = async (req, res) => {
   const neededKeys = ["userId", "videoId", "cmtText"];
@@ -108,6 +108,13 @@ const getCmts = async (req, res) => {
 
   const skip = (pageNumber - 1) * limitNumber;
 
+  const validator = new Validator();
+
+  const errors = {
+    invalidKey: [],
+    invalidValue: [],
+  };
+
   const searchObj = {};
 
   const searchEntries = Object.entries(search || {});
@@ -115,18 +122,23 @@ const getCmts = async (req, res) => {
   if (searchEntries.length > 0) {
     const searchFuncObj = {
       email: (email) => {
+        validator.isString("email", email);
+
         searchObj["user_info.email"] = searchWithRegex(email);
       },
       name: (name) => {
+        validator.isString("name", name);
+
         searchObj["user_info.name"] = searchWithRegex(name);
       },
-      videoId: (videoId) => {
-        searchObj["video_info._id"] = new mongoose.Types.ObjectId(videoId);
-      },
       title: (title) => {
+        validator.isString("title", title);
+
         searchObj["video_info.title"] = searchWithRegex(title);
       },
       content: (content) => {
+        validator.isString("content", content);
+
         searchObj["cmtText"] = searchWithRegex(content);
       },
       type: (type) => {
@@ -135,8 +147,15 @@ const getCmts = async (req, res) => {
     };
 
     for (const [key, value] of searchEntries) {
-      if (searchFuncObj[key] && value) {
+      if (!searchFuncObj[key]) {
+        errors.invalidKey.push(key);
+        continue;
+      }
+
+      try {
         searchFuncObj[key](value);
+      } catch (error) {
+        errors.invalidValue.push(key);
       }
     }
   }
@@ -154,10 +173,29 @@ const getCmts = async (req, res) => {
       "totalCmt",
     ]);
 
+    const sortValueEnum = {
+      1: 1,
+      "-1": -1,
+    };
+
     for (const [key, value] of sortEntries) {
-      if (sortKeys.has(key)) {
-        sortObj[key] = Number(value);
+      if (!sortKeys.has(key)) {
+        errors.invalidKey(key);
+        continue;
       }
+
+      if (!sortValueEnum[value]) {
+        errors.invalidValue(value);
+        continue;
+      }
+
+      sortObj[key] = sortValueEnum[value];
+    }
+  }
+
+  for (const error in errors) {
+    if (errors[error].length > 0) {
+      return res.status(StatusCodes.BAD_REQUEST).json(errors);
     }
   }
 

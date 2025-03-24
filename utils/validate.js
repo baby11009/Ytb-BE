@@ -9,35 +9,30 @@ class Validator {
     if (typeof value !== "string") {
       throw new DataFieldError(`${fieldName} must be a string`);
     }
-    return true;
   }
 
   isBoolean(fieldName, value) {
     if (typeof value !== "boolean") {
       throw new DataFieldError(`${fieldName} must be a boolean`);
     }
-    return true;
   }
 
   isNumber(fieldName, value) {
     if (typeof value !== "number" || isNaN(value)) {
       throw new DataFieldError(`${fieldName} must be a number`);
     }
-    return true;
   }
 
   isInteger(fieldName, value) {
     if (Number.isInteger(value)) {
       throw new DataFieldError(`${fieldName} must be an integer`);
     }
-    return true;
   }
 
   isArray(fieldName, value) {
     if (!Array.isArray(value)) {
       throw new DataFieldError(`${fieldName} must be an array`);
     }
-    return true;
   }
 
   isEnum(fieldName, allowedValues, value) {
@@ -46,7 +41,6 @@ class Validator {
         `${fieldName} must be one of: ${allowedValues.join(", ")}`,
       );
     }
-    return true;
   }
 
   stringMinLength(fieldName, value, minLength) {
@@ -863,6 +857,7 @@ class TagValidator {
 }
 
 module.exports = {
+  Validator,
   UserValidator,
   VideoValidator,
   CommentValidator,

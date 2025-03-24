@@ -9,7 +9,7 @@ const { StatusCodes } = require("http-status-codes");
 const { deleteFile } = require("../../utils/file");
 const mongoose = require("mongoose");
 const { searchWithRegex, isObjectEmpty } = require("../../utils/other");
-const { UserValidator } = require("../../utils/validate");
+const { UserValidator, Validator } = require("../../utils/validate");
 
 const path = require("path");
 
@@ -71,6 +71,13 @@ const getUsers = async (req, res) => {
 
   let skip = (pageNumber - 1) * limitNumber;
 
+  const validator = new Validator();
+
+  const errors = {
+    invalidKey: [],
+    invalidValue: [],
+  };
+
   const searchObj = {};
 
   const searchEntries = Object.entries(search || {});
@@ -78,12 +85,15 @@ const getUsers = async (req, res) => {
   if (searchEntries.length > 0) {
     const searchFuncsObj = {
       name: (name) => {
+        validator.isString("name", name);
         searchObj.name = searchWithRegex(name);
       },
       email: (email) => {
+        validator.isString("email", email);
         searchObj.email = searchWithRegex(email);
       },
       role: (role) => {
+        validator.isEnum("role", ["user", "admin"], role);
         searchObj.role = role;
       },
       confirmed: (confirmed) => {
@@ -93,8 +103,15 @@ const getUsers = async (req, res) => {
     };
 
     for (const [key, value] of searchEntries) {
-      if (searchFuncsObj[key]) {
+      if (!searchFuncsObj[key]) {
+        errors.invalidKey.push(key);
+        continue;
+      }
+
+      try {
         searchFuncsObj[key](value);
+      } catch (error) {
+        errors.invalidValue.push(key);
       }
     }
   }
@@ -105,11 +122,26 @@ const getUsers = async (req, res) => {
 
   if (sortEntries.length > 0) {
     const sortKeys = new Set(["createdAt"]);
+    const sortValueEnum = { 1: 1, "-1": -1 };
 
     for (const [key, value] of sortEntries) {
-      if (sortKeys.has(key)) {
-        sortObj[key] = Number(value);
+      if (!sortKeys.has(key)) {
+        errors.invalidKey.push(key);
+        continue;
       }
+
+      if (!sortValueEnum[value]) {
+        errors.invalidValue.push(key);
+        continue;
+      }
+
+      sortObj[key] = sortValueEnum[value];
+    }
+  }
+
+  for (const error in errors) {
+    if (errors[error].length > 0) {
+      return res.status(StatusCodes.BAD_REQUEST).json(errors);
     }
   }
 
@@ -214,7 +246,6 @@ const updateUser = async (req, res) => {
 
     res.status(StatusCodes.OK).json({ msg: "User updated successfully" });
   } catch (error) {
-    
     if (req.files?.avatar && req.files.avatar.length) {
       deleteFile(req.files.avatar[0].path);
     }
