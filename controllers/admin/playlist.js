@@ -6,7 +6,7 @@ const {
   InvalidError,
 } = require("../../errors");
 const { StatusCodes } = require("http-status-codes");
-const { searchWithRegex, isObjectEmpty } = require("../../utils/other");
+const { searchWithRegex } = require("../../utils/other");
 const { PlaylistValidator, Validator } = require("../../utils/validate");
 const { default: mongoose } = require("mongoose");
 
@@ -123,7 +123,7 @@ const getPlaylists = async (req, res) => {
     }
   }
 
-  if (isObjectEmpty(sortObj)) {
+  if (Object.keys(sortObj).length < 1) {
     sortObj.createdAt = -1;
   }
 
@@ -279,7 +279,7 @@ const getPlaylistDetails = async (req, res) => {
     }
   }
 
-  if (isObjectEmpty(videoSortObj)) {
+  if (Object.keys(videoSortObj).length < 1) {
     videoSortObj.order = -1;
   }
 
@@ -430,21 +430,17 @@ const updatePlaylist = async (req, res) => {
 
   let session;
 
+  if (Object.keys(req.body).length < 1) {
+    throw new BadRequestError("Please provide at least one data to update");
+  }
+
+  const foundedPlaylist = await Playlist.findById(id);
+
+  if (!foundedPlaylist) {
+    throw new NotFoundError("Playlist not found");
+  }
+
   try {
-    if (!id || id === "") {
-      throw new BadRequestError("Please provide playlist id to update");
-    }
-
-    if (Object.keys(req.body).length < 1) {
-      throw new BadRequestError("Please provide at least one data to update");
-    }
-
-    const foundedPlaylist = await Playlist.findById(id);
-
-    if (!foundedPlaylist) {
-      throw new NotFoundError("Playlist not found");
-    }
-
     const bulkWrites = await new PlaylistValidator(
       req.body,
       foundedPlaylist,
@@ -498,17 +494,23 @@ const deleteManyPlaylist = async (req, res) => {
   const { idList } = req.query;
 
   if (!idList) {
-    throw new BadRequestError("Please provide a list of user's id to delete");
+    throw new BadRequestError(
+      "Please provide a list of playlist's id to delete",
+    );
   }
 
   const idArray = idList.split(",");
+
+  if (!Array.isArray(idArray) || idArray.length < 1) {
+    throw new BadRequestError("idList must be an array and can't be empty");
+  }
 
   const foundedPlaylists = await Playlist.find({
     _id: { $in: idArray },
   }).select("_id type");
 
   if (foundedPlaylists.length === 0) {
-    throw new NotFoundError(`No user found with these ids ${idList}`);
+    throw new NotFoundError(`No playlist found with these ids ${idList}`);
   }
 
   if (foundedPlaylists.length !== idArray.length) {
@@ -521,7 +523,7 @@ const deleteManyPlaylist = async (req, res) => {
     });
 
     throw new NotFoundError(
-      `No user found with these ids : ${notFoundedList.join(", ")}`,
+      `No playlist found with these ids : ${notFoundedList.join(", ")}`,
     );
   }
 
@@ -538,9 +540,7 @@ const deleteManyPlaylist = async (req, res) => {
   await Playlist.deleteMany({ _id: { $in: idArray } });
 
   res.status(StatusCodes.OK).json({
-    msg: `Successfully deleted playlist with following id: ${idArray.join(
-      ", ",
-    )}`,
+    msg: `Successfully deleted playlist with following id: ${idList}`,
   });
 };
 

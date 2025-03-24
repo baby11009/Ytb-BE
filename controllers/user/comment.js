@@ -1,13 +1,15 @@
-const { User, Video, Comment, CmtReact } = require("../../models/index.js");
+const { User, Comment } = require("../../models/index.js");
 const { StatusCodes } = require("http-status-codes");
 const { getIo } = require("../../socket.js");
 const mongoose = require("mongoose");
-
+const { CommentValidator, Validator } = require("../../utils/validate.js");
 const {
   NotFoundError,
   BadRequestError,
   InternalServerError,
+  InvalidError,
 } = require("../../errors/index.js");
+const { searchWithRegex } = require("../../utils/other");
 
 const createCmt = async (req, res) => {
   const neededKeys = ["videoId", "cmtText"];
@@ -157,23 +159,40 @@ const getCmts = async (req, res) => {
 
   const skip = (pageNumber - 1) * limitNumber;
 
+  const validator = new Validator();
+
+  const errors = {
+    invalidKey: [],
+    invalidValue: [],
+  };
+
   const searchObj = {};
 
   const searchEntries = Object.entries(search || {});
 
   if (searchEntries.length > 0) {
-    const searchFuncsObj = {
+    const searchFuncObj = {
       videoTitle: (title) => {
-        searchObj["video_info.title"] = { $regex: title, $options: "i" };
+        validator.isString("title", title);
+        searchObj["video_info.title"] = searchWithRegex(title);
       },
-      text: (value) => {
-        searchObj["cmtText"] = { $regex: value, $options: "i" };
+      text: (text) => {
+        validator.isString("text", text);
+
+        searchObj["cmtText"] = searchWithRegex(text);
       },
     };
 
     for (const [key, value] of searchEntries) {
-      if (searchFuncsObj[key]) {
-        searchFuncsObj[key](value);
+      if (!searchFuncObj[key]) {
+        errors.invalidKey.push(key);
+        continue;
+      }
+
+      try {
+        searchFuncObj[key](value);
+      } catch (error) {
+        errors.invalidValue.push(key);
       }
     }
   }
@@ -185,20 +204,39 @@ const getCmts = async (req, res) => {
   if (sortEntries.length > 0) {
     const sortKeys = new Set(["createdAt", "like", "dislike"]);
 
-    for (const [key, value] of sortEntries) {
-      if (sortKeys.has(key)) {
-        sortObj[key] = Number(value);
-      }
-    }
-  } else {
-    sortObj = {
-      createdAt: -1,
+    const sortValueEnum = {
+      1: 1,
+      "-1": -1,
     };
+
+    for (const [key, value] of sortEntries) {
+      if (!sortKeys.has(key)) {
+        errors.invalidKey(key);
+        continue;
+      }
+
+      if (!sortValueEnum[value]) {
+        errors.invalidValue(value);
+        continue;
+      }
+
+      sortObj[key] = sortValueEnum[value];
+    }
+  }
+
+  for (const error in errors) {
+    if (errors[error].length > 0) {
+      return res.status(StatusCodes.BAD_REQUEST).json(errors);
+    }
+  }
+
+  if (Object.keys(sortObj).length < 1) {
+    sortObj.createdAt = -1;
   }
 
   const pipeline = [
     {
-      $addFields: {
+      $set: {
         _idStr: { $toString: "$_id" },
         userIdStr: { $toString: "$user_id" },
       },
@@ -278,181 +316,6 @@ const getCmts = async (req, res) => {
   });
 };
 
-const getVideoComments = async (req, res) => {
-  const { userId } = req.user;
-
-  const { sort, limit, page } = req.query;
-
-  const limitNum = Number(limit);
-  const pageNum = Number(page);
-
-  const skip = (pageNum - 1) * limitNum;
-
-  const findObj = {};
-
-  const findQueryKey = Object.keys(req.query).filter(
-    (key) => key !== "sort" && key !== "limit" && key !== "page",
-  );
-
-  const findFuncObj = {
-    text: (syntax) => {
-      findObj["cmtText"] = syntax;
-    },
-    videoId: (syntax) => {
-      findObj["videoIdStr"] = syntax;
-    },
-  };
-
-  findQueryKey.forEach((key) => {
-    const syntax = { $regex: req.query[key], $options: "i" };
-    if (findFuncObj[key] && req.query[key]) {
-      findFuncObj[key](syntax);
-    } else if (req.query[key]) {
-      findObj[key] = syntax;
-    }
-  });
-
-  let sortObj = {};
-
-  let sortDateObj = {};
-
-  if (sort && Object.keys(sort).length > 0) {
-    const uniqueSortKeys = [];
-
-    const sortKeys = ["createdAt"];
-    let unique = [];
-    let uniqueValue;
-    for (const [key, value] of Object.entries(sort)) {
-      if (sortKeys.includes(key)) {
-        sortDateObj[key] = Number(value);
-      } else if (uniqueSortKeys.includes(key)) {
-        unique.push(key);
-        uniqueValue = Number(value);
-      }
-    }
-
-    if (unique.length > 1) {
-      throw new BadRequestError(
-        `Only one sort key in ${uniqueSortKeys.join(", ")} is allowed`,
-      );
-    } else if (unique.length > 0) {
-      sortObj[unique[0]] = uniqueValue;
-    }
-  } else {
-    sortDateObj = {
-      createdAt: -1,
-    };
-  }
-
-  const combinedSort = { ...sortObj, ...sortDateObj };
-
-  const pipeline = [
-    {
-      $lookup: {
-        from: "users",
-        localField: "replied_user_id",
-        foreignField: "_id",
-        pipeline: [{ $project: { name: 1, email: 1, avatar: 1 } }],
-        as: "replied_user_info",
-      },
-    },
-    {
-      $unwind: {
-        path: "$replied_user_info",
-        preserveNullAndEmptyArrays: true,
-      },
-    },
-    {
-      $lookup: {
-        from: "videos",
-        localField: "video_id",
-        foreignField: "_id",
-        pipeline: [
-          {
-            $project: {
-              _id: 1,
-              user_id: 1,
-              title: 1,
-              thumb: 1,
-              description: 1,
-            },
-          },
-        ],
-        as: "video_info",
-      },
-    },
-    {
-      $unwind: "$video_info",
-    },
-    {
-      $lookup: {
-        from: "users",
-        localField: "user_id",
-        foreignField: "_id",
-        pipeline: [
-          {
-            $project: {
-              _id: 1,
-              name: 1,
-              email: 1,
-              description: { $ifNull: ["$description", null] },
-              type: 1,
-            },
-          },
-        ],
-        as: "user_info",
-      },
-    },
-    {
-      $unwind: "$user_info",
-    },
-    {
-      $addFields: {
-        userIdStr: { $toString: "$video_info.user_id" },
-        videoIdStr: { $toString: "$video_info.video" },
-      },
-    },
-    {
-      $match: {
-        userIdStr: userId,
-        ...findObj,
-      },
-    },
-    {
-      $sort: combinedSort,
-    },
-    {
-      $project: {
-        _id: 1,
-        cmtText: 1,
-        video_info: 1,
-        replied_user_info: {
-          $ifNull: ["$replied_user_info", null],
-        },
-        createdAt: 1,
-        video_info: 1,
-        user_info: 1,
-      },
-    },
-    {
-      $facet: {
-        totalCount: [{ $count: "total" }],
-        data: [{ $skip: skip }, { $limit: limitNum }],
-      },
-    },
-  ];
-
-  const comments = await Comment.aggregate(pipeline);
-
-  res.status(StatusCodes.OK).json({
-    data: comments[0]?.data,
-    qtt: comments[0]?.data?.length,
-    totalQtt: comments[0]?.totalCount[0]?.total,
-    currPage: Number(page),
-    totalPages: Math.ceil(comments[0]?.totalCount[0]?.total / limit) || 1,
-  });
-};
-
 const getCmtDetails = async (req, res) => {
   const { userId } = req.user;
   const { id } = req.params;
@@ -463,7 +326,7 @@ const getCmtDetails = async (req, res) => {
 
   const cmt = await Comment.aggregate([
     {
-      $addFields: {
+      $set: {
         _idStr: { $toString: "$_id" },
         userIdStr: { $toString: "$user_id" },
       },
@@ -514,87 +377,55 @@ const updateCmt = async (req, res) => {
 
   const { userId } = req.user;
 
-  if (!id || id === "" || id === ":id") {
-    throw new BadRequestError(`Please provide comment id`);
-  }
-
-  if (Object.keys(req.body).length === 0) {
+  if (Object.keys(req.body).length < 1) {
     throw new BadRequestError("There is nothing to update.");
   }
 
-  const foundedCmt = await Comment.findOne({ _id: id });
+  const foundedCmt = await Comment.findOne({ _id: id, user_id: userId });
 
-  if (foundedCmt.user_id.toString() !== userId) {
-    throw new ForbiddenError(
-      "You don't have permission to update this comment.",
-    );
+  if (!foundedCmt) {
+    throw new NotFoundError(`Not found comment with id ${id}`);
   }
 
-  const updateFuncObj = {
-    cmtText: (value) => {
-      if (value === "") {
-        emptyList.push("cmtText");
-      } else {
-        updateData["cmtText"] = value;
-      }
-    },
-  };
+  try {
+    const updateDatas = new CommentValidator(req.body, foundedCmt, [
+      "cmtText",
+    ]).getValidatedUpdateData();
 
-  let updateData = {};
+    const cmt = await Comment.findOneAndUpdate({ _id: id }, updateDatas, {
+      returnDocument: "after",
+    });
 
-  let emptyList = [];
-
-  let notAllowValue = [];
-  if (Object.keys(req.body).length > 0) {
-    for (const [key, value] of Object.entries(req.body)) {
-      if (updateFuncObj[key]) {
-        updateFuncObj[key](value);
-      } else {
-        notAllowValue.push(key);
-      }
+    if (!cmt) {
+      throw new InternalServerError(
+        `There is something wrong with the server, please try again`,
+      );
     }
-  }
+    const io = getIo();
+    let event = `update-comment-${userId}`;
+    if (cmt.replied_cmt_id) {
+      event = `update-reply-comment-${userId}`;
+    }
+    io.emit(event, cmt);
 
-  if (notAllowValue.length > 0) {
-    throw new BadRequestError(
-      `The comment cannot contain the following fields: ${notAllowValue.join(
-        ", ",
-      )}`,
-    );
+    res.status(StatusCodes.OK).json({ msg: "Comment updated", data: cmt });
+  } catch (error) {
+    if (error instanceof InvalidError) {
+      return res
+        .status(StatusCodes.BAD_REQUEST)
+        .json({ errors: error.errorObj });
+    }
+    throw error;
   }
-
-  if (emptyList.length > 0) {
-    throw new BadRequestError(`${emptyList.join(", ")} cannot be empty`);
-  }
-
-  const cmt = await Comment.findOneAndUpdate({ _id: id }, updateData, {
-    returnDocument: "after",
-  });
-
-  if (!cmt) {
-    throw new InternalServerError(`Failed to update comment`);
-  }
-  const io = getIo();
-  let event = `update-comment-${userId}`;
-  if (cmt.replied_cmt_id) {
-    event = `update-reply-comment-${userId}`;
-  }
-  io.emit(event, cmt);
-
-  res.status(StatusCodes.OK).json({ msg: "Comment updated", data: foundedCmt });
 };
 
 const deleteCmt = async (req, res) => {
   const { userId } = req.user;
   const { id } = req.params;
 
-  if (!id || id === "" || id === ":id") {
-    throw new BadRequestError(`Please provide comment id`);
-  }
-
   const foundedCmt = await Comment.aggregate([
     {
-      $addFields: {
+      $set: {
         _idStr: { $toString: "$_id" },
         userIdStr: { $toString: "$user_id" },
       },
@@ -617,8 +448,13 @@ const deleteCmt = async (req, res) => {
       $unwind: "$video_info",
     },
     {
-      $addFields: {
-        videoCreatedUserId: { $toString: "$video_info.user_id" },
+      $match: {
+        $expr: {
+          $or: [
+            { $eq: ["$userIdStr", userId] },
+            { $eq: ["$video_info.user_id", userId] },
+          ],
+        },
       },
     },
     {
@@ -635,15 +471,6 @@ const deleteCmt = async (req, res) => {
 
   if (!foundedCmt) {
     throw new NotFoundError(`Cannot find comment with id ${id}`);
-  }
-
-  if (
-    userId !== foundedCmt.userIdStr &&
-    userId !== foundedCmt.videoCreatedUserId
-  ) {
-    throw new BadRequestError(
-      `Comment with id ${id} does not belong to user with id ${req.user.userId}`,
-    );
   }
 
   const session = await mongoose.startSession();
@@ -667,14 +494,12 @@ const deleteCmt = async (req, res) => {
     }
     io.emit(event, cmt);
 
-    res
-      .status(StatusCodes.OK)
-      .json({ msg: "Comment deleted", data: foundedCmt });
-
     await session.commitTransaction();
+
+    res.status(StatusCodes.OK).json({ msg: "Comment deleted", data: cmt });
   } catch (error) {
     await session.abortTransaction();
-    console.error(error);
+
     throw new InternalServerError(`Failed to delete comment with id ${id}`);
   } finally {
     session.endSession();
@@ -682,92 +507,78 @@ const deleteCmt = async (req, res) => {
 };
 
 const deleteManyCmt = async (req, res) => {
-  const { idList } = req.body;
   const { userId } = req.user;
 
+  const { idList } = req.query;
+
   if (!idList) {
-    throw new BadRequestError("Please provide idList");
+    throw new BadRequestError("Please provide a list of video id to delete");
   }
-  if (!Array.isArray(idList) || idList.length === 0) {
+
+  const idArray = idList.split(",");
+
+  if (!Array.isArray(idArray) || idArray.length < 1) {
     throw new BadRequestError("idList must be an array and can't be empty");
   }
 
-  let notFoundedCmts = await Promise.all(
-    idList.map(async (id) => {
-      const cmt = Comment.aggregate([
-        {
-          $addFields: {
-            _idStr: { $toString: "$_id" },
-            userIdStr: { $toString: "$user_id" },
-          },
-        },
-        {
-          $match: {
-            _idStr: id,
-          },
-        },
-        {
-          $lookup: {
-            from: "videos",
-            localField: "video_id",
-            foreignField: "_id",
-            pipeline: [{ $project: { _id: 1, user_id: 1 } }],
-            as: "video_info",
-          },
-        },
-        {
-          $unwind: "$video_info",
-        },
-        {
-          $addFields: {
-            videoCreatedUserId: { $toString: "$video_info.user_id" },
-          },
-        },
-        {
-          $project: {
-            _id: 1,
-            userIdStr: 1,
-            video_info: 1,
-            videoCreatedUserId: 1,
-          },
-        },
-      ]).then((data) => data[0]);
+  const foundedCmts = await Comment.find({
+    _id: { $in: idArray },
+    user_id: userId,
+  }).select("_id");
 
-      if (!cmt) {
-        return id;
-      }
-      if (userId !== cmt.userIdStr && userId !== videoCreatedUserId) {
-        throw new BadRequestError(
-          `Comment with id ${id} does not belong to user with id ${userId}`,
-        );
-      }
-      return null;
-    }),
-  );
+  const cmtListNeedToDelete = [];
 
-  notFoundedCmts = notFoundedCmts.filter((id) => id !== null);
-
-  if (notFoundedCmts.length > 0) {
+  if (foundedCmts.length < 1) {
     throw new BadRequestError(
-      `The following video IDs could not be found: ${notFoundedCmts.join(
-        ", ",
-      )}`,
+      `Not found comments with id : ${idArray.join(", ")}`,
     );
+  } else if (foundedCmts.length !== idArray.length) {
+    const foundedCmtIdList = new Set();
+
+    for (const cmt of foundedCmts) {
+      //Remove reply comment ID if the root comment is included in the list,
+      //  because in cascade deletion, the entire comment tree will be deleted if the root comment got removed.
+      if (
+        !cmt.replied_parent_cmt_id ||
+        !idArray.includes(cmt.replied_parent_cmt_id)
+      ) {
+        cmtListNeedToDelete.push(cmt._id);
+      }
+
+      foundedCmtIdList.add(cmt._id);
+    }
+
+    const notFoundedCmts = idArray.filter((id) => !foundedCmtIdList.has(id));
+
+    if (notFoundedCmts.length > 0) {
+      throw new BadRequestError(
+        `Not found comments with id : ${notFoundedCmts.join(", ")}`,
+      );
+    }
   }
 
-  const deleteComments = idList.reduce((acc, id) => {
-    acc.push(Comment.deleteOne({ _id: id }));
+  const session = await mongoose.startSession();
+  session.startTransaction();
 
-    return acc;
-  }, []);
+  try {
+    await Comment.deleteMany(
+      { _id: { $in: cmtListNeedToDelete } },
+      { session },
+    );
 
-  await Promise.all(deleteComments);
+    await session.commitTransaction();
 
-  res.status(StatusCodes.OK).json({
-    msg: `Comments with the following IDs have been deleted: ${idList.join(
-      ", ",
-    )}`,
-  });
+    res.status(StatusCodes.OK).json({
+      msg: `Comments with the following id have been deleted: ${idArray.join(
+        ", ",
+      )}`,
+    });
+  } catch (error) {
+    await session.abortTransaction();
+    throw error;
+  } finally {
+    session.endSession();
+  }
 };
 
 module.exports = {
@@ -777,5 +588,4 @@ module.exports = {
   updateCmt,
   deleteCmt,
   deleteManyCmt,
-  getVideoComments,
 };

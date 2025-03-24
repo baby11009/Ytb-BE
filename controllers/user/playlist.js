@@ -2,10 +2,12 @@ const { Playlist, Video } = require("../../models");
 const {
   BadRequestError,
   NotFoundError,
-  ForbiddenError,
+  InvalidError,
 } = require("../../errors");
 const { StatusCodes } = require("http-status-codes");
 const mongoose = require("mongoose");
+const { searchWithRegex } = require("../../utils/other");
+const { PlaylistValidator, Validator } = require("../../utils/validate");
 
 const createPlaylist = async (req, res) => {
   const { userId } = req.user;
@@ -77,28 +79,42 @@ const getPlaylists = async (req, res) => {
   const pageNumber = Number(page) || 1;
   const skip = (pageNumber - 1) * limitNumber;
 
-  let searchObj = {
+  const validator = new Validator();
+
+  const errors = {
+    invalidKey: [],
+    invalidValue: [],
+  };
+
+  const searchObj = {
+    userIdStr: userId,
     type: { $nin: ["history", ...exCludeTypes] },
   };
 
   const searchEntries = Object.entries(search || {});
 
   if (searchEntries.length > 0) {
-    const searchFuncsObj = {
-      id: (syntax) => {
-        searchObj["_idStr"] = syntax;
+    const searchFuncObj = {
+      title: (title) => {
+        validator.isString("title", title);
+        searchObj["title"] = searchWithRegex(title);
       },
-      email: (syntax) => {
-        searchObj["user_info.email"] = syntax;
+      privacy: (privacy) => {
+        validator.isEnum("privacy", ["public", "private"], privacy);
+        searchObj["privacy"] = privacy;
       },
     };
 
     for (const [key, value] of searchEntries) {
-      const syntax = { $regex: value, $options: "i" };
-      if (searchFuncsObj[key] && value) {
-        searchFuncsObj[item](syntax);
-      } else if (value) {
-        searchObj[key] = syntax;
+      if (!searchFuncObj[key]) {
+        errors.invalidKey.push(key);
+        continue;
+      }
+
+      try {
+        searchFuncObj[key](value);
+      } catch (error) {
+        errors.invalidValue.push(key);
       }
     }
   }
@@ -110,15 +126,33 @@ const getPlaylists = async (req, res) => {
   if (sortEntries.length > 0) {
     const sortKeys = new Set(["createdAt", "title", "updatedAt", "size"]);
 
-    for (const [key, value] of sortEntries) {
-      if (sortKeys.has(key)) {
-        sortObj[key] = Number(value);
-      }
-    }
-  } else {
-    sortObj = {
-      createdAt: -1,
+    const sortValueEnum = {
+      1: 1,
+      "-1": -1,
     };
+    for (const [key, value] of sortEntries) {
+      if (!sortKeys.has(key)) {
+        errors.invalidKey(key);
+        continue;
+      }
+
+      if (!sortValueEnum[value]) {
+        errors.invalidValue(value);
+        continue;
+      }
+
+      sortObj[key] = sortValueEnum[value];
+    }
+  }
+
+  for (const error in errors) {
+    if (errors[error].length > 0) {
+      return res.status(StatusCodes.BAD_REQUEST).json(errors);
+    }
+  }
+
+  if (Object.keys(sortObj).length < 1) {
+    sortObj.createdAt = -1;
   }
 
   const pipeline = [
@@ -127,11 +161,6 @@ const getPlaylists = async (req, res) => {
         _idStr: { $toString: "$_id" },
         userIdStr: { $toString: "$created_user_id" },
         size: { $size: "$itemList" },
-      },
-    },
-    {
-      $match: {
-        userIdStr: userId,
       },
     },
     {
@@ -220,16 +249,6 @@ const getPlaylistDetails = async (req, res) => {
 
   const { videoLimit = 8, videoPage = 1 } = req.query;
 
-  const foundedPlaylist = await Playlist.findOne({ _id: id });
-
-  if (!foundedPlaylist) {
-    throw new NotFoundError("Playlist not found");
-  }
-
-  if (foundedPlaylist.created_user_id.toString() !== userId) {
-    throw new ForbiddenError("You are not authorized to access this playlist");
-  }
-
   const pipeline = [
     {
       $addFields: {
@@ -297,8 +316,9 @@ const getPlaylistDetails = async (req, res) => {
   const playlist = await Playlist.aggregate(pipeline);
 
   if (playlist.length === 0) {
-    throw new NotFoundError("Playlist not found");
+    throw new NotFoundError("Not found playlist with id: " + id);
   }
+
   res.status(StatusCodes.OK).json({
     data: playlist[0],
     qtt: playlist[0].size,
@@ -313,13 +333,7 @@ const updatePlaylist = async (req, res, next) => {
 
   const { id } = req.params;
 
-  if (!id) {
-    throw new BadRequestError("Please provide playlist id to update");
-  }
-
-  const bodyData = req.body;
-
-  if (Object.keys(bodyData).length === 0) {
+  if (Object.keys(req.body).length === 0) {
     throw new BadRequestError("Please provide atleast one data to update");
   }
 
@@ -348,218 +362,115 @@ const updatePlaylist = async (req, res, next) => {
     };
   }
 
-  const foundedPlaylist = await Playlist.findOne(searchObj);
+  const foundedPlaylist = await Playlist.findOne({
+    ...searchObj,
+    created_user_id: userId,
+  });
 
   if (!foundedPlaylist) {
     throw new NotFoundError("Playlist not found");
   }
 
-  if (userId !== foundedPlaylist.created_user_id.toString()) {
-    throw new ForbiddenError("You are not authorized to update this playlist");
-  }
+  const { move, ...othersData } = req.body;
 
-  const notAllowData = [];
+  let session;
 
-  const updateDatas = {};
+  try {
+    let bulkWrites = [];
 
-  const title = (value) => {
-    if (foundedPlaylist.type === "personal")
-      return next(new ForbiddenError("You can't modify personal playlist"));
-    if (typeof value !== "string")
-      return next(new ForbiddenError("Data type must be a string"));
-    if (foundedPlaylist.title === value) {
-      return next(
-        new BadRequestError("The new title of playlist is still the same"),
-      );
-    } else {
-      updateDatas.title = value;
+    if (Object.keys(othersData).length > 0) {
+
+      bulkWrites = await new PlaylistValidator(
+        othersData,
+        foundedPlaylist,
+      ).getValidatedUpdateData();
     }
-  };
-  const privacy = (value) => {
-    if (foundedPlaylist.type !== "playlist")
-      throw new ForbiddenError("You can't modify this list");
-    if (value === foundedPlaylist.privacy) {
-      throw new BadRequestError(
-        "The new privacy of playlist is still the same ",
-      );
-    } else {
-      const validatePrivacy = ["private", "public"];
-      if (!validatePrivacy.includes(value)) {
-        return next(new BadRequestError("Invalid playlist type"));
-      } else {
-        updateDatas.privacy = value;
+
+    if (move) {
+      if (foundedPlaylist.itemList.length === 0) {
+        throw new BadRequestError("Invalid move action");
       }
-    }
-  };
-  const move = async (value) => {
-    if (typeof value !== "object")
-      return next(
-        new BadRequestError(
-          "Data type must be an object with following properties from :(nummber > 0) ,  to : (number < list length )",
-        ),
-      );
 
-    // Must reverse because we are display data in reverse order of itemList indexes
-    const vidList = [...foundedPlaylist.itemList].reverse();
+      if (typeof move !== "object" || !move.from || !move.to) {
+        throw new BadRequestError(
+          "Data type must be an object with following properties from : 'from video id' ,  to : 'to video id",
+        );
+      }
 
-    const { from, to } = value;
+      if (move.from === move.to) {
+        throw new BadRequestError("Cannot move video to itself");
+      }
 
-    const fromValue = vidList[from];
-    const toValue = vidList[to];
-    if (fromValue && toValue) {
-      vidList[from] = toValue;
-      vidList[to] = fromValue;
-    } else {
-      return next(new BadRequestError("Invalid move action"));
-    }
+      const fromVideoIdIndex = foundedPlaylist.itemList.indexOf(move.from);
 
-    vidList.reverse();
+      const toVideoIdIndex = foundedPlaylist.itemList.indexOf(move.to);
 
-    await Playlist.updateOne(
-      { _id: foundedPlaylist._id },
-      { itemList: vidList },
-    );
-  };
+      if (fromVideoIdIndex === -1 || toVideoIdIndex === -1) {
+        throw new BadRequestError("Invalid move action");
+      }
 
-  const updateList = async (videoIdList) => {
-    if (videoIdList.length > 0 && foundedPlaylist.type) {
-      const foundedVideos = await Video.aggregate([
-        {
-          $addFields: {
-            _idStr: { $toString: "$_id" },
-          },
-        },
-        { $match: { _idStr: { $in: videoIdList } } },
-        { $group: { _id: null, idsFound: { $push: "$_idStr" } } },
-        {
-          $project: {
-            missingIds: {
-              $setDifference: [videoIdList, "$idsFound"],
+      bulkWrites.push({
+        updateOne: {
+          filter: { _id: id },
+          update: {
+            $set: {
+              [`itemList.${fromVideoIdIndex}`]: move.to,
+              [`itemList.${toVideoIdIndex}`]: move.from,
             },
           },
         },
-      ]);
-
-      if (foundedVideos.length === 0) {
-        throw new NotFoundError(
-          `The following videos with id: ${videoIdList.join(
-            ", ",
-          )} could not be found`,
-        );
-      }
-
-      if (foundedVideos[0]?.missingIds?.length > 0) {
-        throw new NotFoundError(
-          `The following videos with id: ${foundedVideos[0].missingIds.join(
-            ", ",
-          )} could not be found`,
-        );
-      }
-
-      const alreadyInPlaylistVideosId = videoIdList.reduce((acc, item) => {
-        if (foundedPlaylist.itemList.includes(item)) {
-          acc.push(item);
-        }
-        return acc;
-      }, []);
-
-      let notInplaylistVideosId = [];
-
-      if (alreadyInPlaylistVideosId.length > 0) {
-        await Playlist.updateOne(searchObj, {
-          $pullAll: { itemList: alreadyInPlaylistVideosId },
-        });
-
-        notInplaylistVideosId = videoIdList.reduce((acc, item) => {
-          if (!alreadyInPlaylistVideosId.includes(item)) {
-            acc.push(item);
-          }
-          return acc;
-        }, []);
-      } else {
-        notInplaylistVideosId = videoIdList;
-      }
-
-      if (notInplaylistVideosId.length > 0) {
-        await Playlist.updateOne(searchObj, {
-          $addToSet: { itemList: { $each: notInplaylistVideosId } },
-        });
-      }
-    } else {
-      await Playlist.updateOne({ _id: id }, { itemList: [] });
+      });
     }
-  };
 
-  const updateFuncObj = {
-    playlist: {
-      title,
-      privacy,
-      move,
-      videoIdList: updateList,
-    },
-    watch_later: {
-      move,
-      videoIdList: updateList,
-    },
-    likded: {
-      move,
-    },
-  };
+    session = await mongoose.startSession();
 
-  if (Object.keys(bodyData).length > 0) {
-    for (const [key, value] of Object.entries(bodyData)) {
-      const func = updateFuncObj[foundedPlaylist.type][key];
+    session.startTransaction();
 
-      if (func) {
-        if (func.constructor.name === "AsyncFunction") {
-          await func(value);
-        } else {
-          func(value);
-        }
-      } else {
-        notAllowData.push(key);
-      }
+    await Playlist.bulkWrite(bulkWrites, { session });
+
+    const pipeline = [
+      {
+        $addFields: {
+          _idStr: { $toString: "$_id" },
+        },
+      },
+      {
+        $match: { _idStr: id },
+      },
+      {
+        $project: {
+          _id: 1,
+          created_user_id: 1,
+          title: 1,
+          itemList: 1,
+          updatedAt: 1,
+          type: 1,
+          size: { $size: "$itemList" },
+        },
+      },
+    ];
+
+    const playlist = await Playlist.aggregate(pipeline, { session });
+
+    await session.commitTransaction();
+    res
+      .status(StatusCodes.OK)
+      .json({ msg: "Playlist updated successfullly", data: playlist[0] });
+  } catch (error) {
+    if (session) {
+      await session.abortTransaction();
+    }
+    if (error instanceof InvalidError) {
+      return res
+        .status(StatusCodes.BAD_REQUEST)
+        .json({ errors: error.errorObj });
+    }
+    throw error;
+  } finally {
+    if (session) {
+      session.endSession();
     }
   }
-
-  if (notAllowData.length > 0) {
-    throw new BadRequestError(
-      "You can't update these fields: " + notAllowData.join(", "),
-    );
-  }
-
-  if (Object.keys(updateDatas).length > 0) {
-    await Playlist.updateOne(searchObj, updateDatas);
-  }
-
-  const pipeline = [
-    {
-      $addFields: {
-        _idStr: { $toString: "$_id" },
-        userIdStr: { $toString: "$created_user_id" },
-      },
-    },
-    {
-      $match: { _idStr: id, userIdStr: userId },
-    },
-    {
-      $project: {
-        _id: 1,
-        created_user_id: 1,
-        title: 1,
-        itemList: 1,
-        updatedAt: 1,
-        type: 1,
-        size: { $size: "$itemList" },
-      },
-    },
-  ];
-
-  const playlist = await Playlist.aggregate(pipeline);
-
-  res
-    .status(StatusCodes.OK)
-    .json({ msg: "Playlist updated successfullly", data: playlist[0] });
 };
 
 const deletePlaylist = async (req, res) => {
@@ -567,14 +478,14 @@ const deletePlaylist = async (req, res) => {
 
   const { userId } = req.user;
 
-  const foundedPlaylist = await Playlist.findById(id);
+  const foundedPlaylist = await Playlist.findOne({
+    _id: id,
+    created_user_id: userId,
+    type: "playlist",
+  });
 
-  if (foundedPlaylist._id.toString() !== userId) {
-    throw new ForbiddenError("You are not authorized to delete this playlist");
-  }
-
-  if (foundedPlaylist.type !== "playlist") {
-    throw new ForbiddenError("Cannot delete this list");
+  if (!foundedPlaylist) {
+    throw new NotFoundError("Playlist not found");
   }
 
   await Playlist.deleteOne({ _id: id });
@@ -585,80 +496,48 @@ const deletePlaylist = async (req, res) => {
 const deleteManyPlaylist = async (req, res) => {
   const { userId } = req.user;
 
-  const { idList } = req.body;
+  const { idList } = req.query;
 
-  if (!idList || idList.length === 0) {
-    throw new BadRequestError("Must choose at least one playlist");
+  if (!idList) {
+    throw new BadRequestError(
+      "Please provide a list of playlist's id to delete",
+    );
   }
 
-  const foundedPlaylists = await Playlist.aggregate([
-    {
-      $addFields: {
-        _idStr: { $toString: "$_id" },
-      },
-    },
-    { $match: { _idStr: { $in: idList }, type: "playlist" } },
-    {
-      $project: {
-        type: 1,
-        created_user_id: 1,
-      },
-    },
-  ]);
+  const idArray = idList.split(",");
+
+  if (!Array.isArray(idArray) || idArray.length < 1) {
+    throw new BadRequestError("idList must be an array and can't be empty");
+  }
+
+  const foundedPlaylists = await Playlist.find({
+    _id: { $in: idArray },
+    created_user_id: userId,
+    type: "playlist",
+  }).select("_id type");
 
   if (foundedPlaylists.length === 0) {
+    throw new NotFoundError(`No playlist found with these ids ${idList}`);
+  }
+
+  if (foundedPlaylists.length !== idArray.length) {
+    const notFoundedList = [];
+
+    foundedPlaylists.forEach((user) => {
+      if (idArray.includes(user._id.toString())) {
+        notFoundedList.push(user._id);
+      }
+    });
+
     throw new NotFoundError(
-      `The following playlists with id: ${idList.join(", ")}could not be found`,
+      `No playlist found with these ids : ${notFoundedList.join(", ")}`,
     );
   }
 
-  const foundedIdList = foundedPlaylists.map((item) => item._id.toString());
-
-  const notFoundedId = idList.filter((id) => !foundedIdList.includes(id));
-
-  if (notFoundedId.length > 0) {
-    throw new NotFoundError(
-      `The following playlists with id: ${notFoundedId.join(
-        ", ",
-      )} could not be found`,
-    );
-  }
-
-  const notBelongList = [];
-
-  const specialList = [];
-
-  foundedPlaylists.forEach((playlist) => {
-    if (playlist.created_user_id.toString() !== userId) {
-      notBelongList.push(playlist._id.toString());
-      return;
-    }
-
-    if (playlist.type !== "playlist") {
-      specialList.push(playlist._id.toString());
-    }
-  });
-
-  if (notBelongList.length > 0) {
-    throw new ForbiddenError(
-      `You are not able to delete these playlist with id : ${notBelongList.join(
-        ", ",
-      )} that the not belongs to your account`,
-    );
-  }
-
-  if (specialList.length > 0) {
-    throw new ForbiddenError(
-      `Cannot delete these list with id : ${specialList.join(", ")}`,
-    );
-  }
-
-  await Playlist.deleteMany({ _id: { $in: idList } });
+  await Playlist.deleteMany({ _id: { $in: idArray } });
 
   res.status(StatusCodes.OK).json({
-    msg: `Successfully deleted playlist with following id: ${idList.join(
-      ", ",
-    )}`,
+    msg: `Successfully deleted playlist with following id: ${idList}`,
   });
 };
 

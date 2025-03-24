@@ -6,11 +6,16 @@ const {
   BadRequestError,
   NotFoundError,
   InternalServerError,
+  InvalidError,
 } = require("../../errors");
+
+const mongoose = require("mongoose");
 
 const { deleteFile, getVideoDuration } = require("../../utils/file");
 const { createHls } = require("../../utils/createhls");
 const { clearUploadedVideoFiles } = require("../../utils/clear");
+
+const { VideoValidator, Validator } = require("../../utils/validate");
 
 const path = require("path");
 
@@ -94,6 +99,13 @@ const getVideos = async (req, res) => {
 
   const { sort, search } = req.query;
 
+  const validator = new Validator();
+
+  const errors = {
+    invalidKey: [],
+    invalidValue: [],
+  };
+
   const searchObj = {};
 
   const searchEntries = Object.entries(search || {});
@@ -101,16 +113,25 @@ const getVideos = async (req, res) => {
   if (searchEntries.length > 0) {
     const searchFuncsObj = {
       title: (title) => {
+        validator.isString("title", title);
         searchObj["title"] = { $regex: title, $options: "i" };
       },
       type: (type) => {
+        validator.isEnum("type", ["video", "short"], type);
         searchObj["type"] = type;
       },
     };
 
     for (const [key, value] of searchEntries) {
-      if (searchFuncsObj[key]) {
+      if (!searchFuncsObj[key]) {
+        errors.invalidKey.push(key);
+        continue;
+      }
+
+      try {
         searchFuncsObj[key](value);
+      } catch (error) {
+        errors.invalidValue.push(key);
       }
     }
   }
@@ -120,7 +141,6 @@ const getVideos = async (req, res) => {
   const sortEntries = Object.entries(sort || {});
 
   if (sortEntries.length > 0) {
-    
     const sortKeys = new Set([
       "createdAt",
       "view",
@@ -129,12 +149,29 @@ const getVideos = async (req, res) => {
       "totalCmt",
     ]);
 
+    const sortValueEnum = { 1: 1, "-1": -1 };
     for (const [key, value] of sortEntries) {
-      if (sortKeys.has(key)) {
-        sortObj[key] = Number(value);
+      if (!sortKeys.has(key)) {
+        errors.invalidKey.push(key);
+        continue;
       }
+
+      if (!sortValueEnum[value]) {
+        errors.invalidValue.push(key);
+        continue;
+      }
+
+      sortObj[key] = sortValueEnum[value];
     }
-  } else {
+  }
+
+  for (const error in errors) {
+    if (errors[error].length > 0) {
+      return res.status(StatusCodes.BAD_REQUEST).json(errors);
+    }
+  }
+
+  if (Object.keys(sortObj).length < 1) {
     sortObj = {
       createdAt: -1,
     };
@@ -297,82 +334,50 @@ const updateVideo = async (req, res) => {
 
   const { userId } = req.user;
 
-  if (id === "" || id === ":id") {
-    throw new BadRequestError("Please provide video id");
-  }
-
-  const foundedVideo = await Video.findOne({ user_id: userId });
-
-  if (!foundedVideo) {
-    throw new NotFoundError(`Cannot find video with id ${id}`);
-  }
-
-  if (foundedVideo.user_id.toString() !== userId) {
-    throw new ForbiddenError("You are not authorized to update this video.");
-  }
-
-  if (
-    Object.keys(req.body).length === 0 &&
-    !req.files.image &&
-    !req.files.image[0]
-  ) {
-    throw new BadRequestError("There is nothing to update.");
-  }
-
-  let updatedKey = new Set(["title", "image", "type", "tags", "description"]);
-
-  let canBeEmpty = new Set(["description"]);
-
-  let updateData = {};
-
-  let emptyList = [];
-
-  let notAllowValue = [];
-
-  for (let [key, value] of Object.entries(req.body)) {
-    if (updatedKey.has(key)) {
-      if (value === "" && !canBeEmpty.has(key)) {
-        emptyList.push(key);
-      } else {
-        if (key === "tags") {
-          value = JSON.parse(value);
-        }
-        updateData[key] = value;
-      }
-    } else {
-      notAllowValue.push(key);
+  try {
+    if (
+      Object.keys(req.body).length === 0 &&
+      !req.files.image &&
+      !req.files.image[0]
+    ) {
+      throw new BadRequestError("There is nothing to update.");
     }
-  }
 
-  if (notAllowValue.length > 0) {
-    throw new BadRequestError(
-      `The comment cannot contain the following fields: ${notAllowValue.join(
-        ", ",
-      )}`,
-    );
-  }
+    const foundedVideo = await Video.findOne({ _id: id, user_id: userId });
 
-  if (emptyList.length > 0) {
-    throw new BadRequestError(`${emptyList.join(", ")} cannot be empty`);
-  }
+    if (!foundedVideo) {
+      throw new NotFoundError(`Not found video with id ${id}`);
+    }
 
-  if (req.files?.image && req.files?.image[0]) {
-    updateData.thumb = req.files?.image[0].filename;
-  }
+    const updateDatas = await new VideoValidator(
+      {
+        ...req.body,
+        ...req.files,
+      },
+      foundedVideo,
+      ["title", "thumbnail", "type", "tags", "description"],
+    ).getValidatedUpdateData();
 
-  const video = await Video.findByIdAndUpdate(id, updateData);
-  if (!video) {
-    throw new InternalServerError(
-      "These something went wrong with the server please try again later",
-    );
-  }
+    await Video.updateOne({ _id: id }, updateDatas);
 
-  if (req.files?.image && req.files?.image[0] && video) {
-    const imgPath = path.join(asssetPath, "video thumb", video.thumb);
-    deleteFile(imgPath);
-  }
+    if (req.files?.thumbnail && req.files?.thumbnail.length) {
+      const imgPath = path.join(asssetPath, "video thumb", foundedVideo.thumb);
+      deleteFile(imgPath);
+    }
 
-  res.status(StatusCodes.OK).json({ msg: "Video updated successfully" });
+    res.status(StatusCodes.OK).json({ msg: "Video updated successfully" });
+  } catch (error) {
+    if (req.files?.thumbnail && req.files?.thumbnail.length) {
+      deleteFile(req.files.thumbnail[0].path);
+    }
+
+    if (error instanceof InvalidError) {
+      return res
+        .status(StatusCodes.BAD_REQUEST)
+        .json({ errors: error.errorObj });
+    }
+    throw error;
+  }
 };
 
 const deleteVideo = async (req, res) => {
@@ -380,25 +385,24 @@ const deleteVideo = async (req, res) => {
 
   const { id } = req.params;
 
-  if (id === "" || id === ":id") {
-    throw new BadRequestError(`Video id cannot be empty`);
-  }
-
-  const foundedVideo = await Video.findById(id);
+  const foundedVideo = await Video.findOne({ _id: id, user_id: userId });
 
   if (!foundedVideo) {
     throw new NotFoundError(`Not found video with id ${id}`);
   }
 
-  if (userId !== foundedVideo.user_id.toString()) {
-    throw new BadRequestError(
-      `Video with id ${id} does not belong to your account`,
-    );
+  const session = await mongoose.startSession();
+  session.startTransaction();
+  try {
+    await Video.deleteOne({ _id: id }, { session });
+    await session.commitTransaction();
+    res.status(StatusCodes.OK).json({ msg: "Video deleted successfully" });
+  } catch (error) {
+    await session.abortTransaction();
+    throw error;
+  } finally {
+    await session.endSession();
   }
-
-  await Video.deleteOne({ _id: id });
-
-  res.status(StatusCodes.OK).json({ msg: "Video deleted successfully" });
 };
 
 const deleteManyVideos = async (req, res) => {
@@ -407,53 +411,49 @@ const deleteManyVideos = async (req, res) => {
   const { userId } = req.user;
 
   if (!idList) {
-    throw new BadRequestError("Please provide idList");
+    throw new BadRequestError("Please provide a list of video id to delete");
   }
-  if (!Array.isArray(idList) || idList.length === 0) {
+
+  const idArray = idList.split(",");
+
+  if (!Array.isArray(idArray) || idArray.length < 1) {
     throw new BadRequestError("idList must be an array and can't be empty");
   }
 
-  const notBelongsToList = [];
+  const foundedVideos = await Video.find({
+    _id: { $in: idArray },
+    user_id: userId,
+  }).select("_id");
 
-  let notFoundedVideos = await Promise.all(
-    idList.map(async (id) => {
-      const video = await Video.findById(id);
+  if (foundedVideos.length === 0) {
+    throw new NotFoundError(`Not found any video with these ids: ${idList}`);
+  } else if (foundedVideos.length !== idArray.length) {
+    const notFoundedList = [];
 
-      if (!video) {
-        return id;
+    foundedVideos.forEach((video) => {
+      if (idArray.includes(video._id.toString())) {
+        notFoundedList.push(video._id);
       }
+    });
 
-      if (video.user_id.toString() !== userId) {
-        notBelongsToList.push(id);
-      }
-
-      return null;
-    }),
-  );
-
-  notFoundedVideos = notFoundedVideos.filter((id) => id !== null);
-
-  if (notFoundedVideos.length > 0) {
     throw new NotFoundError(
-      `The following video IDs could not be found: ${notFoundedVideos.join(
-        ", ",
-      )}`,
+      `Not found any video with these ids: ${notFoundedList.join(", ")}`,
     );
   }
 
-  if (notBelongsToList.length > 0) {
-    throw new BadRequestError(
-      `The following video IDs : ${notBelongsToList.join(
-        ", ",
-      )}. Does not belong to you `,
-    );
+  const session = await mongoose.startSession();
+  session.startTransaction();
+  try {
+    await Video.deleteMany({ _id: { $in: idArray } }, { session });
+    await session.commitTransaction();
+
+    res.status(StatusCodes.OK).json({ msg: "Videos deleted successfully" });
+  } catch (error) {
+    await session.abortTransaction();
+    throw error;
+  } finally {
+    await session.endSession();
   }
-
-  idList.forEach(async (id) => {
-    await Video.deleteOne({ _id: id });
-  });
-
-  res.status(StatusCodes.OK).json({ msg: "Videos deleted successfully" });
 };
 
 module.exports = {

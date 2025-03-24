@@ -7,7 +7,6 @@ const {
   updateCmt,
   deleteCmt,
   deleteManyCmt,
-  getVideoComments,
 } = require("../../controllers/user/comment");
 
 const router = express.Router();
@@ -15,7 +14,6 @@ const router = express.Router();
 router.route("/").post(createCmt).get(getCmts);
 
 router.route("/delete-many").post(deleteManyCmt);
-router.route("/video-comments").get(getVideoComments);
 
 router
   .route("/:id")

@@ -421,6 +421,7 @@ const deleteVideo = async (req, res) => {
     throw error;
   } finally {
     await session.endSession();
+    F;
   }
 };
 
@@ -433,13 +434,19 @@ const deleteManyVideos = async (req, res) => {
 
   const idArray = idList.split(",");
 
+  if (!Array.isArray(idArray) || idArray.length < 1) {
+    throw new BadRequestError("idList must be an array and can't be empty");
+  }
+
   const foundedVideos = await Video.find({ _id: { $in: idArray } }).select(
     "_id",
   );
 
-  if (foundedVideos.length === 0) {
+  if (foundedVideos.length < 1) {
     throw new NotFoundError(`Not found any video with these ids: ${idList}`);
-  } else if (foundedVideos.length !== idArray.length) {
+  }
+  
+  if (foundedVideos.length !== idArray.length) {
     const notFoundedList = [];
 
     foundedVideos.forEach((video) => {

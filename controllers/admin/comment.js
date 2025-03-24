@@ -199,7 +199,7 @@ const getCmts = async (req, res) => {
     }
   }
 
-  if (isObjectEmpty(sortObj)) {
+  if (Object.keys(sortObj).length < 1) {
     sortObj.createdAt = -1;
   }
 
@@ -412,10 +412,6 @@ const updateCmt = async (req, res) => {
 const deleteCmt = async (req, res) => {
   const { id } = req.params;
 
-  if (!id || id === "" || id === ":id") {
-    throw new BadRequestError(`Please provide comment id`);
-  }
-
   const foundedCmt = await Comment.findById(id);
 
   if (!foundedCmt) {
@@ -429,7 +425,7 @@ const deleteCmt = async (req, res) => {
     res.status(StatusCodes.OK).json({ msg: "Comment deleted", data: cmt });
   } catch (error) {
     await session.abortTransaction();
-    console.log(error);
+
     throw new InternalServerError(`Failed to delete comment with id ${id}`);
   } finally {
     session.endSession();
@@ -437,66 +433,66 @@ const deleteCmt = async (req, res) => {
 };
 
 const deleteManyCmt = async (req, res) => {
-  const idList = req.query?.idList?.split(",");
+  const { idList } = req.query;
 
-  if (!idList || idList.length < 1) {
-    throw new BadRequestError(
-      "Please provide list of comment that you want to delete",
-    );
+  if (!idList) {
+    throw new BadRequestError("Please provide a list of video id to delete");
   }
 
-  const foundedCmts = await Comment.find({ _id: { $in: idList } }).select(
-    "_id",
+  const idArray = idList.split(",");
+
+  if (!Array.isArray(idArray) || idArray.length < 1) {
+    throw new BadRequestError("idList must be an array and can't be empty");
+  }
+
+  const foundedCmts = await Comment.find({ _id: { $in: idArray } }).select(
+    "_id replied_parent_cmt_id",
   );
 
-  if (foundedCmts.length !== idList.length) {
-    const foundedCmtIdList = foundedCmts.map((cmt) => cmt._id.toString());
+  const cmtListNeedToDelete = [];
 
-    const notFoundedCmts = idList.filter(
-      (id) => !foundedCmtIdList.includes(id),
+  if (foundedCmts.length < 1) {
+    throw new BadRequestError(
+      `Not found comments with id : ${idArray.join(", ")}`,
     );
+  } else if (foundedCmts.length !== idArray.length) {
+    const foundedCmtIdList = new Set();
+
+    for (const cmt of foundedCmts) {
+      //Remove reply comment ID if the root comment is included in the list,
+      //  because in cascade deletion, the entire comment tree will be deleted if the root comment got removed.
+      if (
+        !cmt.replied_parent_cmt_id ||
+        !idArray.includes(cmt.replied_parent_cmt_id)
+      ) {
+        cmtListNeedToDelete.push(cmt._id);
+      }
+
+      foundedCmtIdList.add(cmt._id);
+    }
+
+    const notFoundedCmts = idArray.filter((id) => {
+      return !foundedCmtIdList.has(id);
+    });
+
     if (notFoundedCmts.length > 0) {
       throw new BadRequestError(
-        `The following video IDs could not be found: ${notFoundedCmts.join(
-          ", ",
-        )}`,
+        `Not found comments with id : ${notFoundedCmts.join(", ")}`,
       );
     }
   }
-
-  //Remove reply comment ID if the root comment is included in the list,
-  //  because in cascade deletion, the entire comment tree will be deleted if the root comment is removed.
-  let commentListNeedToDelete = await Comment.aggregate([
-    {
-      $set: {
-        _id_str: { $toString: "$_id" },
-        replied_parent_cmt_id_str: { $toString: "$replied_parent_cmt_id" },
-      },
-    },
-    {
-      $match: {
-        _id_str: { $in: idList },
-        replied_parent_cmt_id_str: { $nin: idList },
-      },
-    },
-    { $project: { _id: 1 } },
-  ]);
-
-  commentListNeedToDelete = commentListNeedToDelete.map((cmt) =>
-    cmt._id.toString(),
-  );
 
   const session = await mongoose.startSession();
   session.startTransaction();
 
   try {
     await Comment.deleteMany(
-      { _id: { $in: commentListNeedToDelete } },
+      { _id: { $in: cmtListNeedToDelete } },
       { session },
     );
     await session.commitTransaction();
     res.status(StatusCodes.OK).json({
-      msg: `Comments with the following IDs have been deleted: ${idList.join(
+      msg: `Comments with the following IDs have been deleted: ${idArray.join(
         ", ",
       )}`,
     });

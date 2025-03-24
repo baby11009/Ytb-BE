@@ -310,6 +310,10 @@ const deleteManyUsers = async (req, res) => {
 
   const idArray = idList.split(",");
 
+  if (!Array.isArray(idArray) || idArray.length < 1) {
+    throw new BadRequestError("idList must be an array and can't be empty");
+  }
+
   const foundedUsers = await User.find({ _id: { $in: idArray } }).select("_id");
 
   if (foundedUsers.length === 0) {
