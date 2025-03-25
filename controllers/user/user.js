@@ -92,18 +92,18 @@ const settingAccount = async (req, res) => {
     }
 
     const updateDatas = await new UserValidator(
-      { ...data, ...req.files },
+      { ...req.body, ...req.files },
       foundedUser,
       ["name", "password", "description", "avatar", "banner"],
     ).getValidatedUpdateData();
 
     await User.updateOne({ _id: id }, updateDatas);
 
-    if (foundedUser.avatar !== "df.jpg" && finalObject.avatar) {
+    if (foundedUser.avatar !== "df.jpg" && updateDatas.avatar) {
       deleteFile(path.join(avatarPath, foundedUser.avatar));
     }
 
-    if (foundedUser.banner !== "df-banner.jpg" && finalObject.banner) {
+    if (foundedUser.banner !== "df-banner.jpg" && updateDatas.banner) {
       deleteFile(path.join(avatarPath, foundedUser.banner));
     }
 
@@ -317,11 +317,9 @@ const getSubscribedChannelsVideos = async (req, res) => {
     if (searchEntries.length > 0) {
       const searchFuncObj = {
         type: (value) => {
-     
-            validator.isEnum("type",  ["short", "video"], value);
+          validator.isEnum("type", ["short", "video"], value);
 
-            searchObj["type"] = value;
-         
+          searchObj["type"] = value;
         },
       };
 
@@ -497,13 +495,6 @@ const getWatchLaterDetails = async (req, res) => {
     {
       $addFields: {
         created_user_idStr: { $toString: "$created_user_id" },
-        objectIdVideoList: {
-          $map: {
-            input: "$itemList",
-            as: "id",
-            in: { $toObjectId: "$$id" },
-          },
-        },
       },
     },
     {
@@ -515,19 +506,18 @@ const getWatchLaterDetails = async (req, res) => {
     {
       $lookup: {
         from: "videos",
-        let: { videoIdList: "$objectIdVideoList" },
+        let: { videoIdList: "$itemList" },
         pipeline: [
           {
             $addFields: {
-              videoIdList: "$$videoIdList",
               order: {
-                $indexOfArray: ["$$videoIdList", "$_id"],
+                $indexOfArray: ["$$videoIdList", { $toString: "$_id" }],
               },
             },
           },
           {
             $match: {
-              $expr: { $in: ["$_id", "$videoIdList"] },
+              $expr: { $in: [{ $toString: "$_id" }, "$$videoIdList"] },
               ...searchObj,
             },
           },
@@ -562,6 +552,7 @@ const getWatchLaterDetails = async (req, res) => {
               view: 1,
               type: 1,
               createdAt: 1,
+              order: 1,
               duration: 1,
               channel_info: 1,
             },

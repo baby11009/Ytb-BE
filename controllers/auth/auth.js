@@ -7,7 +7,7 @@ const {
 } = require("../../errors");
 const { sendEmailConfirm } = require("../../utils/send-email");
 const { generateCodeAndExpire } = require("../../utils/generator");
-
+const mongoose = require("mongoose");
 const { StatusCodes } = require("http-status-codes");
 
 const register = async (req, res) => {
@@ -30,20 +30,28 @@ const register = async (req, res) => {
     privateCode: confirmCode,
     codeExpires: confirmCodeExpires,
   };
+  const session = await mongoose.startSession();
+  session.startTransaction();
+  try {
+    await User.create([userData], { session });
 
-  await User.create(userData);
-
-  await sendEmailConfirm(
-    email,
-    "Account confirmation email",
-    `
-    <h1>Your confirmation code is ${confirmCode}</h1>
-    `,
-  );
-
-  res
-    .status(StatusCodes.CREATED)
-    .json({ msg: "Check your email to get confirmation code" });
+    await sendEmailConfirm(
+      email,
+      "Account confirmation email",
+      `
+      <h1>Your confirmation code is ${confirmCode}</h1>
+      `,
+    );
+    await session.commitTransaction();
+    res
+      .status(StatusCodes.CREATED)
+      .json({ msg: "Check your email to get confirmation code" });
+  } catch (error) {
+    await session.abortTransaction();
+    throw error;
+  } finally {
+    session.endSession();
+  }
 };
 
 const verifyAccount = async (req, res) => {

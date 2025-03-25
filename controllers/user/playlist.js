@@ -8,6 +8,7 @@ const { StatusCodes } = require("http-status-codes");
 const mongoose = require("mongoose");
 const { searchWithRegex } = require("../../utils/other");
 const { PlaylistValidator, Validator } = require("../../utils/validate");
+const video = require("../../models/video");
 
 const createPlaylist = async (req, res) => {
   const { userId } = req.user;
@@ -20,7 +21,7 @@ const createPlaylist = async (req, res) => {
   if (videoIdList && videoIdList.length > 0) {
     const foundedVideos = await Video.aggregate([
       {
-        $addFields: {
+        $set: {
           _idStr: { $toString: "$_id" },
         },
       },
@@ -157,7 +158,7 @@ const getPlaylists = async (req, res) => {
 
   const pipeline = [
     {
-      $addFields: {
+      $set: {
         _idStr: { $toString: "$_id" },
         userIdStr: { $toString: "$created_user_id" },
         size: { $size: "$itemList" },
@@ -178,12 +179,17 @@ const getPlaylists = async (req, res) => {
         let: { videoIdList: "$itemList" },
         pipeline: [
           {
-            $addFields: {
+            $set  : {
               _idStr: { $toString: "$_id" },
-              reverseIdList: { $reverseArray: "$$videoIdList" },
+              order: {
+                $indexOfArray: ["$$videoIdList", { $toString: "$_id" }],
+              },
             },
           },
-          { $match: { $expr: { $in: ["$_idStr", "$reverseIdList"] } } },
+          { $match: { $expr: { $in: ["$_idStr", "$$videoIdList"] } } },
+          {
+            $sort: { order: -1 },
+          },
           {
             $limit: Number(videoLimit),
           },
@@ -246,34 +252,102 @@ const getPlaylistDetails = async (req, res) => {
   const { userId } = req.user;
 
   const { id } = req.params;
+  console.log("🚀 ~ id:", id);
 
-  const { videoLimit = 8, videoPage = 1 } = req.query;
+  const { videoLimit = 8, videoPage = 1, videoSearch } = req.query;
 
-  const pipeline = [
-    {
-      $addFields: {
-        _idStr: { $toString: "$_id" },
-        userIdStr: { $toString: "$created_user_id" },
+  const typeSet = new Set(["watch_later", "liked", "history"]);
+
+  const pipeline = [];
+
+  if (typeSet.has(id)) {
+    pipeline.push(
+      {
+        $set: {
+          userIdStr: { $toString: "$created_user_id" },
+        },
       },
-    },
-    {
-      $match: { _idStr: id, userIdStr: userId },
-    },
-  ];
+      {
+        $match: { type: id, userIdStr: userId },
+      },
+    );
+  } else {
+    pipeline.push(
+      {
+        $set: {
+          _idStr: { $toString: "$_id" },
+          userIdStr: { $toString: "$created_user_id" },
+        },
+      },
+      {
+        $match: { _idStr: id, userIdStr: userId },
+      },
+    );
+  }
 
   if (videoLimit && videoLimit > 0) {
+    const validator = new Validator();
+
+    const videoSearchEntries = Object.entries(videoSearch || {});
+
+    const errors = {
+      invalidKey: [],
+      invalidValue: [],
+    };
+
+    const searchObj = {};
+
+    if (videoSearchEntries.length > 0) {
+      const searchFuncObj = {
+        type: (type) => {
+          validator.isEnum("type", ["video", "short"], type);
+          searchObj["type"] = type;
+        },
+      };
+
+      for (const [key, value] of videoSearchEntries) {
+        if (!searchFuncObj[key]) {
+          errors.invalidKey.push(key);
+          continue;
+        }
+
+        try {
+          searchFuncObj[key](value);
+        } catch (error) {
+          errors.invalidValue.push(key);
+        }
+      }
+
+      for (const error in errors) {
+        if (errors[error].length > 0) {
+          return res.status(StatusCodes.BAD_REQUEST).json(errors);
+        }
+      }
+    }
+
     pipeline.push({
       $lookup: {
         from: "videos",
         let: { videoIdList: "$itemList" },
         pipeline: [
           {
-            $addFields: {
-              _idStr: { $toString: "$_id" },
-              reverseIdList: { $reverseArray: "$$videoIdList" },
+            $set: {
+              order: {
+                $indexOfArray: ["$$videoIdList", { $toString: "$_id" }],
+              },
             },
           },
-          { $match: { $expr: { $in: ["$_idStr", "$reverseIdList"] } } },
+          {
+            $match: {
+              $expr: { $in: [{ $toString: "$_id" }, "$$videoIdList"] },
+              ...searchObj,
+            },
+          },
+          {
+            $sort: {
+              order: -1,
+            },
+          },
           {
             $skip: (Number(videoPage) - 1) * Number(videoLimit),
           },
@@ -288,9 +362,10 @@ const getPlaylistDetails = async (req, res) => {
               type: 1,
               view: 1,
               like: 1,
+              videoIdList: 1,
               video: 1,
-              stream: { $ifNull: ["$stream", null] },
               totalCmt: 1,
+              order: -1,
               description: 1,
               createdAt: 1,
             },
@@ -379,7 +454,6 @@ const updatePlaylist = async (req, res, next) => {
     let bulkWrites = [];
 
     if (Object.keys(othersData).length > 0) {
-
       bulkWrites = await new PlaylistValidator(
         othersData,
         foundedPlaylist,
@@ -387,6 +461,7 @@ const updatePlaylist = async (req, res, next) => {
     }
 
     if (move) {
+      console.log("🚀 ~ move:", move);
       if (foundedPlaylist.itemList.length === 0) {
         throw new BadRequestError("Invalid move action");
       }
@@ -430,7 +505,7 @@ const updatePlaylist = async (req, res, next) => {
 
     const pipeline = [
       {
-        $addFields: {
+        $set: {
           _idStr: { $toString: "$_id" },
         },
       },
