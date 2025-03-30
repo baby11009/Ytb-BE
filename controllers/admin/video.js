@@ -16,7 +16,7 @@ const { createHls } = require("../../utils/createhls");
 const { clearUploadedVideoFiles } = require("../../utils/clear");
 
 const { searchWithRegex, isObjectEmpty } = require("../../utils/other");
-const { VideoValidato, Validator } = require("../../utils/validate");
+const { VideoValidator, Validator } = require("../../utils/validate");
 
 const videoFolderPath = path.join(__dirname, "../../assets/video thumb");
 
@@ -32,7 +32,7 @@ const upLoadVideo = async (req, res) => {
     like = 0,
     dislike = 0,
   } = req.body;
-
+  console.log(50);
   try {
     const fileErr = [];
 
@@ -41,7 +41,7 @@ const upLoadVideo = async (req, res) => {
     }
 
     if (!thumbnail || thumbnail.length === 0) {
-      fileErr.push("image");
+      fileErr.push("thumbnail");
     }
 
     if (fileErr.length > 0) {
@@ -88,8 +88,8 @@ const upLoadVideo = async (req, res) => {
       args.videoPath = video[0].path;
     }
 
-    if (image & image[0]) {
-      args.imagePath = image[0].path;
+    if (thumbnail & thumbnail[0]) {
+      args.imagePath = thumbnail[0].path;
     }
     await clearUploadedVideoFiles(args);
 
@@ -280,6 +280,7 @@ const getVideoDetails = async (req, res) => {
         from: "users",
         localField: "user_id",
         foreignField: "_id",
+        pipeline: [{ $project: { email: 1 } }],
         as: "user_info",
       },
     },
@@ -316,8 +317,7 @@ const getVideoDetails = async (req, res) => {
       $project: {
         _id: 1,
         title: 1, // Các trường bạn muốn giữ lại từ Video
-        "user_info._id": 1,
-        "user_info.email": 1,
+        user_info: 1,
         tags_info: { $ifNull: ["$tags_info", []] },
         tags: 1,
         thumb: 1,
@@ -445,7 +445,7 @@ const deleteManyVideos = async (req, res) => {
   if (foundedVideos.length < 1) {
     throw new NotFoundError(`Not found any video with these ids: ${idList}`);
   }
-  
+
   if (foundedVideos.length !== idArray.length) {
     const notFoundedList = [];
 

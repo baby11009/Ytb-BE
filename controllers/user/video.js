@@ -22,7 +22,7 @@ const path = require("path");
 const asssetPath = path.join(__dirname, "../../assets");
 
 const upLoadVideo = async (req, res) => {
-  const { image, video } = req.files;
+  const { thumbnail, video } = req.files;
 
   const { userId } = req.user;
 
@@ -35,8 +35,8 @@ const upLoadVideo = async (req, res) => {
       fileErr.push("video");
     }
 
-    if (!image || image.length === 0) {
-      fileErr.push("image");
+    if (!thumbnail || thumbnail.length === 0) {
+      fileErr.push("thumbnail");
     }
 
     if (fileErr.length > 0) {
@@ -66,7 +66,7 @@ const upLoadVideo = async (req, res) => {
       title: title,
       video: video[0].filename,
       stream: filename,
-      thumb: image[0].filename,
+      thumb: thumbnail[0].filename,
       duration: videoDuration,
       tags: tags,
       description,
@@ -106,7 +106,7 @@ const getVideos = async (req, res) => {
     invalidValue: [],
   };
 
-  const searchObj = {};
+  const searchObj = { _userIdStr: userId };
 
   const searchEntries = Object.entries(search || {});
 
@@ -184,11 +184,6 @@ const getVideos = async (req, res) => {
       },
     },
     {
-      $match: {
-        _userIdStr: userId,
-      },
-    },
-    {
       $match: searchObj,
     },
     {
@@ -203,35 +198,18 @@ const getVideos = async (req, res) => {
       $unwind: "$user_info",
     },
     {
-      $addFields: {
-        _idStr: { $toString: "$_id" },
-      },
-    },
-    {
       $project: {
         _id: 1,
         title: 1, // Các trường bạn muốn giữ lại từ Video
-        // "user_info._id": 1,
-        // "user_info.email": 1,
-        // "user_info.avatar": 1,
-        // "user_info.name": 1,
+        user_info: 1,
+        tags: 1,
         thumb: 1,
-        video: 1,
-        // stream: {
-        //   $cond: {
-        //     if: { $ne: ["$stream", null] }, // Check if `stream` exists and is not null
-        //     then: "$stream", // Keep the `stream` value if it exists
-        //     else: null, // Set it to null if it doesn't exist
-        //   },
-        // },
-        duration: { $ifNull: ["$duration", 0] },
         type: 1,
         view: 1,
         like: 1,
         dislike: 1,
-        createdAt: 1,
-        totalCmt: 1,
         description: 1,
+        createdAt: -1,  
       },
     },
     {
@@ -297,14 +275,15 @@ const getVideoDetails = async (req, res) => {
             },
           },
         ],
-        as: "tag_info",
+        as: "tags_info",
       },
     },
     {
       $project: {
         _id: 1,
         title: 1, // Các trường bạn muốn giữ lại từ Video
-        tag_info: { $ifNull: ["$tag_info", []] },
+        tags_info: { $ifNull: ["$tag_info", []] },
+        tags: 1,
         thumb: 1,
         video: 1,
         stream: {

@@ -1,8 +1,13 @@
 const { User, Subscribe } = require("../../models");
 const { StatusCodes } = require("http-status-codes");
-const { BadRequestError } = require("../../errors");
+const {
+  BadRequestError,
+  InternalServerError,
+  NotFoundError,
+} = require("../../errors");
+const mongoose = require("mongoose");
 
-const toggleSubscribe = async (req, res) => {
+const subscribe = async (req, res) => {
   const { userId } = req.user;
 
   const { channelId } = req.body;
@@ -16,35 +21,89 @@ const toggleSubscribe = async (req, res) => {
   }
 
   const channel = await User.findById(channelId);
+
   if (!channel) {
     throw new BadRequestError(`Not found channel with id ${channelId}`);
   }
+
   const finalData = {
     subscriber_id: userId,
     channel_id: channelId,
   };
 
-  const existingSubscibe = await Subscribe.findOne(finalData);
+  const subscription = await Subscribe.findOne(finalData);
 
-  let msg;
-  let count = 1;
-  let data;
-  if (existingSubscibe) {
-    await Subscribe.deleteOne({ _id: existingSubscibe._id });
-    count = -1;
-    msg = "Successfully unsubscribed channel";
-    data = { notify: 0 };
-  } else {
-    const subscribe = await Subscribe.create(finalData);
-    msg = "Successfully subscribed channel";
-    data = subscribe;
+  if (subscription) {
+    throw new BadRequestError("You have already subscribed this channel");
   }
 
-  const user = await User.findByIdAndUpdate(channelId, {
-    $inc: { subscriber: count },
-  });
+  const session = await mongoose.startSession();
+  session.startTransaction();
 
-  res.status(StatusCodes.OK).json({ msg, data });
+  try {
+    const subscription = await Subscribe.create([finalData], { session });
+    await session.commitTransaction();
+    res.status(StatusCodes.OK).json({
+      message: "Successfully subscribed channel",
+      data: {
+        _id: subscription[0]._id,
+        notify: subscription[0].notify,
+      },
+    });
+  } catch (error) {
+    await session.abortTransaction();
+    throw error;
+  } finally {
+    session.endSession();
+  }
+};
+
+const unsubscribe = async (req, res) => {
+  const { userId } = req.user;
+
+  const { channelId } = req.params;
+
+  if (!channelId) {
+    throw new BadRequestError("Please provide a channel id");
+  }
+
+  const channel = await User.findById(channelId);
+
+  if (!channel) {
+    throw new BadRequestError(`Not found channel with id ${channelId}`);
+  }
+
+  const finalData = {
+    subscriber_id: userId,
+    channel_id: channelId,
+  };
+
+  const subscription = await Subscribe.findOne(finalData);
+
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+    if (!subscription) {
+      throw new NotFoundError(
+        `Not found subscription with channel id ${channelId}`,
+      );
+    }
+
+    await Subscribe.deleteOne(
+      { _id: subscription._id, channel_id: channelId },
+      { session },
+    );
+    await session.commitTransaction();
+    res.status(StatusCodes.OK).json({
+      message: "Successfully unsubscribed channel",
+    });
+  } catch (error) {
+    await session.abortTransaction();
+    throw error;
+  } finally {
+    session.endSession();
+  }
 };
 
 const modifySubscribe = async (req, res) => {
@@ -53,7 +112,6 @@ const modifySubscribe = async (req, res) => {
   const { id } = req.params;
 
   const { notify } = req.body;
-  console.log("🚀 ~ notify:", notify);
 
   const notifyCode = {
     1: "No notification",
@@ -64,27 +122,23 @@ const modifySubscribe = async (req, res) => {
     throw new BadRequestError("Notify field is missing");
   }
 
-  const foundedSubribe = await Subscribe.findById(id);
+  const foundedSubribe = await Subscribe.findOne({
+    _id: id,
+    subscriber_id: userId,
+  });
 
   if (!foundedSubribe) {
-    throw new NotFoundError(`Not found subscribe with id ${id}`);
-  }
-
-  if (foundedSubribe.subscriber_id.toString() !== userId) {
-    throw new BadRequestError(
-      "You cannot modify the notify status of someone else's subscription"
-    );
+    throw new NotFoundError(`Not found subscription with id ${id}`);
   }
 
   const subscribeModify = await Subscribe.findByIdAndUpdate(
     id,
     { notify },
-    { returnDocument: "after" }
+    { returnDocument: "after" },
   );
-  console.log("🚀 ~ subscribeModify:", subscribeModify);
 
   if (!subscribeModify) {
-    throw new BadRequestError(`Not found subscribe with id ${id}`);
+    throw new InternalServerError(`Failed to update subscription`);
   }
 
   res.status(StatusCodes.OK).json({
@@ -128,7 +182,8 @@ const getSubscriptionState = async (req, res) => {
 };
 
 module.exports = {
-  toggleSubscribe,
+  subscribe,
+  unsubscribe,
   modifySubscribe,
   getSubscriptionState,
 };

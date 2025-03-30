@@ -16,8 +16,8 @@ const createTag = async (req, res) => {
   try {
     if (
       Object.keys(req.body).length === 0 ||
-      req.files?.icon ||
-      req.files.icon.length
+      !req.files?.icon ||
+      req.files.icon.length < 1
     ) {
       throw new BadRequestError("Please provide data to register");
     }
@@ -33,14 +33,17 @@ const createTag = async (req, res) => {
     const data = {
       title: title,
       slug: title.toLowerCase().replace(/[^\w]+/g, "-"),
-      icon: req.files.image[0].filename,
+      icon: req.files.icon[0].filename,
     };
 
     const tag = await Tag.create(data);
     res.status(StatusCodes.CREATED).json({ data: tag });
   } catch (error) {
     if (req.files?.icon && req.files.icon.length) {
-      const imgPath = path.join(iconPath, req.files.icon && [0].filename);
+      const imgPath = path.join(
+        iconPath,
+        req.files.icon && req.files.icon[0].filename,
+      );
       deleteFile(imgPath);
     }
     throw error;

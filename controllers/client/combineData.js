@@ -1,4 +1,4 @@
-const { Video, Playlist, User, Comment } = require("../../models");
+const { Video, Playlist, User, Comment, Tag } = require("../../models");
 const { StatusCodes } = require("http-status-codes");
 const {
   BadRequestError,
@@ -6,6 +6,7 @@ const {
   ForbiddenError,
 } = require("../../errors");
 const mongoose = require("mongoose");
+const { Validator } = require("../../utils/validate");
 
 const {
   client,
@@ -16,6 +17,7 @@ const {
 } = require("../../utils/redis");
 
 const { generateSessionId } = require("../../utils/generator");
+const { searchWithRegex } = require("../../utils/other");
 
 const getVideoList = async (req, res) => {
   const { limit, page, sort } = req.query;
@@ -1147,6 +1149,11 @@ const getChannelInfo = async (req, res) => {
                 },
               },
             },
+            {
+              $project: {
+                notify: 1,
+              },
+            },
           ],
           as: "subscription_info",
         },
@@ -1942,6 +1949,127 @@ const getPlaylistDetails = async (req, res) => {
   });
 };
 
+const getTagsList = async (req, res) => {
+  const { limit, page, sort, search, priorityList } = req.query;
+
+  const dataLimit = Number(limit) || 5;
+  const dataPage = Number(page) || 1;
+
+  const skip = (dataPage - 1) * dataLimit;
+
+  const validator = new Validator();
+
+  const errors = {
+    invalidKey: [],
+    invalidValue: [],
+  };
+
+  const searchObj = {};
+
+  const searchEntries = Object.entries(search || {});
+
+  if (searchEntries.length > 0) {
+    const searchFuncObj = {
+      title: (title) => {
+        validator.isString("title", title);
+        searchObj.title = searchWithRegex(title);
+      },
+    };
+
+    for (const [key, value] of searchEntries) {
+      if (!searchFuncObj[key]) {
+        errors.invalidKey.push(key);
+        continue;
+      }
+
+      try {
+        searchFuncObj[key](value);
+      } catch (error) {
+        errors.invalidValue.push(key);
+      }
+    }
+  }
+
+  let sortObj = {};
+
+  const sortEntries = Object.entries(sort || {});
+
+  if (sortEntries.length > 0) {
+    const sortKeys = new Set(["createdAt"]);
+    const sortValueEnum = {
+      1: 1,
+      "-1": -1,
+    };
+
+    for (const [key, value] of sortEntries) {
+      if (!sortKeys.has(key)) {
+        errors.invalidKey(key);
+        continue;
+      }
+
+      if (!sortValueEnum[value]) {
+        errors.invalidValue(value);
+        continue;
+      }
+
+      sortObj[key] = sortValueEnum[value];
+    }
+  }
+
+  for (const error in errors) {
+    if (errors[error].length > 0) {
+      return res
+        .status(StatusCodes.BAD_REQUEST)
+        .json({ errors, message: "Failed to get data from server" });
+    }
+  }
+
+  if (Object.keys(sortObj).length < 1) {
+    sortObj.createdAt = -1;
+  }
+
+  const pipeline = [{ $match: searchObj }];
+
+  if (priorityList && priorityList.length > 0) {
+    sortObj = { priority: -1, ...sortObj };
+
+    pipeline.push(
+      {
+        $set: {
+          _idStr: { $toString: "$_id" },
+        },
+      },
+      {
+        $set: {
+          priority: { $cond: [{ $in: ["$_idStr", priorityList] }, 1, 0] },
+        },
+      },
+    );
+  }
+
+  pipeline.push(
+    {
+      $sort: sortObj,
+    },
+    {
+      $facet: {
+        totalCount: [{ $count: "total" }],
+        data: [{ $skip: skip }, { $limit: dataLimit }],
+      },
+    },
+  );
+
+  const tags = await Tag.aggregate(pipeline);
+
+  res.status(StatusCodes.OK).json({
+    data: tags[0]?.data,
+    qtt: tags[0]?.data?.length,
+    totalQtt: tags[0]?.totalCount[0]?.total,
+    currPage: dataPage,
+    totalPages: Math.ceil(tags[0]?.totalCount[0]?.total / dataLimit),
+  });
+};
+
 module.exports = {
   getVideoList,
   getDataList,
@@ -1951,4 +2079,5 @@ module.exports = {
   getVideoCmts,
   getRandomShorts,
   getPlaylistDetails,
+  getTagsList,
 };

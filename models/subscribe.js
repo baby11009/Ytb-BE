@@ -21,24 +21,43 @@ const Subscribe = new mongoose.Schema(
   },
 );
 
+Subscribe.post("save", async function (req, res) {
+  const session = this.$session();
+
+  if (!session) {
+    throw new Error("⚠️ Transaction session is required");
+  }
+  const User = mongoose.model("User");
+
+  await User.updateOne(
+    { _id: this.channel_id },
+    { $inc: { subscriber: 1 } },
+    { session },
+  );
+});
+
 Subscribe.pre("deleteOne", async function () {
   const { session } = this.getOptions();
 
   if (!session) {
     throw new Error("Session is required");
   }
-  const { _id } = this.getQuery();
+  const { _id, channel_id } = this.getQuery();
 
   try {
     const User = mongoose.model("User");
     const Subscribe = mongoose.model("Subscribe");
-
-    const foundedSubscription = await Subscribe.findById(_id);
-    if (!foundedSubscription) {
-      throw new Error(`Not found subscription with id ${_id} `);
+    let foundedSubscription;
+    if (!channel_id) {
+      console.log("5");
+      foundedSubscription = await Subscribe.findById(_id);
+      if (!foundedSubscription) {
+        throw new Error(`Not found subscription with id ${_id} `);
+      }
     }
+
     await User.updateOne(
-      { _id: foundedSubscription.channel_id },
+      { _id: channel_id || foundedSubscription.channel_id },
       { $inc: { subscriber: -1 } },
       { session },
     );
@@ -74,16 +93,6 @@ Subscribe.pre("deleteMany", async function () {
 
       await User.bulkWrite(bulkOps, { session });
     }
-
-    // await Promise.all(
-    //   foundedSubscriptions.map((subcription) =>
-    //     User.updateOne(
-    //       { _id: subcription.channel_id },
-    //       { $inc: { subscriber: -1 } },
-    //       { session },
-    //     ),
-    //   ),
-    // );
   }
 });
 
