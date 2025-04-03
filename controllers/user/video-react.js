@@ -69,7 +69,7 @@ const toggleReact = async (req, res) => {
         result = {
           msg: `Successfully un${type}d video`,
           type: "DELETE",
-          data: data,
+          data: { _id: data._id, type: data.type },
         };
 
         if (type === "like") {
@@ -87,7 +87,10 @@ const toggleReact = async (req, res) => {
         result = {
           msg: `Successfully change video react to ${type}`,
           type: "UPDATE",
-          data: data,
+          data: {
+            _id: data._id,
+            type: data.type,
+          },
         };
         if (type === "like") {
           likeCount = 1;
@@ -105,7 +108,7 @@ const toggleReact = async (req, res) => {
       result = {
         msg: `Successfully ${type}d video`,
         type: "CREATE",
-        data: data,
+        data: { _id: data._id, type: data.type },
       };
 
       if (type === "like") {

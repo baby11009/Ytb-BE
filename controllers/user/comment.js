@@ -63,7 +63,7 @@ const createCmt = async (req, res) => {
     }
 
     if (replyCmt?.replied_parent_cmt_id) {
-      // If comment is in commen tre
+      // If comment is in commen tree
       data["replied_parent_cmt_id"] = replyCmt?.replied_parent_cmt_id;
     } else {
       data["replied_parent_cmt_id"] = replyId;
@@ -131,9 +131,10 @@ const createCmt = async (req, res) => {
     },
   ]);
 
-  let type = "normal";
+  let type = "NORMAL";
+
   if (replyId) {
-    type = "reply";
+    type = "REPLY";
   }
 
   emitEvent(`create-comment-${userId}`, {
@@ -395,11 +396,14 @@ const updateCmt = async (req, res) => {
       );
     }
 
-    let event = `update-comment-${userId}`;
+    let type = "NORMAL";
     if (cmt.replied_cmt_id) {
-      event = `update-reply-comment-${userId}`;
+      type = "REPLY";
     }
-    emitEvent(event, cmt);
+    emitEvent(`update-comment-${userId}`, {
+      type,
+      data: cmt,
+    });
 
     res.status(StatusCodes.OK).json({ msg: "Comment updated" });
   } catch (error) {
@@ -429,16 +433,16 @@ const deleteCmt = async (req, res) => {
       throw new NotFoundError(`Cannot find comment with id ${id}`);
     }
 
-    let event = `delete-comment-${userId}`;
+    let type = "NORMAL";
 
     if (cmt.replied_cmt_id) {
-      event = `delete-reply-comment-${userId}`;
-      const parentCmt = await Comment.findOne({
-        _id: cmt.replied_cmt_id,
-      }).session(session);
-      emitEvent(`update-parent-comment-${userId}`, parentCmt);
+      type = "REPLY";
     }
-    emitEvent(event, cmt);
+
+    emitEvent(`delete-comment-${userId}`, {
+      type,
+      data: cmt,
+    });
 
     await session.commitTransaction();
 
