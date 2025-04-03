@@ -1527,76 +1527,73 @@ const getVideoCmts = async (req, res) => {
 
   const { videoId } = req.params;
 
-  const { replyId, sort } = req.query;
+  const { limit, page, search, sort } = req.query;
 
-  let limit = Number(req.query.limit) || 5;
+  const limitNum = Number(limit) || 5;
 
-  let page = Number(req.query.page) || 1;
+  const pageNum = Number(req.query.page) || 1;
 
-  let skip = (page - 1) * limit;
+  const skip = (pageNum - 1) * limitNum;
 
-  const findParams = Object.keys(req.query).filter(
-    (key) => key !== "limit" && key !== "page" && key !== "replyId",
-  );
+  const setObj = {};
 
-  const pipeline = [
-    { $match: { video_id: new mongoose.Types.ObjectId(videoId) } },
-  ];
+  const searchObj = {
+    video_id: new mongoose.Types.ObjectId(videoId),
+    replied_parent_cmt_id: { $exists: false },
+  };
 
-  let findObj = {};
+  const searchEntries = Object.entries(search || {});
 
-  findParams.forEach((item) => {
-    if (item === "reply") {
-      findObj["replied_cmt_id"] = { $exists: JSON.parse(req.query[item]) };
-    } else if (item === "id") {
-      findObj["_idStr"] = { $regex: req.query[item], $options: "i" };
+  if (searchEntries.length > 0) {
+    const searchFuncObj = {
+      replyId: (replyId) => {
+        searchObj["replied_parent_cmt_id"] = new mongoose.Types.ObjectId(
+          replyId,
+        );
+      },
+    };
+
+    for (const [key, value] of searchEntries) {
+      if (searchFuncObj[key]) {
+        searchFuncObj[key](value);
+      }
     }
-  });
-
-  const validSortKey = ["createdAt", "top"];
+  }
 
   const sortObj = {};
 
-  if (sort && Object.keys(sort).length > 0) {
-    for (const [key, value] of Object.entries(sort)) {
-      if (
-        validSortKey.includes(key) &&
-        (Number(value) === 1 || Number(value) === -1)
-      ) {
-        if (key === "top") {
-          sortObj.interact = Number(value);
-          pipeline.push({
-            $set: {
-              interact: { $sum: ["$like", "$dislike", "$replied_cmt_total"] },
-            },
-          });
-          continue;
-        }
-        sortObj[`${key}`] = Number(value);
+  const sortEntries = Object.entries(sort || {});
+
+  if (sortEntries.length > 0) {
+    const validSortKey = ["createdAt"];
+    const specialSort = {
+      interact: (value) => {
+        setObj["interact"] = {
+          $sum: ["$like", "$dislike", "$replied_cmt_total"],
+        };
+        sortObj.interact = value;
+      },
+    };
+    const sortValueEnum = {
+      1: 1,
+      "-1": -1,
+    };
+    for (const [key, value] of sortEntries) {
+      if (validSortKey.includes(key) && sortValueEnum[value]) {
+        sortObj[`${key}`] = sortValueEnum[value];
+      } else if (specialSort[key] && sortValueEnum[value]) {
+        specialSort[key](sortValueEnum[value]);
       }
     }
-  } else {
-    sortObj["createdAt"] = -1;
   }
 
-  if (replyId) {
-    pipeline.push({
-      $match: { replied_cmt_id: { $exists: true } },
-    });
-    pipeline.push({
-      $match: {
-        $or: [
-          { replied_parent_cmt_id: new mongoose.Types.ObjectId(replyId) },
-          { replied_cmt_id: new mongoose.Types.ObjectId(replyId) },
-        ],
-      },
-    });
-  } else {
-    pipeline.push({
-      $match: { replied_cmt_id: { $exists: false } },
-    });
+  if (Object.keys(sortObj).length < 1) {
+    sortObj.createdAt = -1;
   }
 
+  const pipeline = [{ $set: setObj }, { $match: searchObj }];
+
+  // Get user comment react infomation if user had logged in
   if (userId) {
     pipeline.push(
       {
@@ -1633,11 +1630,11 @@ const getVideoCmts = async (req, res) => {
   pipeline.push(
     {
       $lookup: {
-        from: "users", // Collection users mà bạn muốn join
-        localField: "user_id", // Trường trong collection videos (khóa ngoại)
-        foreignField: "_id", // Trường trong collection users (khóa chính)
+        from: "users",
+        localField: "user_id",
+        foreignField: "_id",
         pipeline: [{ $project: { name: 1, email: 1, avatar: 1 } }],
-        as: "user_info", // Tên mảng để lưu kết quả join
+        as: "user_info",
       },
     },
     {
@@ -1645,11 +1642,11 @@ const getVideoCmts = async (req, res) => {
     },
     {
       $lookup: {
-        from: "users", // Collection users mà bạn muốn join
-        localField: "replied_user_id", // Trường trong collection videos (khóa ngoại)
-        foreignField: "_id", // Trường trong collection users (khóa chính)
+        from: "users",
+        localField: "replied_user_id",
+        foreignField: "_id",
         pipeline: [{ $project: { name: 1, email: 1 } }],
-        as: "replied_user_info", // Tên mảng để lưu kết quả join
+        as: "replied_user_info",
       },
     },
     {
@@ -1659,46 +1656,11 @@ const getVideoCmts = async (req, res) => {
       },
     },
     {
-      $lookup: {
-        from: "comments",
-        let: {
-          replyCmtId: "$replied_cmt_id",
-        },
-        pipeline: [
-          {
-            $match: {
-              $expr: {
-                $eq: ["$_id", "$$replyCmtId"],
-              },
-            },
-          },
-        ],
-        as: "reply_comment_info",
-      },
-    },
-    {
-      $unwind: {
-        path: "$reply_comment_info",
-        preserveNullAndEmptyArrays: true, // Ensure video is returned even if no subscription exists
-      },
-    },
-    {
-      $set: {
-        _idStr: { $toString: "$_id" },
-      },
-    },
-    {
-      $match: findObj,
-    },
-    {
       $project: {
         _id: 1,
         title: 1,
         user_info: 1,
         react_info: { $ifNull: ["$react_info", null] },
-        reply_comment_info: {
-          $ifNull: ["$reply_comment_info", null],
-        },
         replied_user_info: { $ifNull: ["$replied_user_info", null] },
         cmtText: 1,
         like: 1,
@@ -1716,32 +1678,31 @@ const getVideoCmts = async (req, res) => {
     {
       $facet: {
         totalCount: [{ $count: "total" }],
-        data: [{ $skip: skip }, { $limit: limit }],
+        data: [{ $skip: skip }, { $limit: limitNum }],
       },
     },
   );
 
-  let result = Comment.aggregate(pipeline);
+  const comments = await Comment.aggregate(pipeline);
 
-  const comments = await result;
+  // const countObj = {
+  //   videoIdStr: videoId,
+  //   replied_cmt_id: { $exists: false },
+  // };
 
-  const countObj = {
-    videoIdStr: videoId,
-    replied_cmt_id: { $exists: false },
-  };
-  if (replyId) {
-    countObj.replied_cmt_id = { $exists: true };
-  }
-  const totalData = await Comment.aggregate([
-    { $set: { videoIdStr: { $toString: "$video_id" } } },
-    { $match: countObj },
-    { $count: "total" },
-  ]);
+  // if (replyId) {
+  //   countObj.replied_cmt_id = { $exists: true };
+  // }
+  // const totalData = await Comment.aggregate([
+  //   { $set: { videoIdStr: { $toString: "$video_id" } } },
+  //   { $match: countObj },
+  //   { $count: "total" },
+  // ]);
 
   res.status(StatusCodes.OK).json({
     data: comments[0]?.data,
     qtt: comments[0]?.data?.length,
-    totalQtt: totalData[0]?.count || 0,
+    totalQtt: comments[0]?.totalCount[0]?.total || 0,
     currPage: page,
     totalPage: Math.ceil(comments[0]?.totalCount[0]?.total / limit) || 1,
   });

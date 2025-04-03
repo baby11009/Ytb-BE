@@ -47,14 +47,20 @@ const Comment = new mongoose.Schema(
 Comment.pre("save", async function () {
   const session = this.$session();
 
+  if (!session) {
+    throw new Error("⚠️ Transaction session is required");
+  }
+  
   try {
     const Video = mongoose.model("Video");
     const Comment = mongoose.model("Comment");
+
     await Video.updateOne(
       { _id: this.video_id.toString() },
       { $inc: { totalCmt: 1 } },
       { session },
     );
+
     if (this.replied_parent_cmt_id) {
       await Comment.updateOne(
         { _id: this.replied_parent_cmt_id },

@@ -1,6 +1,6 @@
 const { User, Comment } = require("../../models/index.js");
 const { StatusCodes } = require("http-status-codes");
-const { getIo } = require("../../socket.js");
+const { emitEvent } = require("../../socket.js");
 const mongoose = require("mongoose");
 const { CommentValidator, Validator } = require("../../utils/validate.js");
 const {
@@ -10,11 +10,10 @@ const {
   InvalidError,
 } = require("../../errors/index.js");
 const { searchWithRegex } = require("../../utils/other");
+const { sessionWrap } = require("../../utils/session");
 
 const createCmt = async (req, res) => {
   const neededKeys = ["videoId", "cmtText"];
-
-  const io = getIo();
 
   if (Object.values(req.body).length === 0) {
     throw new BadRequestError(
@@ -63,90 +62,86 @@ const createCmt = async (req, res) => {
       );
     }
 
-    let cmtId = replyId;
-
     if (replyCmt?.replied_parent_cmt_id) {
       // If comment is in commen tre
-      cmtId = replyCmt?.replied_parent_cmt_id;
       data["replied_parent_cmt_id"] = replyCmt?.replied_parent_cmt_id;
     } else {
       data["replied_parent_cmt_id"] = replyId;
-    }
-
-    const parentCmt = await Comment.findOneAndUpdate(
-      { _id: cmtId },
-      { $inc: { replied_cmt_total: 1 } },
-      { returnDocument: "after" },
-    );
-
-    if (parentCmt) {
-      io.emit(`update-parent-comment-${userId}`, parentCmt);
     }
 
     data["replied_cmt_id"] = replyId;
     data["replied_user_id"] = replyCmt.user_id;
   }
 
-  const cmt = await Comment.create(data);
-
-  if (cmt) {
-    const createdCmt = await Comment.aggregate([
-      { $match: { _id: cmt._id } },
-      {
-        $lookup: {
-          from: "users",
-          localField: "user_id",
-          foreignField: "_id",
-          pipeline: [{ $project: { name: 1, email: 1, avatar: 1 } }],
-          as: "user_info",
-        },
-      },
-      {
-        $unwind: {
-          path: "$user_info",
-          preserveNullAndEmptyArrays: true,
-        },
-      },
-      {
-        $lookup: {
-          from: "users",
-          localField: "replied_user_id",
-          foreignField: "_id",
-          pipeline: [{ $project: { name: 1, email: 1, avatar: 1 } }],
-          as: "replied_user_info",
-        },
-      },
-      {
-        $unwind: {
-          path: "$replied_user_info",
-          preserveNullAndEmptyArrays: true,
-        },
-      },
-      {
-        $project: {
-          _id: 1,
-          title: 1,
-          user_info: 1,
-          cmtText: 1,
-          like: 1,
-          dislike: 1,
-          replied_parent_cmt_id: 1,
-          replied_user_info: { $ifNull: ["$replied_user_info", null] },
-          replied_cmt_id: 1,
-          replied_cmt_total: 1,
-          createdAt: 1,
-        },
-      },
-    ]);
-
-    let event = `create-comment-${userId}`;
-    if (replyId) {
-      event = `create-reply-comment-${userId}`;
+  const result = await sessionWrap(async (session) => {
+    const cmt = await Comment.create([data], { session });
+    if (!cmt) {
+      throw new InternalServerError("Failed to create comment");
     }
-    io.emit(event, createdCmt[0]);
+
+    return cmt;
+  });
+
+  const createdCmt = await Comment.aggregate([
+    { $match: { _id: result[0]._id } },
+    {
+      $lookup: {
+        from: "users",
+        localField: "user_id",
+        foreignField: "_id",
+        pipeline: [{ $project: { name: 1, email: 1, avatar: 1 } }],
+        as: "user_info",
+      },
+    },
+    {
+      $unwind: {
+        path: "$user_info",
+        preserveNullAndEmptyArrays: true,
+      },
+    },
+    {
+      $lookup: {
+        from: "users",
+        localField: "replied_user_id",
+        foreignField: "_id",
+        pipeline: [{ $project: { name: 1, email: 1, avatar: 1 } }],
+        as: "replied_user_info",
+      },
+    },
+    {
+      $unwind: {
+        path: "$replied_user_info",
+        preserveNullAndEmptyArrays: true,
+      },
+    },
+    {
+      $project: {
+        _id: 1,
+        title: 1,
+        user_info: 1,
+        cmtText: 1,
+        like: 1,
+        dislike: 1,
+        replied_parent_cmt_id: 1,
+        replied_user_info: { $ifNull: ["$replied_user_info", null] },
+        replied_cmt_id: 1,
+        replied_cmt_total: 1,
+        createdAt: 1,
+      },
+    },
+  ]);
+
+  let type = "normal";
+  if (replyId) {
+    type = "reply";
   }
 
-  res.status(StatusCodes.CREATED).json({ msg: "Comment created", data: cmt });
+  emitEvent(`create-comment-${userId}`, {
+    data: createdCmt[0],
+    type: type,
+  });
+
+  res.status(StatusCodes.CREATED).json({ msg: "Comment created" });
 };
 
 const getCmts = async (req, res) => {
@@ -303,9 +298,7 @@ const getCmts = async (req, res) => {
     },
   ];
 
-  let result = Comment.aggregate(pipeline);
-
-  const comments = await result;
+  const comments = await Comment.aggregate(pipeline);
 
   res.status(StatusCodes.OK).json({
     data: comments[0]?.data,
@@ -401,14 +394,14 @@ const updateCmt = async (req, res) => {
         `There is something wrong with the server, please try again`,
       );
     }
-    const io = getIo();
+
     let event = `update-comment-${userId}`;
     if (cmt.replied_cmt_id) {
       event = `update-reply-comment-${userId}`;
     }
-    io.emit(event, cmt);
+    emitEvent(event, cmt);
 
-    res.status(StatusCodes.OK).json({ msg: "Comment updated", data: cmt });
+    res.status(StatusCodes.OK).json({ msg: "Comment updated" });
   } catch (error) {
     if (error instanceof InvalidError) {
       return res
@@ -423,56 +416,6 @@ const deleteCmt = async (req, res) => {
   const { userId } = req.user;
   const { id } = req.params;
 
-  const foundedCmt = await Comment.aggregate([
-    {
-      $set: {
-        _idStr: { $toString: "$_id" },
-        userIdStr: { $toString: "$user_id" },
-      },
-    },
-    {
-      $match: {
-        _idStr: id,
-      },
-    },
-    {
-      $lookup: {
-        from: "videos",
-        localField: "video_id",
-        foreignField: "_id",
-        pipeline: [{ $project: { _id: 1, user_id: 1 } }],
-        as: "video_info",
-      },
-    },
-    {
-      $unwind: "$video_info",
-    },
-    {
-      $match: {
-        $expr: {
-          $or: [
-            { $eq: ["$userIdStr", userId] },
-            { $eq: ["$video_info.user_id", userId] },
-          ],
-        },
-      },
-    },
-    {
-      $project: {
-        _id: 1,
-        userIdStr: 1,
-        video_info: 1,
-        videoCreatedUserId: 1,
-        replied_cmt_id: 1,
-        replied_parent_cmt_id: 1,
-      },
-    },
-  ]).then((data) => data[0]);
-
-  if (!foundedCmt) {
-    throw new NotFoundError(`Cannot find comment with id ${id}`);
-  }
-
   const session = await mongoose.startSession();
   session.startTransaction();
 
@@ -482,7 +425,10 @@ const deleteCmt = async (req, res) => {
       { returnDocument: "before", session: session },
     );
 
-    const io = getIo();
+    if (!cmt) {
+      throw new NotFoundError(`Cannot find comment with id ${id}`);
+    }
+
     let event = `delete-comment-${userId}`;
 
     if (cmt.replied_cmt_id) {
@@ -490,9 +436,9 @@ const deleteCmt = async (req, res) => {
       const parentCmt = await Comment.findOne({
         _id: cmt.replied_cmt_id,
       }).session(session);
-      io.emit(`update-parent-comment-${userId}`, parentCmt);
+      emitEvent(`update-parent-comment-${userId}`, parentCmt);
     }
-    io.emit(event, cmt);
+    emitEvent(event, cmt);
 
     await session.commitTransaction();
 

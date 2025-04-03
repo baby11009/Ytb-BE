@@ -58,4 +58,7 @@ module.exports = {
     }
     return io;
   },
+  emitEvent: (eventNameSpace, data) => {
+    io.emit(eventNameSpace, data);
+  },
 };

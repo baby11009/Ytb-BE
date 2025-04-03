@@ -9,7 +9,7 @@ const {
   InvalidError,
 } = require("../../errors");
 
-const { searchWithRegex, isObjectEmpty } = require("../../utils/other");
+const { searchWithRegex } = require("../../utils/other");
 const { CommentValidator, Validator } = require("../../utils/validate");
 
 const createCmt = async (req, res) => {
