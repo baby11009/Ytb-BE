@@ -1685,20 +1685,6 @@ const getVideoCmts = async (req, res) => {
 
   const comments = await Comment.aggregate(pipeline);
 
-  // const countObj = {
-  //   videoIdStr: videoId,
-  //   replied_cmt_id: { $exists: false },
-  // };
-
-  // if (replyId) {
-  //   countObj.replied_cmt_id = { $exists: true };
-  // }
-  // const totalData = await Comment.aggregate([
-  //   { $set: { videoIdStr: { $toString: "$video_id" } } },
-  //   { $match: countObj },
-  //   { $count: "total" },
-  // ]);
-
   res.status(StatusCodes.OK).json({
     data: comments[0]?.data,
     qtt: comments[0]?.data?.length,
