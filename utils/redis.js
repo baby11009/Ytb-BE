@@ -30,18 +30,16 @@ const disconnectRedis = async () => {
 };
 
 const addValue = async (key, value) => {
-  if (Array.isArray(value)) {
-    await client.sAdd(key, value);
-    return;
-  }
-
-  await client.set(key, value, (err, reply) => {
-    if (err) {
-      console.error(err);
+  try {
+    if (Array.isArray(value)) {
+      await client.sAdd(key, value);
     } else {
+      const reply = await client.set(key, value);
       console.log(reply);
     }
-  });
+  } catch (err) {
+    console.error("Error adding value to Redis:", err);
+  }
 };
 
 const setKeyExpire = async (key, time) => {
@@ -49,7 +47,13 @@ const setKeyExpire = async (key, time) => {
 };
 
 const removeKey = async (redisKey) => {
-  await client.del(redisKey);
+  const exists = await client.exists(redisKey);
+  if (exists) {
+    await client.del(redisKey);
+    console.log(`Removed key: ${redisKey}`);
+  } else {
+    console.log(`Key ${redisKey} not found in Redis`);
+  }
 };
 
 module.exports = {

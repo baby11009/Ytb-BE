@@ -6,6 +6,7 @@ const React = require("./react");
 const CmtReact = require("./cmtReact");
 const Playlist = require("./playlist");
 const Tag = require("./tag");
+const Notification = require("./notification");
 
 module.exports = {
   User,
@@ -16,4 +17,5 @@ module.exports = {
   CmtReact,
   Playlist,
   Tag,
+  Notification,
 };

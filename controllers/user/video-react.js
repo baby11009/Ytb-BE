@@ -2,6 +2,9 @@ const { BadRequestError, NotFoundError } = require("../../errors");
 const { React, Video, Playlist } = require("../../models");
 const { StatusCodes } = require("http-status-codes");
 const mongoose = require("mongoose");
+const {
+  sendRealTimeNotification,
+} = require("../../service/notification/notification");
 
 const toggleReact = async (req, res) => {
   const { userId } = req.user;
@@ -16,7 +19,7 @@ const toggleReact = async (req, res) => {
     throw new BadRequestError("Please provide a video id");
   }
 
-  const foundedVideo = await Video.findById(videoId).select("_id");
+  const foundedVideo = await Video.findById(videoId).select("_id user_id");
 
   if (!foundedVideo) {
     throw new NotFoundError("Not found video with id " + videoId);
@@ -127,6 +130,9 @@ const toggleReact = async (req, res) => {
       { session },
     );
     await session.commitTransaction();
+
+    await sendRealTimeNotification(userId, "content", result.msg);
+
     res.status(StatusCodes.OK).json(result);
   } catch (error) {
     await session.abortTransaction();

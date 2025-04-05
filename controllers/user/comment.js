@@ -1,6 +1,6 @@
 const { User, Comment } = require("../../models/index.js");
 const { StatusCodes } = require("http-status-codes");
-const { emitEvent } = require("../../socket.js");
+const { emitEvent } = require("../../service/socket.js");
 const mongoose = require("mongoose");
 const { CommentValidator, Validator } = require("../../utils/validate.js");
 const {

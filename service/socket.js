@@ -1,6 +1,7 @@
 const { Server } = require("socket.io");
-const { InternalServerError, UnauthenticatedError } = require("./errors");
-const { User } = require("./models");
+const { InternalServerError, UnauthenticatedError } = require("../errors");
+const { User } = require("../models");
+const { subscriber } = require("./notification/redis");
 const jwt = require("jsonwebtoken");
 let io;
 
@@ -45,18 +46,18 @@ module.exports = {
         return next(new UnauthenticatedError("Invalid or expired token"));
       }
     });
-    io.on("connection", (socket) => {
+    io.on("connection", async (socket) => {
       console.log("User connected");
+
+      subscriber.subscribe(`user:${socket.user.userId}`, (message) => {
+        socket.emit("notification", JSON.parse(message));
+      });
+
       socket.on("disconnect", () => {
         console.log("User disconnected");
+        subscriber.unsubscribe(`user:${socket.user.userId}`);
       });
     });
-  },
-  getIo: () => {
-    if (!io) {
-      throw new InternalServerError("Socket.io not initialized!");
-    }
-    return io;
   },
   emitEvent: (eventNameSpace, data) => {
     io.emit(eventNameSpace, data);

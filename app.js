@@ -6,7 +6,7 @@ const app = express();
 const helmet = require("helmet");
 const cors = require("cors");
 const connectDb = require("./db/connect");
-const { init } = require("./socket");
+const { init } = require("./service/socket");
 const {
   authMiddleware,
   notFoundMiddleware,

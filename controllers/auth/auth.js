@@ -5,10 +5,12 @@ const {
   NotFoundError,
   UnauthenticatedError,
 } = require("../../errors");
-const { sendEmailConfirm } = require("../../utils/send-email");
 const { generateCodeAndExpire } = require("../../utils/generator");
-const mongoose = require("mongoose");
 const { StatusCodes } = require("http-status-codes");
+const { sessionWrap } = require("../../utils/session");
+const {
+  sendEmailNotification,
+} = require("../../service/notification/notification");
 
 const register = async (req, res) => {
   const { email } = req.body;
@@ -30,28 +32,24 @@ const register = async (req, res) => {
     privateCode: confirmCode,
     codeExpires: confirmCodeExpires,
   };
-  const session = await mongoose.startSession();
-  session.startTransaction();
-  try {
-    await User.create([userData], { session });
 
-    await sendEmailConfirm(
-      email,
-      "Account confirmation email",
-      `
+  await sessionWrap(async (session) => {
+    const user = await User.create([userData], { session });
+
+    return user;
+  });
+
+  await sendEmailNotification(
+    email,
+    "Account confirmation email",
+    `
       <h1>Your confirmation code is ${confirmCode}</h1>
       `,
-    );
-    await session.commitTransaction();
-    res
-      .status(StatusCodes.CREATED)
-      .json({ msg: "Check your email to get confirmation code" });
-  } catch (error) {
-    await session.abortTransaction();
-    throw error;
-  } finally {
-    session.endSession();
-  }
+  );
+
+  res
+    .status(StatusCodes.CREATED)
+    .json({ msg: "Check your email to get confirmation code" });
 };
 
 const verifyAccount = async (req, res) => {
@@ -106,7 +104,7 @@ const resendConfirmCode = async (req, res) => {
     { privateCode: confirmCode, codeExpires: confirmCodeExpires },
   );
 
-  await sendEmailConfirm(email, confirmCode);
+  await sendEmailNotification(email, "Account confirmation email", confirmCode);
 
   res.status(StatusCodes.OK).send({ msg: "Confirmation email has been sent" });
 };
@@ -222,7 +220,7 @@ const sendConfirmCode = async (req, res) => {
     },
   ).select("-password");
 
-  await sendEmailConfirm(
+  await sendEmailNotification(
     email,
     `Email provide OTP for purpose : ${type}`,
     `
@@ -260,7 +258,7 @@ const sendCode = async (req, res) => {
     },
   ).select("-password");
 
-  await sendEmailConfirm(
+  await sendEmailNotification(
     email,
     `Email provide OTP for purpose : ${type}`,
     `

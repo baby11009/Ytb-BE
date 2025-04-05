@@ -1,7 +1,7 @@
 const { CmtReact, Comment } = require("../../models");
 const { BadRequestError, NotFoundError } = require("../../errors");
 const { StatusCodes } = require("http-status-codes");
-const { getIo } = require("../../socket");
+const { emitEvent } = require("../../service/socket");
 const mongoose = require("mongoose");
 
 const toggleCmtReact = async (req, res) => {
@@ -39,7 +39,7 @@ const toggleCmtReact = async (req, res) => {
     } else {
       await CmtReact.findOneAndUpdate(
         { _id: exitsingCmtReact._id },
-        { type: type }
+        { type: type },
       );
       msg = `Successfully change comment react to ${type}`;
       if (type === "like") {
@@ -65,7 +65,7 @@ const toggleCmtReact = async (req, res) => {
     {
       $inc: { like: likeCount, dislike: dislikeCount },
     },
-    { returnDocument: "after" }
+    { returnDocument: "after" },
   );
 
   if (cmt) {
@@ -113,12 +113,11 @@ const toggleCmtReact = async (req, res) => {
       },
     ]);
 
-    const io = getIo();
     let event = `update-comment-${userId}`;
     if (commentAfterUpdate[0]?.replied_cmt_id) {
       event = `update-reply-comment-${userId}`;
     }
-    io.emit(event, commentAfterUpdate[0]);
+    emitEvent(event, commentAfterUpdate[0]);
   }
 
   res.status(StatusCodes.OK).json({ msg });
