@@ -131,7 +131,9 @@ const toggleReact = async (req, res) => {
     );
     await session.commitTransaction();
 
-    await sendRealTimeNotification(userId, "content", result.msg);
+    if (userId.toString() !== foundedVideo.user_id.toString()) {
+      sendRealTimeNotification(foundedVideo.user_id, "content", result.msg);
+    }
 
     res.status(StatusCodes.OK).json(result);
   } catch (error) {

@@ -1,11 +1,13 @@
 const { CmtReact, Comment } = require("../../models");
-const { BadRequestError, NotFoundError } = require("../../errors");
+const { BadRequestError } = require("../../errors");
 const { StatusCodes } = require("http-status-codes");
-const { emitEvent } = require("../../service/socket");
-const mongoose = require("mongoose");
+const { emitEvent } = require("../../socket/socket");
+const {
+  sendRealTimeNotification,
+} = require("../../service/notification/notification");
 
 const toggleCmtReact = async (req, res) => {
-  const { userId } = req.user;
+  const { userId, email } = req.user;
   const { cmtId, type } = req.body;
 
   if (!cmtId) {
@@ -78,7 +80,7 @@ const toggleCmtReact = async (req, res) => {
           from: "cmtreacts",
           let: {
             commentId: "$_id",
-            userId: new mongoose.Types.ObjectId(userId),
+            userId: userId,
           },
           pipeline: [
             {
@@ -106,6 +108,7 @@ const toggleCmtReact = async (req, res) => {
           _id: 1,
           "react_info._id": { $ifNull: ["$react_info._id", null] },
           "react_info.type": { $ifNull: ["$react_info.type", null] },
+          user_id: 1,
           like: 1,
           dislike: 1,
           replied_cmt_id: 1,
@@ -113,11 +116,23 @@ const toggleCmtReact = async (req, res) => {
       },
     ]);
 
-    let event = `update-comment-${userId}`;
+    let type = "NORMAL";
     if (commentAfterUpdate[0]?.replied_cmt_id) {
-      event = `update-reply-comment-${userId}`;
+      type = "REPLY";
     }
-    emitEvent(event, commentAfterUpdate[0]);
+
+    emitEvent(`update-comment-${userId}`, {
+      data: commentAfterUpdate[0],
+      type,
+    });
+
+    if (userId.toString() !== commentAfterUpdate[0].user_id.toString()) {
+      sendRealTimeNotification(
+        commentAfterUpdate[0].user_id,
+        "content",
+        `User ${email} just reacting to your comment`,
+      );
+    }
   }
 
   res.status(StatusCodes.OK).json({ msg });

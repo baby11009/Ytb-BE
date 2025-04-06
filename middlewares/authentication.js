@@ -9,14 +9,14 @@ const auth = async (req, res, next) => {
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
     throw new UnauthenticatedError("Authentication invalid");
   }
-  
+
   const token = authHeader.split(" ")[1];
 
   try {
     const payload = jwt.verify(token, process.env.JWT_SECRET);
 
     const user = await User.findById(payload.userId).select("-password");
-    
+
     if (user.confirmed === false) {
       return next(new BadRequestError("Account not confirmed"));
     }
@@ -26,8 +26,9 @@ const auth = async (req, res, next) => {
     // }
 
     req.user = {
-      userId: payload.userId,
-      name: payload.username,
+      userId: user._id,
+      name: user.username,
+      email: user.email,
       role: user.role,
     };
 

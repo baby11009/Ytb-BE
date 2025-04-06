@@ -1,11 +1,10 @@
-const { User, Video } = require("../../models");
+const { User, Video, Subscribe } = require("../../models");
 
 const { StatusCodes } = require("http-status-codes");
 
 const {
   BadRequestError,
   NotFoundError,
-  InternalServerError,
   InvalidError,
 } = require("../../errors");
 
@@ -17,6 +16,10 @@ const { clearUploadedVideoFiles } = require("../../utils/clear");
 
 const { VideoValidator, Validator } = require("../../utils/validate");
 
+const {
+  sendRealTimeNotification,
+} = require("../../service/notification/notification");
+
 const path = require("path");
 
 const asssetPath = path.join(__dirname, "../../assets");
@@ -24,7 +27,7 @@ const asssetPath = path.join(__dirname, "../../assets");
 const upLoadVideo = async (req, res) => {
   const { thumbnail, video } = req.files;
 
-  const { userId } = req.user;
+  const { userId, email } = req.user;
 
   const { type, title, tags = [], description = "" } = req.body;
 
@@ -74,6 +77,21 @@ const upLoadVideo = async (req, res) => {
 
     await Video.create(data);
 
+    const notifi = async () => {
+      const subscriberList = await Subscribe.find({ channel_id: userId });
+      if (subscriberList.length > 0) {
+        for (const subscriber of subscriberList) {
+          sendRealTimeNotification(
+            subscriber.subscriber_id,
+            "subscription",
+            `Channel ${email} just uploaded new Video`,
+          );
+        }
+      }
+    };
+
+    notifi();
+
     res.status(StatusCodes.CREATED).json({ msg: "Upload video successfully" });
   } catch (error) {
     let args = {};
@@ -106,7 +124,7 @@ const getVideos = async (req, res) => {
     invalidValue: [],
   };
 
-  const searchObj = { _userIdStr: userId };
+  const searchObj = { user_id: userId };
 
   const searchEntries = Object.entries(search || {});
 
@@ -179,11 +197,6 @@ const getVideos = async (req, res) => {
 
   const pipeline = [
     {
-      $addFields: {
-        _userIdStr: { $toString: "$user_id" },
-      },
-    },
-    {
       $match: searchObj,
     },
     {
@@ -209,7 +222,7 @@ const getVideos = async (req, res) => {
         like: 1,
         dislike: 1,
         description: 1,
-        createdAt: -1,  
+        createdAt: -1,
       },
     },
     {
@@ -385,7 +398,7 @@ const deleteVideo = async (req, res) => {
 };
 
 const deleteManyVideos = async (req, res) => {
-  const { idList } = req.body;
+  const { idList } = req.query;
 
   const { userId } = req.user;
 

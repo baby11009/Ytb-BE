@@ -1,7 +1,7 @@
 const { Server } = require("socket.io");
-const { InternalServerError, UnauthenticatedError } = require("../errors");
+const { UnauthenticatedError } = require("../errors");
 const { User } = require("../models");
-const { subscriber } = require("./notification/redis");
+const { notificationHandler } = require("./handlers");
 const jwt = require("jsonwebtoken");
 let io;
 
@@ -49,13 +49,11 @@ module.exports = {
     io.on("connection", async (socket) => {
       console.log("User connected");
 
-      subscriber.subscribe(`user:${socket.user.userId}`, (message) => {
-        socket.emit("notification", JSON.parse(message));
-      });
+      const { unsubscribe } = notificationHandler(socket);
 
       socket.on("disconnect", () => {
         console.log("User disconnected");
-        subscriber.unsubscribe(`user:${socket.user.userId}`);
+        unsubscribe();
       });
     });
   },

@@ -6,7 +6,7 @@ const {
 } = require("../../errors");
 const { deleteFile } = require("../../utils/file");
 const path = require("path");
-const { Subscribe, User, Video, Playlist, React } = require("../../models");
+const { Subscribe, User, Video, Playlist } = require("../../models");
 const avatarPath = path.join(__dirname, "../../assets/user avatar");
 const { UserValidator, Validator } = require("../../utils/validate");
 const { isObjectEmpty } = require("../../utils/other");
@@ -15,8 +15,7 @@ const getAccountInfo = async (req, res) => {
   const { userId } = req.user;
 
   const user = await User.aggregate([
-    { $addFields: { _idStr: { $toString: "$_id" } } },
-    { $match: { _idStr: userId } },
+    { $match: { _id: userId } },
     {
       $lookup: {
         from: "subscribes",

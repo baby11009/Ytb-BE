@@ -6,7 +6,8 @@ const app = express();
 const helmet = require("helmet");
 const cors = require("cors");
 const connectDb = require("./db/connect");
-const { init } = require("./service/socket");
+const { init } = require("./socket/socket");
+const { connectRedis } = require("./redis/redis");
 const {
   authMiddleware,
   notFoundMiddleware,
@@ -56,11 +57,10 @@ const start = async () => {
 
     const httpServer = createServer(app);
     init(httpServer);
-    // io.use(cors());
+    await connectRedis();
     httpServer.listen(port, () =>
       console.log(`Server is listening on ${port}....`),
     );
-    // app.listen(port, () => console.log(`Server is listening on ${port}....`));
   } catch (error) {
     console.log(error);
   }

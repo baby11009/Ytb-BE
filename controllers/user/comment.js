@@ -1,6 +1,6 @@
 const { User, Comment } = require("../../models/index.js");
 const { StatusCodes } = require("http-status-codes");
-const { emitEvent } = require("../../service/socket.js");
+const { emitEvent } = require("../../socket/socket.js");
 const mongoose = require("mongoose");
 const { CommentValidator, Validator } = require("../../utils/validate.js");
 const {
@@ -11,6 +11,9 @@ const {
 } = require("../../errors/index.js");
 const { searchWithRegex } = require("../../utils/other");
 const { sessionWrap } = require("../../utils/session");
+const {
+  sendRealTimeNotification,
+} = require("../../service/notification/notification");
 
 const createCmt = async (req, res) => {
   const neededKeys = ["videoId", "cmtText"];
@@ -33,7 +36,7 @@ const createCmt = async (req, res) => {
     );
   }
 
-  const { userId } = req.user;
+  const { userId, email } = req.user;
 
   const { videoId, cmtText, replyId } = req.body;
 
@@ -48,9 +51,9 @@ const createCmt = async (req, res) => {
     video_id: videoId,
     cmtText: cmtText,
   };
-
+  let replyCmt;
   if (replyId) {
-    const replyCmt = await Comment.findById(replyId);
+    replyCmt = await Comment.findById(replyId);
 
     if (!replyCmt) {
       throw new NotFoundError(`Not found comment with id ${replyId}`);
@@ -135,11 +138,19 @@ const createCmt = async (req, res) => {
 
   if (replyId) {
     type = "REPLY";
+
+    if (userId.toString() !== replyCmt.user_id.toString()) {
+      sendRealTimeNotification(
+        replyCmt.user_id,
+        "content",
+        `User ${email} just replying to your comment`,
+      );
+    }
   }
 
   emitEvent(`create-comment-${userId}`, {
     data: createdCmt[0],
-    type: type,
+    type,
   });
 
   res.status(StatusCodes.CREATED).json({ msg: "Comment created" });

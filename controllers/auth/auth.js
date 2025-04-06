@@ -193,6 +193,7 @@ const login = async (req, res) => {
     data: userData[0],
     token: user.createJwt(),
   };
+
   res.status(StatusCodes.OK).json(data);
 };
 
@@ -211,14 +212,14 @@ const sendConfirmCode = async (req, res) => {
     expires = confirmCodeExpires;
   }
 
-  const user = await User.updateOne(
+  await User.updateOne(
     { email },
     {
       privateCode: confirmCode,
       codeType: type,
       codeExpires: expires,
     },
-  ).select("-password");
+  );
 
   await sendEmailNotification(
     email,

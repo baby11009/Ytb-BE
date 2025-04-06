@@ -6,9 +6,12 @@ const {
   NotFoundError,
 } = require("../../errors");
 const mongoose = require("mongoose");
+const {
+  sendRealTimeNotification,
+} = require("../../service/notification/notification");
 
 const subscribe = async (req, res) => {
-  const { userId } = req.user;
+  const { userId, email } = req.user;
 
   const { channelId } = req.body;
 
@@ -42,7 +45,15 @@ const subscribe = async (req, res) => {
 
   try {
     const subscription = await Subscribe.create([finalData], { session });
+
     await session.commitTransaction();
+
+    sendRealTimeNotification(
+      channelId,
+      "content",
+      `User ${email} just susbscribed to your channel`,
+    );
+
     res.status(StatusCodes.OK).json({
       message: "Successfully subscribed channel",
       data: {
@@ -59,7 +70,7 @@ const subscribe = async (req, res) => {
 };
 
 const unsubscribe = async (req, res) => {
-  const { userId } = req.user;
+  const { userId ,email} = req.user;
 
   const { channelId } = req.params;
 
@@ -95,6 +106,13 @@ const unsubscribe = async (req, res) => {
       { session },
     );
     await session.commitTransaction();
+
+    sendRealTimeNotification(
+      channelId,
+      "content",
+      `User ${email} just unsubscribed to your channel`,
+    );
+
     res.status(StatusCodes.OK).json({
       message: "Successfully unsubscribed channel",
     });
