@@ -5,10 +5,11 @@ const {
   InternalServerError,
   NotFoundError,
 } = require("../../errors");
-const mongoose = require("mongoose");
+
 const {
   sendRealTimeNotification,
 } = require("../../service/notification/notification");
+const { sessionWrap } = require("../../utils/session");
 
 const subscribe = async (req, res) => {
   const { userId, email } = req.user;
@@ -40,13 +41,12 @@ const subscribe = async (req, res) => {
     throw new BadRequestError("You have already subscribed this channel");
   }
 
-  const session = await mongoose.startSession();
-  session.startTransaction();
-
   try {
-    const subscription = await Subscribe.create([finalData], { session });
+    const subscription = await sessionWrap(async (session) => {
+      const subscription = await Subscribe.create([finalData], { session });
 
-    await session.commitTransaction();
+      return subscription;
+    });
 
     sendRealTimeNotification(
       channelId,
@@ -62,15 +62,15 @@ const subscribe = async (req, res) => {
       },
     });
   } catch (error) {
-    await session.abortTransaction();
-    throw error;
-  } finally {
-    session.endSession();
+    console.log("User create subscription error: ", error);
+    throw new InternalServerError(
+      `Failed to subscribe to channel with email ${email}`,
+    );
   }
 };
 
 const unsubscribe = async (req, res) => {
-  const { userId ,email} = req.user;
+  const { userId, email } = req.user;
 
   const { channelId } = req.params;
 
@@ -91,9 +91,6 @@ const unsubscribe = async (req, res) => {
 
   const subscription = await Subscribe.findOne(finalData);
 
-  const session = await mongoose.startSession();
-  session.startTransaction();
-
   try {
     if (!subscription) {
       throw new NotFoundError(
@@ -101,11 +98,12 @@ const unsubscribe = async (req, res) => {
       );
     }
 
-    await Subscribe.deleteOne(
-      { _id: subscription._id, channel_id: channelId },
-      { session },
-    );
-    await session.commitTransaction();
+    await sessionWrap(async (session) => {
+      await Subscribe.deleteOne(
+        { _id: subscription._id, channel_id: channelId },
+        { session },
+      );
+    });
 
     sendRealTimeNotification(
       channelId,
@@ -117,10 +115,8 @@ const unsubscribe = async (req, res) => {
       message: "Successfully unsubscribed channel",
     });
   } catch (error) {
-    await session.abortTransaction();
-    throw error;
-  } finally {
-    session.endSession();
+    console.error("User delete supscription error: ", error);
+    throw new InternalServerError(`Failed to unsubscribe to channel`);
   }
 };
 

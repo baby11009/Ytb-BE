@@ -6,9 +6,8 @@ const {
   BadRequestError,
   NotFoundError,
   InvalidError,
+  InternalServerError,
 } = require("../../errors");
-
-const mongoose = require("mongoose");
 
 const { deleteFile, getVideoDuration } = require("../../utils/file");
 const { createHls } = require("../../utils/createhls");
@@ -19,6 +18,8 @@ const { VideoValidator, Validator } = require("../../utils/validate");
 const {
   sendRealTimeNotification,
 } = require("../../service/notification/notification");
+
+const { sessionWrap } = require("../../utils/session");
 
 const path = require("path");
 
@@ -78,7 +79,11 @@ const upLoadVideo = async (req, res) => {
     await Video.create(data);
 
     const notifi = async () => {
-      const subscriberList = await Subscribe.find({ channel_id: userId });
+      const subscriberList = await Subscribe.find({
+        channel_id: userId,
+        notify: 1,
+      });
+
       if (subscriberList.length > 0) {
         for (const subscriber of subscriberList) {
           sendRealTimeNotification(
@@ -383,17 +388,15 @@ const deleteVideo = async (req, res) => {
     throw new NotFoundError(`Not found video with id ${id}`);
   }
 
-  const session = await mongoose.startSession();
-  session.startTransaction();
   try {
-    await Video.deleteOne({ _id: id }, { session });
-    await session.commitTransaction();
+    await sessionWrap(async (session) => {
+      await Video.deleteOne({ _id: id }, { session });
+    });
+
     res.status(StatusCodes.OK).json({ msg: "Video deleted successfully" });
   } catch (error) {
-    await session.abortTransaction();
-    throw error;
-  } finally {
-    await session.endSession();
+    console.error("User delete one video error: ", error);
+    throw new InternalServerError("Failed to delete video");
   }
 };
 
@@ -433,19 +436,17 @@ const deleteManyVideos = async (req, res) => {
     );
   }
 
-  const session = await mongoose.startSession();
-  session.startTransaction();
   try {
-    await Video.deleteMany({ _id: { $in: idArray } }, { session });
-    await session.commitTransaction();
+    await sessionWrap(async (session) => {
+      await Video.deleteMany({ _id: { $in: idArray } }, { session });
+    });
 
     res.status(StatusCodes.OK).json({ msg: "Videos deleted successfully" });
   } catch (error) {
-    await session.abortTransaction();
-    throw error;
-  } finally {
-    await session.endSession();
+    console.error("User delete many video error: ", error);
+    throw new InternalServerError("Failed to delete many video");
   }
+  f;
 };
 
 module.exports = {

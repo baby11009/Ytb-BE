@@ -50,7 +50,7 @@ Comment.pre("save", async function () {
   if (!session) {
     throw new Error("⚠️ Transaction session is required");
   }
-  
+
   try {
     const Video = mongoose.model("Video");
     const Comment = mongoose.model("Comment");
@@ -119,11 +119,13 @@ Comment.pre(["deleteOne", "findOneAndDelete"], async function () {
     await Comment.updateOne(
       { _id: cmt.replied_parent_cmt_id },
       { $inc: { replied_cmt_total: -1 } },
+      { session },
     );
   } else if (cmt.replied_cmt_id) {
     await Comment.updateOne(
       { _id: cmt.replied_cmt_id },
       { $inc: { replied_cmt_total: -1 } },
+      { session },
     );
   }
 });

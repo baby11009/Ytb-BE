@@ -1,7 +1,6 @@
 const { User, Comment } = require("../../models/index.js");
 const { StatusCodes } = require("http-status-codes");
 const { emitEvent } = require("../../socket/socket.js");
-const mongoose = require("mongoose");
 const { CommentValidator, Validator } = require("../../utils/validate.js");
 const {
   NotFoundError,
@@ -428,42 +427,77 @@ const updateCmt = async (req, res) => {
 };
 
 const deleteCmt = async (req, res) => {
-  const { userId } = req.user;
+  const { userId, email } = req.user;
   const { id } = req.params;
 
-  const session = await mongoose.startSession();
-  session.startTransaction();
+  const foundedCmt = await Comment.aggregate([
+    {
+      $set: {
+        _idStr: { $toString: "$_id" },
+      },
+    },
+    { $match: { _idStr: id } },
+    {
+      $lookup: {
+        from: "videos",
+        localField: "video_id",
+        foreignField: "_id",
+        pipeline: [{ $project: { user_id: 1 } }],
+        as: "video_info",
+      },
+    },
+    {
+      $unwind: "$video_info",
+    },
+    {
+      $project: {
+        user_id: 1,
+        video_info: 1,
+        replied_cmt_id: 1,
+        replied_parent_cmt_id: 1,
+        replied_cmt_total: 1,
+      },
+    },
+  ]);
+
+  if (
+    foundedCmt.length < 1 ||
+    (foundedCmt[0].user_id.toString() !== userId.toString() &&
+      foundedCmt[0].video_info.user_id.toString() !== userId.toString())
+  ) {
+    throw new NotFoundError(`Not found comment with id ${id}`);
+  }
 
   try {
-    const cmt = await Comment.findOneAndDelete(
-      { _id: id },
-      { returnDocument: "before", session: session },
-    );
-
-    if (!cmt) {
-      throw new NotFoundError(`Cannot find comment with id ${id}`);
-    }
+    await sessionWrap(async (session) => {
+      await Comment.deleteOne({ _id: id }, { session });
+    });
 
     let type = "NORMAL";
 
-    if (cmt.replied_cmt_id) {
+    if (foundedCmt[0].replied_cmt_id) {
       type = "REPLY";
     }
 
     emitEvent(`delete-comment-${userId}`, {
       type,
-      data: cmt,
+      data: foundedCmt[0],
     });
 
-    await session.commitTransaction();
+    if (userId.toString() !== foundedCmt[0].user_id.toString()) {
+      sendRealTimeNotification(
+        foundedCmt[0].user_id,
+        "content",
+        `User ${email} just deleted your comment`,
+      );
+    }
 
-    res.status(StatusCodes.OK).json({ msg: "Comment deleted", data: cmt });
+    res
+      .status(StatusCodes.OK)
+      .json({ msg: "Comment deleted", data: foundedCmt });
   } catch (error) {
-    await session.abortTransaction();
-
+    console.log("User delete one comment: ", error);
     throw new InternalServerError(`Failed to delete comment with id ${id}`);
-  } finally {
-    session.endSession();
   }
 };
 
@@ -518,16 +552,13 @@ const deleteManyCmt = async (req, res) => {
     }
   }
 
-  const session = await mongoose.startSession();
-  session.startTransaction();
-
   try {
-    await Comment.deleteMany(
-      { _id: { $in: cmtListNeedToDelete } },
-      { session },
-    );
-
-    await session.commitTransaction();
+    await sessionWrap(async (session) => {
+      await Comment.deleteMany(
+        { _id: { $in: cmtListNeedToDelete } },
+        { session },
+      );
+    });
 
     res.status(StatusCodes.OK).json({
       msg: `Comments with the following id have been deleted: ${idArray.join(
@@ -535,10 +566,8 @@ const deleteManyCmt = async (req, res) => {
       )}`,
     });
   } catch (error) {
-    await session.abortTransaction();
-    throw error;
-  } finally {
-    session.endSession();
+    console.log("User delete many comment: ", error);
+    throw InternalServerError("Failed to delete many comment");
   }
 };
 

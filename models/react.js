@@ -28,12 +28,12 @@ React.pre("deleteMany", async function () {
   }
 
   // Just do all of the work when it is cascade deleting when deleting user
+  if (user_id) {
+    try {
+      const React = mongoose.model("React");
+      const Video = mongoose.model("Video");
+      // When deleting all the react user has created
 
-  try {
-    const React = mongoose.model("React");
-    const Video = mongoose.model("Video");
-    // When deleting all the react user has created
-    if (user_id) {
       const foundedReacts = await React.find({ user_id })
         .select("_id video_id type")
         .session(session);
@@ -58,23 +58,9 @@ React.pre("deleteMany", async function () {
 
         await Video.bulkWrite(bulkOps, session);
       }
-
-      // await Promise.all(
-      //   foundedReacts.map((react) => {
-      //     let updateObject = { $inc: { like: -1 } };
-
-      //     if (react.type === "dislike") {
-      //       updateObject = { $inc: { dislike: -1 } };
-      //     }
-
-      //     return Video.updateOne({ _id: react.video_id }, updateObject, {
-      //       session,
-      //     });
-      //   }),
-      // );
+    } catch (error) {
+      throw error;
     }
-  } catch (error) {
-    throw error;
   }
 });
 

@@ -69,8 +69,9 @@ const User = new mongoose.Schema(
       default: "",
       maxLength: 5000,
     },
-    watchedHistory: {
-      type: mongoose.Types.ObjectId,
+    notReadedNotiCount: {
+      type: Number,
+      default: 0,
     },
   },
   { timestamps: true },

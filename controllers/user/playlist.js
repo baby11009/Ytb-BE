@@ -3,12 +3,13 @@ const {
   BadRequestError,
   NotFoundError,
   InvalidError,
+  InternalServerError,
 } = require("../../errors");
 const { StatusCodes } = require("http-status-codes");
 const mongoose = require("mongoose");
 const { searchWithRegex } = require("../../utils/other");
 const { PlaylistValidator, Validator } = require("../../utils/validate");
-const video = require("../../models/video");
+const { sessionWrap } = require("../../utils/session");
 
 const createPlaylist = async (req, res) => {
   const { userId } = req.user;
@@ -88,7 +89,7 @@ const getPlaylists = async (req, res) => {
   };
 
   const searchObj = {
-    userIdStr: userId,
+    created_user_id: userId,
     type: { $nin: ["history", ...exCludeTypes] },
   };
 
@@ -160,7 +161,6 @@ const getPlaylists = async (req, res) => {
     {
       $set: {
         _idStr: { $toString: "$_id" },
-        userIdStr: { $toString: "$created_user_id" },
         size: { $size: "$itemList" },
       },
     },
@@ -179,7 +179,7 @@ const getPlaylists = async (req, res) => {
         let: { videoIdList: "$itemList" },
         pipeline: [
           {
-            $set  : {
+            $set: {
               _idStr: { $toString: "$_id" },
               order: {
                 $indexOfArray: ["$$videoIdList", { $toString: "$_id" }],
@@ -252,7 +252,6 @@ const getPlaylistDetails = async (req, res) => {
   const { userId } = req.user;
 
   const { id } = req.params;
-  console.log("🚀 ~ id:", id);
 
   const { videoLimit = 8, videoPage = 1, videoSearch } = req.query;
 
@@ -261,26 +260,18 @@ const getPlaylistDetails = async (req, res) => {
   const pipeline = [];
 
   if (typeSet.has(id)) {
-    pipeline.push(
-      {
-        $set: {
-          userIdStr: { $toString: "$created_user_id" },
-        },
-      },
-      {
-        $match: { type: id, userIdStr: userId },
-      },
-    );
+    pipeline.push({
+      $match: { type: id, created_user_id: userId },
+    });
   } else {
     pipeline.push(
       {
         $set: {
           _idStr: { $toString: "$_id" },
-          userIdStr: { $toString: "$created_user_id" },
         },
       },
       {
-        $match: { _idStr: id, userIdStr: userId },
+        $match: { _idStr: id, created_user_id: userId },
       },
     );
   }
@@ -448,8 +439,6 @@ const updatePlaylist = async (req, res, next) => {
 
   const { move, ...othersData } = req.body;
 
-  let session;
-
   try {
     let bulkWrites = [];
 
@@ -461,7 +450,6 @@ const updatePlaylist = async (req, res, next) => {
     }
 
     if (move) {
-      console.log("🚀 ~ move:", move);
       if (foundedPlaylist.itemList.length === 0) {
         throw new BadRequestError("Invalid move action");
       }
@@ -497,54 +485,46 @@ const updatePlaylist = async (req, res, next) => {
       });
     }
 
-    session = await mongoose.startSession();
+    const playlist = await sessionWrap(async (session) => {
+      await Playlist.bulkWrite(bulkWrites, { session });
 
-    session.startTransaction();
-
-    await Playlist.bulkWrite(bulkWrites, { session });
-
-    const pipeline = [
-      {
-        $set: {
-          _idStr: { $toString: "$_id" },
+      const pipeline = [
+        {
+          $set: {
+            _idStr: { $toString: "$_id" },
+          },
         },
-      },
-      {
-        $match: { _idStr: id },
-      },
-      {
-        $project: {
-          _id: 1,
-          created_user_id: 1,
-          title: 1,
-          itemList: 1,
-          updatedAt: 1,
-          type: 1,
-          size: { $size: "$itemList" },
+        {
+          $match: { _idStr: id },
         },
-      },
-    ];
+        {
+          $project: {
+            _id: 1,
+            created_user_id: 1,
+            title: 1,
+            itemList: 1,
+            updatedAt: 1,
+            type: 1,
+            size: { $size: "$itemList" },
+          },
+        },
+      ];
+      const playlist = await Playlist.aggregate(pipeline, { session });
 
-    const playlist = await Playlist.aggregate(pipeline, { session });
+      return playlist;
+    });
 
-    await session.commitTransaction();
     res
       .status(StatusCodes.OK)
       .json({ msg: "Playlist updated successfullly", data: playlist[0] });
   } catch (error) {
-    if (session) {
-      await session.abortTransaction();
-    }
     if (error instanceof InvalidError) {
       return res
         .status(StatusCodes.BAD_REQUEST)
         .json({ errors: error.errorObj });
     }
-    throw error;
-  } finally {
-    if (session) {
-      session.endSession();
-    }
+    console.error("User update playlist error: ", error);
+    throw new InternalServerError(`Failed to update playlist with id ${id}`);
   }
 };
 
