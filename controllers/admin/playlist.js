@@ -8,7 +8,7 @@ const {
 const { StatusCodes } = require("http-status-codes");
 const { searchWithRegex } = require("../../utils/other");
 const { PlaylistValidator, Validator } = require("../../utils/validate");
-const { default: mongoose } = require("mongoose");
+const { sessionWrap } = require("../../utils/session");
 
 const createPlaylist = async (req, res) => {
   const { title, videoIdList = [], userId, privacy } = req.body;
@@ -428,8 +428,6 @@ const getPlaylistDetails = async (req, res) => {
 const updatePlaylist = async (req, res) => {
   const { id } = req.params;
 
-  let session;
-
   if (Object.keys(req.body).length < 1) {
     throw new BadRequestError("Please provide at least one data to update");
   }
@@ -446,29 +444,18 @@ const updatePlaylist = async (req, res) => {
       foundedPlaylist,
     ).getValidatedUpdateData();
 
-    session = await mongoose.startSession();
-
-    session.startTransaction();
-
-    await Playlist.bulkWrite(bulkWrites, { session });
-
-    await session.commitTransaction();
+    await sessionWrap(async (session) => {
+      await Playlist.bulkWrite(bulkWrites, { session });
+    });
 
     res.status(StatusCodes.OK).json({ msg: "Playlist updated successfullly" });
   } catch (error) {
-    if (session) {
-      await session.abortTransaction();
-    }
     if (error instanceof InvalidError) {
       return res
         .status(StatusCodes.BAD_REQUEST)
         .json({ errors: error.errorObj });
     }
     throw error;
-  } finally {
-    if (session) {
-      session.endSession();
-    }
   }
 };
 

@@ -18,6 +18,8 @@ const { clearUploadedVideoFiles } = require("../../utils/clear");
 const { searchWithRegex, isObjectEmpty } = require("../../utils/other");
 const { VideoValidator, Validator } = require("../../utils/validate");
 
+const { sessionWrap } = require("../../utils/session");
+
 const videoFolderPath = path.join(__dirname, "../../assets/video thumb");
 
 const upLoadVideo = async (req, res) => {
@@ -32,7 +34,7 @@ const upLoadVideo = async (req, res) => {
     like = 0,
     dislike = 0,
   } = req.body;
-  console.log(50);
+
   try {
     const fileErr = [];
 
@@ -79,7 +81,9 @@ const upLoadVideo = async (req, res) => {
       dislike,
     };
 
-    await Video.create(data);
+    await sessionWrap(async (session) => {
+      await Video.create([data], { session });
+    });
 
     res.status(StatusCodes.CREATED).json({ msg: "Upload video successfully" });
   } catch (error) {
@@ -410,18 +414,14 @@ const deleteVideo = async (req, res) => {
     throw new NotFoundError(`Not found video with id ${id}`);
   }
 
-  const session = await mongoose.startSession();
-  session.startTransaction();
   try {
-    await Video.deleteOne({ _id: id }, { session });
-    await session.commitTransaction();
+    await sessionWrap(async (session) => {
+      await Video.deleteOne({ _id: id }, { session });
+    });
+
     res.status(StatusCodes.OK).json({ msg: "Video deleted successfully" });
   } catch (error) {
-    await session.abortTransaction();
     throw error;
-  } finally {
-    await session.endSession();
-    F;
   }
 };
 
@@ -460,18 +460,11 @@ const deleteManyVideos = async (req, res) => {
     );
   }
 
-  const session = await mongoose.startSession();
-  session.startTransaction();
-  try {
+  await sessionWrap(async (session) => {
     await Video.deleteMany({ _id: { $in: idArray } }, { session });
-    await session.commitTransaction();
-    res.status(StatusCodes.OK).json({ msg: "Videos deleted successfully" });
-  } catch (error) {
-    await session.abortTransaction();
-    throw error;
-  } finally {
-    await session.endSession();
-  }
+  });
+
+  res.status(StatusCodes.OK).json({ msg: "Videos deleted successfully" });
 };
 
 module.exports = {

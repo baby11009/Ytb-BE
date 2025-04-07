@@ -28,7 +28,7 @@ const asssetPath = path.join(__dirname, "../../assets");
 const upLoadVideo = async (req, res) => {
   const { thumbnail, video } = req.files;
 
-  const { userId, email } = req.user;
+  const { userId, name } = req.user;
 
   const { type, title, tags = [], description = "" } = req.body;
 
@@ -76,7 +76,10 @@ const upLoadVideo = async (req, res) => {
       description,
     };
 
-    await Video.create(data);
+    const video = await sessionWrap(async (session) => {
+      const video = await Video.create([data], { session });
+      return video[0];
+    });
 
     const notifi = async () => {
       const subscriberList = await Subscribe.find({
@@ -86,11 +89,13 @@ const upLoadVideo = async (req, res) => {
 
       if (subscriberList.length > 0) {
         for (const subscriber of subscriberList) {
-          sendRealTimeNotification(
-            subscriber.subscriber_id,
-            "subscription",
-            `Channel ${email} just uploaded new Video`,
-          );
+          sendRealTimeNotification({
+            senderId: userId,
+            receiverId: subscriber.subscriber_id,
+            type: "subscription",
+            videoId: video._id,
+            message: `${name} has uploaded new video: ${video.title}`,
+          });
         }
       }
     };

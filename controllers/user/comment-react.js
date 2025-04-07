@@ -1,5 +1,5 @@
 const { CmtReact, Comment } = require("../../models");
-const { BadRequestError } = require("../../errors");
+const { BadRequestError, NotFoundError } = require("../../errors");
 const { StatusCodes } = require("http-status-codes");
 const { emitEvent } = require("../../socket/socket");
 const {
@@ -7,7 +7,7 @@ const {
 } = require("../../service/notification/notification");
 
 const toggleCmtReact = async (req, res) => {
-  const { userId, email } = req.user;
+  const { userId, name } = req.user;
   const { cmtId, type } = req.body;
 
   if (!cmtId) {
@@ -16,6 +16,12 @@ const toggleCmtReact = async (req, res) => {
 
   if (!type) {
     throw new BadRequestError("Please provide comment's react type");
+  }
+
+  const foundedCmt = await Comment.findById(cmtId);
+
+  if (!foundedCmt) {
+    throw new BadRequestError(`Not found comment with id ${cmtId}`);
   }
 
   let finalData = {
@@ -39,10 +45,7 @@ const toggleCmtReact = async (req, res) => {
         dislikeCount = -1;
       }
     } else {
-      await CmtReact.findOneAndUpdate(
-        { _id: exitsingCmtReact._id },
-        { type: type },
-      );
+      await CmtReact.updateOne({ _id: exitsingCmtReact._id }, { type: type });
       msg = `Successfully change comment react to ${type}`;
       if (type === "like") {
         likeCount = 1;
@@ -127,11 +130,13 @@ const toggleCmtReact = async (req, res) => {
     });
 
     if (userId.toString() !== commentAfterUpdate[0].user_id.toString()) {
-      sendRealTimeNotification(
-        commentAfterUpdate[0].user_id,
-        "content",
-        `User ${email} just reacting to your comment`,
-      );
+      sendRealTimeNotification({
+        senderId: userId,
+        receiverId: commentAfterUpdate[0].user_id,
+        type: "comment",
+        cmtId: cmtId,
+        message: `${name} has reacted to your comment`,
+      });
     }
   }
 

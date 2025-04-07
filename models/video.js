@@ -72,7 +72,18 @@ const Video = new mongoose.Schema(
 // Update links data when create video
 Video.pre("save", async function () {
   const { user_id } = this;
-  await User.updateOne({ _id: user_id }, { $inc: { totalVids: 1 } });
+  
+  const session = this.$session;
+
+  if (!session) {
+    throw new Error("⚠️ Transaction session is required");
+  }
+
+  await User.updateOne(
+    { _id: user_id },
+    { $inc: { totalVids: 1 } },
+    { session },
+  );
 });
 
 // Cascade when deleting video

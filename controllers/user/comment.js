@@ -35,7 +35,7 @@ const createCmt = async (req, res) => {
     );
   }
 
-  const { userId, email } = req.user;
+  const { userId, name } = req.user;
 
   const { videoId, cmtText, replyId } = req.body;
 
@@ -139,11 +139,13 @@ const createCmt = async (req, res) => {
     type = "REPLY";
 
     if (userId.toString() !== replyCmt.user_id.toString()) {
-      sendRealTimeNotification(
-        replyCmt.user_id,
-        "content",
-        `User ${email} just replying to your comment`,
-      );
+      sendRealTimeNotification({
+        senderId: userId,
+        receiverId: replyCmt.user_id,
+        type: "comment",
+        cmtId: createdCmt[0]._id,
+        message: `${name} has replied to your comment`,
+      });
     }
   }
 
@@ -427,7 +429,7 @@ const updateCmt = async (req, res) => {
 };
 
 const deleteCmt = async (req, res) => {
-  const { userId, email } = req.user;
+  const { userId } = req.user;
   const { id } = req.params;
 
   const foundedCmt = await Comment.aggregate([
@@ -483,14 +485,6 @@ const deleteCmt = async (req, res) => {
       type,
       data: foundedCmt[0],
     });
-
-    if (userId.toString() !== foundedCmt[0].user_id.toString()) {
-      sendRealTimeNotification(
-        foundedCmt[0].user_id,
-        "content",
-        `User ${email} just deleted your comment`,
-      );
-    }
 
     res
       .status(StatusCodes.OK)

@@ -11,6 +11,7 @@ const {
 
 const { searchWithRegex } = require("../../utils/other");
 const { CommentValidator, Validator } = require("../../utils/validate");
+const { sessionWrap } = require("../../utils/session");
 
 const createCmt = async (req, res) => {
   const neededKeys = ["userId", "videoId", "cmtText"];
@@ -84,19 +85,16 @@ const createCmt = async (req, res) => {
   if (dislike) {
     data.dislike = dislike;
   }
-  const session = await mongoose.startSession();
-
-  session.startTransaction();
 
   try {
-    const cmt = await Comment.create([data], { session });
-    await session.commitTransaction();
+    const cmt = await sessionWrap(async (session) => {
+      const cmt = await Comment.create([data], { session });
+      return cmt;
+    });
+
     res.status(StatusCodes.CREATED).json({ msg: "Comment created", data: cmt });
   } catch (error) {
-    await session.abortTransaction();
     throw error;
-  } finally {
-    session.endSession();
   }
 };
 
@@ -417,18 +415,17 @@ const deleteCmt = async (req, res) => {
   if (!foundedCmt) {
     throw new NotFoundError(`Cannot find comment with id ${id}`);
   }
-  const session = await mongoose.startSession();
-  session.startTransaction();
+
   try {
-    const cmt = await Comment.deleteOne({ _id: id }, { session: session });
-    await session.commitTransaction();
+    const cmt = await sessionWrap(async (session) => {
+      const cmt = await Comment.deleteOne({ _id: id }, { session: session });
+      return cmt;
+    });
+
     res.status(StatusCodes.OK).json({ msg: "Comment deleted", data: cmt });
   } catch (error) {
-    await session.abortTransaction();
-
+    console.error(error);
     throw new InternalServerError(`Failed to delete comment with id ${id}`);
-  } finally {
-    session.endSession();
   }
 };
 
@@ -482,25 +479,21 @@ const deleteManyCmt = async (req, res) => {
     }
   }
 
-  const session = await mongoose.startSession();
-  session.startTransaction();
-
   try {
-    await Comment.deleteMany(
-      { _id: { $in: cmtListNeedToDelete } },
-      { session },
-    );
-    await session.commitTransaction();
+    await sessionWrap(async (session) => {
+      await Comment.deleteMany(
+        { _id: { $in: cmtListNeedToDelete } },
+        { session },
+      );
+    });
+
     res.status(StatusCodes.OK).json({
       msg: `Comments with the following IDs have been deleted: ${idArray.join(
         ", ",
       )}`,
     });
   } catch (error) {
-    await session.abortTransaction();
     throw error;
-  } finally {
-    session.endSession();
   }
 };
 

@@ -11,6 +11,7 @@ const { mongoose } = require("mongoose");
 const { searchWithRegex, isObjectEmpty } = require("../../utils/other");
 const { TagValidator, Validator } = require("../../utils/validate");
 const iconPath = path.join(__dirname, "../../assets/tag icon");
+const { sessionWrap } = require("../../utils/session");
 
 const createTag = async (req, res) => {
   try {
@@ -249,22 +250,16 @@ const deleteTag = async (req, res) => {
     throw new NotFoundError(`Cannot find tag with id ${id}`);
   }
 
-  const session = await mongoose.startSession();
-
-  session.startTransaction();
-
   try {
-    await Tag.deleteOne({ _id: id }, { session });
+    await sessionWrap(async (session) => {
+      await Tag.deleteOne({ _id: id }, { session });
+    });
 
     deleteFile(path.join(iconPath, foundedTag.icon));
 
-    await session.commitTransaction();
     res.status(StatusCodes.OK).json({ msg: "Tag deleted successfully" });
   } catch (error) {
-    await session.abortTransaction();
     throw error;
-  } finally {
-    session.endSession();
   }
 };
 
@@ -300,22 +295,20 @@ const deleteManyTags = async (req, res) => {
     );
   }
 
-  const session = await mongoose.startSession();
-  session.startTransaction();
   try {
-    await Tag.deleteMany({ _id: { $in: idArray } }, { session });
+    await sessionWrap(async (session) => {
+      await Tag.deleteMany({ _id: { $in: idArray } }, { session });
+    });
 
     for (const icon of foundedTagsIcon) {
       await deleteFile(path.join(iconPath, icon));
     }
-    await session.commitTransaction();
+  
     res.status(StatusCodes.OK).json({ msg: "Tags deleted successfully" });
   } catch (error) {
-    await session.abortTransaction();
+
     throw error;
-  } finally {
-    session.endSession();
-  }
+  } 
 };
 
 module.exports = {

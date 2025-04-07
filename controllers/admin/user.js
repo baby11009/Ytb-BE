@@ -12,12 +12,11 @@ const { searchWithRegex, isObjectEmpty } = require("../../utils/other");
 const { UserValidator, Validator } = require("../../utils/validate");
 
 const path = require("path");
+const { sessionWrap } = require("../../utils/session");
 
 const avatarPath = path.join(__dirname, "../../assets/user avatar");
 
 const createUser = async (req, res) => {
-  const session = await mongoose.startSession();
-  session.startTransaction();
   try {
     const keys = Object.keys(req.body);
 
@@ -25,9 +24,7 @@ const createUser = async (req, res) => {
       throw new BadRequestError("Please provide data to create user");
     }
 
-    const existingUser = await User.findOne({ email: req.body.email }).session(
-      session,
-    );
+    const existingUser = await User.findOne({ email: req.body.email });
 
     if (existingUser) {
       throw new BadRequestError("Email already registered");
@@ -43,12 +40,13 @@ const createUser = async (req, res) => {
       finalData.banner = req.files.banner[0].filename;
     }
 
-    const user = await User.create([finalData], { session });
-    await session.commitTransaction();
+    const user = await sessionWrap(async (session) => {
+      const user = await User.create([finalData], { session });
+      return user;
+    });
+
     res.status(StatusCodes.CREATED).json({ msg: user });
   } catch (error) {
-    await session.abortTransaction();
-
     if (req.files.avatar && req.files.avatar.length) {
       deleteFile(req.files.avatar[0].path);
     }
@@ -56,9 +54,8 @@ const createUser = async (req, res) => {
     if (req.files.banner && req.files.banner.length) {
       deleteFile(req.files.banner[0].path);
     }
+
     throw error;
-  } finally {
-    session.endSession();
   }
 };
 
@@ -275,12 +272,10 @@ const deleteUser = async (req, res) => {
     throw new NotFoundError("User not found");
   }
 
-  const session = await mongoose.startSession();
-  session.startTransaction();
   try {
-    await User.deleteOne({ _id: id }, { session: session });
-
-    await session.commitTransaction();
+    await sessionWrap(async (session) => {
+      await User.deleteOne({ _id: id }, { session: session });
+    });
     // Delete user uploaded avatar and banner
 
     if (foundedUser.avatar !== "df.jpg") {
@@ -293,11 +288,7 @@ const deleteUser = async (req, res) => {
 
     res.status(StatusCodes.OK).json({ msg: "User deleted" });
   } catch (error) {
-    await session.abortTransaction();
-    console.error(error);
-    throw new InternalServerError("Failed to delete user");
-  } finally {
-    session.endSession();
+    throw error;
   }
 };
 
@@ -333,20 +324,19 @@ const deleteManyUsers = async (req, res) => {
   }
 
   // Delete users after verify the id list is valid
-  const session = await mongoose.startSession();
+
   try {
-    session.startTransaction();
-    await User.deleteMany({ _id: { $in: idArray } }, { session });
-    await session.commitTransaction();
+    await sessionWrap(async (session) => {
+      await User.deleteMany({ _id: { $in: idArray } }, { session });
+    });
+   
     res.status(StatusCodes.OK).json({
       msg: `Successfully deleted these following users : ${idList}`,
     });
   } catch (error) {
-    await session.abortTransaction();
+  
     throw error;
-  } finally {
-    await session.endSession();
-  }
+  } 
 };
 
 const testDlt = async (req, res) => {

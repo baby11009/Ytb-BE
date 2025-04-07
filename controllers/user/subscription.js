@@ -12,7 +12,7 @@ const {
 const { sessionWrap } = require("../../utils/session");
 
 const subscribe = async (req, res) => {
-  const { userId, email } = req.user;
+  const { userId, name } = req.user;
 
   const { channelId } = req.body;
 
@@ -48,11 +48,12 @@ const subscribe = async (req, res) => {
       return subscription;
     });
 
-    sendRealTimeNotification(
-      channelId,
-      "content",
-      `User ${email} just susbscribed to your channel`,
-    );
+    sendRealTimeNotification({
+      senderId: userId,
+      receiverId: channelId,
+      type: "content",
+      message: `${name} has subcribed to your channel`,
+    });
 
     res.status(StatusCodes.OK).json({
       message: "Successfully subscribed channel",
@@ -70,7 +71,7 @@ const subscribe = async (req, res) => {
 };
 
 const unsubscribe = async (req, res) => {
-  const { userId, email } = req.user;
+  const { userId } = req.user;
 
   const { channelId } = req.params;
 
@@ -104,12 +105,6 @@ const unsubscribe = async (req, res) => {
         { session },
       );
     });
-
-    sendRealTimeNotification(
-      channelId,
-      "content",
-      `User ${email} just unsubscribed to your channel`,
-    );
 
     res.status(StatusCodes.OK).json({
       message: "Successfully unsubscribed channel",

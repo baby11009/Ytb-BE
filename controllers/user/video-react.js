@@ -11,7 +11,7 @@ const {
 const { sessionWrap } = require("../../utils/session");
 
 const toggleReact = async (req, res) => {
-  const { userId } = req.user;
+  const { userId, name } = req.user;
 
   const { videoId, type } = req.body;
 
@@ -134,8 +134,18 @@ const toggleReact = async (req, res) => {
       );
     });
 
-    if (userId.toString() !== foundedVideo.user_id.toString()) {
-      sendRealTimeNotification(foundedVideo.user_id, "content", result.msg);
+    if (
+      userId.toString() !== foundedVideo.user_id.toString() &&
+      result.type !== "DELETE"
+    ) {
+
+      sendRealTimeNotification({
+        senderId: userId,
+        receiverId: foundedVideo.user_id,
+        type: "react",
+        videoId: videoId,
+        message: `${name} has ${type}d your video`,
+      });
     }
 
     res.status(StatusCodes.OK).json(result);
