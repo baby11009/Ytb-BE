@@ -31,7 +31,7 @@ app.use(express.json());
 // app.use(helmet());
 
 app.get("/", (req, res) => {
-  res.send("Hello, world!");
+  res.status(200).send("Hello, world!");
 });
 
 // Client
