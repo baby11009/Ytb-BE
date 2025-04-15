@@ -72,14 +72,14 @@ const Notification = new mongoose.Schema(
 
 Notification.index(["userId"]);
 
-// Notification.post("save", async function () {
-//   const User = mongoose.model("User");
+Notification.post("save", async function () {
+  const User = mongoose.model("User");
 
-//   await User.updateOne(
-//     { _id: this.userId },
-//     { notReadedNotiCount: { $inc: 1 } },
-//   );
-// });
+  await User.updateOne(
+    { _id: this.receiver_user_id },
+    { $inc: { notReadedNotiCount: 1 } },
+  );
+});
 
 Notification.pre(["updateOne", "findOneAndUpdate"], async function () {
   const { session } = this.options;
@@ -91,12 +91,12 @@ Notification.pre(["updateOne", "findOneAndUpdate"], async function () {
   const { readed } = this.getUpdate();
 
   if (readed) {
-    const { userId } = this.getQuery();
+    const { receiver_user_id } = this.getQuery();
 
     const User = mongoose.model("User");
     await User.updateOne(
-      { _id: userId },
-      { notReadedNotiCount: { $inc: -1 } },
+      { _id: receiver_user_id },
+      { $inc: { notReadedNotiCount: -1 } },
       { session },
     );
   }

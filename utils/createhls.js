@@ -223,7 +223,7 @@ async function createHls(filename, videoPath, type) {
               videoSegmentInfos[0].width + "x" + videoSegmentInfos[0].height
             }\n${playlistUrl}\n`;
 
-            // Ghi nội dung vào file master.m3u8
+            // Wrting streaming infomation to file master.m3u8
             fs.writeFileSync(masterFilePath, masterPlaylistContent);
 
             resolve();

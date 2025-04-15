@@ -10,7 +10,7 @@ const subscriptionRouter = require("./user/subscription");
 
 const router = express.Router();
 
-router.use("/user", userRouter);
+router.use("/", userRouter);
 
 router.use("/video", videoRouter);
 

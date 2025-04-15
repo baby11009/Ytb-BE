@@ -12,6 +12,7 @@ const {
   getWatchLaterDetails,
   getLikedVideoList,
   getAccountInfo,
+  getNotificationList,
 } = require("../../controllers/user/user");
 
 const router = express.Router();
@@ -35,5 +36,6 @@ router.get("/subscribed-channels", getSubscribedChannels);
 router.get("/subscribed-channels-videos", getSubscribedChannelsVideos);
 router.get("/watchlater", getWatchLaterDetails);
 router.get("/likedvideos", getLikedVideoList);
+router.get("/notification", getNotificationList);
 
 module.exports = router;

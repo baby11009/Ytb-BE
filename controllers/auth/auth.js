@@ -185,6 +185,7 @@ const login = async (req, res) => {
         totalVids: 1,
         description: 1,
         subscribed_list: 1,
+        notReadedNotiCount: 1,
       },
     },
   ]);
