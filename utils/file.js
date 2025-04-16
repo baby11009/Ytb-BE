@@ -1,6 +1,7 @@
 const fs = require("fs");
 const { getVideoDurationInSeconds } = require("get-video-duration");
 const path = require("path");
+const crypto = require("crypto");
 
 const deleteFile = async (filePath) => {
   try {
@@ -71,9 +72,15 @@ const getVideoDuration = async (filePath) => {
   return Math.floor(duration);
 };
 
+// Generate Etag for client caching image
+function generateETag(buffer) {
+  return crypto.createHash("md5").update(buffer).digest("hex");
+}
+
 module.exports = {
   deleteFile,
   deleteFolder,
   getVideoDuration,
   deleteFolderWithSameName,
+  generateETag,
 };

@@ -2,12 +2,17 @@ const redis = require("redis");
 
 const client = redis.createClient();
 
-const addValue = async (key, value) => {
+const getValue = async (key) => {
+  return await client.get(key);
+};
+
+const addValue = async (key, value, expire = 3600) => {
   try {
     if (Array.isArray(value)) {
       await client.sAdd(key, value);
+      await client.expire(key, expire);
     } else {
-      const reply = await client.set(key, value);
+      const reply = await client.set(key, value, { EX: expire });
       console.log(reply);
     }
   } catch (err) {
@@ -29,4 +34,4 @@ const removeKey = async (redisKey) => {
   }
 };
 
-module.exports = { client, addValue, setKeyExpire, removeKey };
+module.exports = { client, addValue, getValue, setKeyExpire, removeKey };

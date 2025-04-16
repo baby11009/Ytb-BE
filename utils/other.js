@@ -1,3 +1,4 @@
+
 const searchWithRegex = (value) => ({ $regex: value, $options: "i" });
 const isObjectEmpty = (object) => {
   for (const key in object) {
@@ -5,4 +6,5 @@ const isObjectEmpty = (object) => {
   }
   return true;
 };
+
 module.exports = { searchWithRegex, isObjectEmpty };

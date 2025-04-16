@@ -1,8 +1,12 @@
 const path = require("path");
 const fs = require("fs");
 const { NotFoundError, BadRequestError } = require("../../errors");
+const sharp = require("sharp");
 
 const assetsPath = path.join(__dirname, "../../assets");
+
+const { addValue, getValue } = require("../../redis/instance/client");
+const { generateETag } = require("../../utils/file");
 
 const handleViewImage = async (req, res, fileFolder = "") => {
   try {
@@ -11,13 +15,98 @@ const handleViewImage = async (req, res, fileFolder = "") => {
     if (!name) {
       throw new BadRequestError("Please provide a name");
     }
+    const imagePath = path.join(assetsPath, fileFolder, name);
 
-    const finalPath = path.join(assetsPath, fileFolder, name);
+    if (!fs.existsSync(imagePath)) {
+      throw new NotFoundError("Image not found");
+    }
 
-    await fs.promises.access(finalPath, fs.constants.F_OK).catch((err) => {
-      throw new NotFoundError(`Not found file with name ${name}`);
+    const width = req.query.width ? parseInt(req.query.width) : null;
+    const height = req.query.height ? parseInt(req.query.height) : null;
+    const format = req.query.format || "webp";
+    const quality = req.query.quality ? parseInt(req.query.quality) : 80;
+
+    // Creating cache key to store in redis base on name & query parameters
+    const cacheKey = `img:${name}:${width || "orig"}:${
+      height || "orig"
+    }:${format}:${quality}`;
+
+    const cachedImage = await getValue(cacheKey);
+
+    if (cachedImage) {
+      const buffer = Buffer.from(cachedImage, "base64");
+      const etag = generateETag(buffer);
+
+      // Check if client has a cached version
+      if (req.headers["if-none-match"] === etag) {
+        return res.status(304).end();
+      }
+
+      res.set({
+        "Content-Type": `image/${format}`,
+        "Cache-Control": "public, max-age=43200",
+        ETag: etag,
+      });
+
+      return res.send(buffer);
+    }
+
+    let imageBuffer = fs.readFileSync(imagePath);
+    let processedImage = sharp(imageBuffer);
+
+    // Apply transformations if needed
+    if (width || height) {
+      processedImage = processedImage.resize({
+        width: width,
+        height: height,
+        fit: "contain",
+        background: { r: 0, g: 0, b: 0, alpha: 0 },
+      });
+    }
+
+    // Apply format conversion
+    switch (format.toLowerCase()) {
+      case "jpg":
+      case "png":
+        processedImage = processedImage.png({ quality });
+        res.set("Content-Type", "image/png");
+        break;
+      case "webp":
+        processedImage = processedImage.webp({ quality });
+        res.set("Content-Type", "image/webp");
+        break;
+      case "avif":
+        processedImage = processedImage.avif({ quality });
+        res.set("Content-Type", "image/avif");
+        break;
+      default:
+        processedImage = processedImage.jpeg({ quality });
+        res.set("Content-Type", "image/jpeg");
+    }
+
+    // Process image
+    const outputBuffer = await processedImage.toBuffer();
+
+    // Generate ETag
+    const etag = generateETag(outputBuffer);
+
+    // Check if client has this version cached
+    if (req.headers["if-none-match"] === etag) {
+      return res.status(304).end();
+    }
+
+    // Store in Redis cache if available (expire after half day)
+
+    await addValue(cacheKey, outputBuffer.toString("base64"));
+
+    // Set headers for caching and content type
+    res.set({
+      "Cache-Control": "public, max-age=43200",
+      ETag: etag,
     });
-    res.sendFile(finalPath);
+
+    // Stream the processed image
+    res.send(outputBuffer);
   } catch (error) {
     throw error;
   }
