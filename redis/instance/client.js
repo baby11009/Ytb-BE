@@ -12,8 +12,7 @@ const addValue = async (key, value, expire = 3600) => {
       await client.sAdd(key, value);
       await client.expire(key, expire);
     } else {
-      const reply = await client.set(key, value, { EX: expire });
-      console.log(reply);
+       await client.set(key, value, { EX: expire });
     }
   } catch (err) {
     console.error("Error adding value to Redis:", err);

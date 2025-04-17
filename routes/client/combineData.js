@@ -4,6 +4,7 @@ const {
   getVideoList,
   getDataList,
   getChannelInfo,
+  getChannelData,
   getChannelPlaylistVideos,
   getVideoDetails,
   getVideoCmts,
@@ -15,6 +16,8 @@ const {
 const router = express.Router();
 
 router.route("/all").get(getDataList);
+
+router.route("/all/:email").get(getChannelData);
 
 router.route("/videos").get(getVideoList);
 

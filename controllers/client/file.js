@@ -25,11 +25,12 @@ const handleViewImage = async (req, res, fileFolder = "") => {
     const height = req.query.height ? parseInt(req.query.height) : null;
     const format = req.query.format || "webp";
     const quality = req.query.quality ? parseInt(req.query.quality) : 80;
+    const fit = req.query.fit || "contain";
 
     // Creating cache key to store in redis base on name & query parameters
     const cacheKey = `img:${name}:${width || "orig"}:${
       height || "orig"
-    }:${format}:${quality}`;
+    }:${format}:${quality}:${fit}`;
 
     const cachedImage = await getValue(cacheKey);
 
@@ -59,7 +60,7 @@ const handleViewImage = async (req, res, fileFolder = "") => {
       processedImage = processedImage.resize({
         width: width,
         height: height,
-        fit: "contain",
+        fit: fit,
         background: { r: 0, g: 0, b: 0, alpha: 0 },
       });
     }

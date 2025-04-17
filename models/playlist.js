@@ -1,5 +1,5 @@
 const mongoose = require("mongoose");
-const { BadRequestError, NotFoundError } = require("../errors");
+const {  NotFoundError } = require("../errors");
 
 const Playlist = new mongoose.Schema(
   {
