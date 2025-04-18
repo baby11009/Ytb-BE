@@ -169,7 +169,6 @@ const getDataList = async (req, res) => {
     } else {
       matchObj["privacy"] = "public";
     }
-    console.log("🚀 ~ matchObj:", matchObj);
 
     const playlistPipeline = [
       {
@@ -272,9 +271,7 @@ const getDataList = async (req, res) => {
       },
     });
 
-    console.log("🚀 ~ playlistPipeline:", playlistPipeline);
     playlistList = await Playlist.aggregate(playlistPipeline);
-    console.log("🚀 ~ playlists:", playlistList);
   }
 
   const queryFuncObj = {
@@ -982,7 +979,6 @@ const getChannelData = async (req, res) => {
 
   const { email } = req.params;
   const { title = "" } = req.query;
-  console.log("🚀 ~ email:", email);
 
   const limit = Number(req.query.limit) || 12;
 
@@ -990,11 +986,11 @@ const getChannelData = async (req, res) => {
 
   let cursors;
 
-  if (req.query.cursor) {
+  if (req.query.cursors) {
     try {
-      cursors = JSON.parse(Buffer.from(req.query.cursor, "base64").toString());
+      cursors = JSON.parse(Buffer.from(req.query.cursors, "base64").toString());
     } catch (e) {
-      return res.status(400).json({ error: "Invalid cursor format" });
+      return res.status(400).json({ msg: "Invalid cursor format" });
     }
   }
 
@@ -1008,6 +1004,9 @@ const getChannelData = async (req, res) => {
     "channel_info.email": email,
     type: "playlist",
     privacy: "public",
+    $expr: {
+      $gt: [{ $size: "$itemList" }, 0],
+    },
   };
 
   if (authEmail === email) {
@@ -1015,8 +1014,6 @@ const getChannelData = async (req, res) => {
   }
 
   if (cursors) {
-    cursors = JSON.parse(cursors);
-
     if (cursors.video && !cursors.playlist) {
       videoLimit = limit;
     } else if (cursors.playlist && !cursors.video) {
@@ -1024,11 +1021,12 @@ const getChannelData = async (req, res) => {
     }
 
     if (cursors.video) {
-      videoMatchObj["createdAt"] = { $gt: cursors.video };
+      videoMatchObj["createdAt"] = { $lt: new Date(cursors.video.createdAt) };
+      videoMatchObj["view"] = { $lte: cursors.video.view };
     }
 
     if (cursors.playlist) {
-      playlistMatchObj["updatedAt"] = { $gt: cursors.playlist };
+      playlistMatchObj["updatedAt"] = { $lt: new Date(cursors.playlist) };
     }
   }
 
@@ -1041,7 +1039,9 @@ const getChannelData = async (req, res) => {
           from: "users",
           localField: "user_id",
           foreignField: "_id",
-          pipeline: [{ $project: { name: 1, email: 1, avatar: 1 } }],
+          pipeline: [
+            { $project: { name: 1, email: 1, avatar: 1, subscriber: 1 } },
+          ],
           as: "channel_info",
         },
       },
@@ -1054,6 +1054,7 @@ const getChannelData = async (req, res) => {
       {
         $sort: {
           createdAt: -1,
+          view: -1,
         },
       },
       {
@@ -1063,6 +1064,7 @@ const getChannelData = async (req, res) => {
           description: 1,
           channel_info: 1,
           type: 1,
+          view: 1,
           createdAt: 1,
         },
       },
@@ -1077,6 +1079,10 @@ const getChannelData = async (req, res) => {
     videoList = await Video.aggregate(videoPipeline);
   }
 
+  if (videoList[0].data.length < videoLimit) {
+    videoLimit = videoList[0].data.length;
+  }
+
   let playlistList = [];
 
   if (!cursors || cursors?.playlist) {
@@ -1086,7 +1092,9 @@ const getChannelData = async (req, res) => {
           from: "users",
           localField: "created_user_id",
           foreignField: "_id",
-          pipeline: [{ $project: { name: 1, email: 1, avatar: 1 } }],
+          pipeline: [
+            { $project: { name: 1, email: 1, avatar: 1, subscriber: 1 } },
+          ],
           as: "channel_info",
         },
       },
@@ -1098,7 +1106,7 @@ const getChannelData = async (req, res) => {
       },
       {
         $sort: {
-          createdAt: -1,
+          updatedAt: -1,
         },
       },
       {
@@ -1124,13 +1132,14 @@ const getChannelData = async (req, res) => {
               },
             },
             {
-              $limit: 1,
+              $limit: 2,
             },
             {
               $project: {
                 _id: 1,
                 thumb: 1,
                 title: 1,
+                duration: 1,
               },
             },
           ],
@@ -1163,8 +1172,11 @@ const getChannelData = async (req, res) => {
   const newCursors = {};
 
   if (videoList[0].total[0]?.size > videoList[0].data.length) {
-    newCursors.video =
-      videoList[0].data[videoList[0].data.length - 1].createdAt;
+    const finalData = videoList[0].data[videoList[0].data.length - 1];
+    newCursors.video = {
+      createdAt: finalData.createdAt,
+      view: finalData.view,
+    };
   }
 
   if (playlistList[0].total[0]?.size > playlistList[0].data.length) {
@@ -1199,8 +1211,7 @@ const getChannelData = async (req, res) => {
       ? Buffer.from(JSON.stringify(newCursors)).toString("base64")
       : null;
 
-  res.status(200).json({ data: combinedList, nextCursor });
-  // res.status(200).json({ videoList, playlistList });
+  res.status(200).json({ data: combinedList, cursors: nextCursor });
 };
 
 const getChannelPlaylistVideos = async (req, res) => {
@@ -1343,14 +1354,11 @@ const getChannelPlaylistVideos = async (req, res) => {
         title: 1,
         video_list: 1,
         size: { $size: "$itemList" },
+        privacy: 1,
         createdAt: 1,
         updatedAt: 1,
         itemList: 1,
       },
-    },
-    { $skip: skip },
-    {
-      $limit: dataLimit,
     },
     {
       $facet: {
