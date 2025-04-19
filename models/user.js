@@ -64,6 +64,22 @@ const User = new mongoose.Schema(
       type: Number,
       default: 0,
     },
+    totalViews: {
+      type: Number,
+      default: 0,
+    },
+    totalLikes: {
+      type: Number,
+      default: 0,
+    },
+    totalDislikes: {
+      type: Number,
+      default: 0,
+    },
+    totalComments: {
+      type: Number,
+      default: 0,
+    },
     description: {
       type: String,
       default: "",

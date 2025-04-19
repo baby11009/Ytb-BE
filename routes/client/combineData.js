@@ -3,6 +3,7 @@ const express = require("express");
 const {
   getVideoList,
   getDataList,
+  getSearchingDatas,
   getChannelInfo,
   getChannelData,
   getChannelPlaylistVideos,
@@ -16,6 +17,8 @@ const {
 const router = express.Router();
 
 router.route("/all").get(getDataList);
+
+router.route("/all-data").get(getSearchingDatas);
 
 router.route("/all/:email").get(getChannelData);
 

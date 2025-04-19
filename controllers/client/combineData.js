@@ -645,6 +645,580 @@ const getVideoList = async (req, res) => {
   });
 };
 
+const getSearchingDatas = async (req, res) => {
+  const { search, cursors, tag } = req.query;
+
+  if (!search) {
+    throw new BadRequestError(
+      "Please enter search string to searching for match datas",
+    );
+  }
+
+  // extract user request id to lookup for user request subscription for matched users
+  const userId = req?.user?.userId;
+
+  const validType = ["all", "user", "playlist", "video", "short"];
+
+  let type = validType.includes(req.query.type) ? req.query.type : "all";
+
+  const limit = Number(req.query.limit) || 12;
+
+  const page = Number(req.query.page) || 1;
+
+  let remainQtt = limit;
+
+  let user = [];
+
+  let playlist = [];
+
+  let video = [];
+
+  const searchingRules = {
+    user: {
+      condition: ((type === "all" && page < 2) || type === "user") && !tag,
+      action: async () => {
+        let userLimit = 2;
+        let userSkip = 0;
+
+        // if user search for user only
+        if (type !== "all") {
+          userLimit = remainQtt;
+          userSkip = remainQtt * (page - 1);
+        }
+
+        const pipeline = [
+          { $match: { name: { $regex: search, $options: "i" } } },
+          {
+            $set: {
+              // search string appear position in name
+              position: {
+                $indexOfCP: [{ $toLower: "$name" }, search.toLowerCase()],
+              },
+              // name length
+              nameLength: { $strLenCP: "$name" },
+              // if name is 100% match the search string
+              exactMatch: {
+                $eq: [{ $toLower: "$name" }, search.toLowerCase()],
+              },
+              // if name is start with search string
+              startsWith: {
+                $eq: [
+                  {
+                    $indexOfCP: [{ $toLower: "$name" }, search.toLowerCase()],
+                  },
+                  0,
+                ],
+              },
+            },
+          },
+          {
+            $set: {
+              // calculate relevanceScore
+              relevanceScore: {
+                $add: [
+                  // if exactMatch = true  + 150
+                  { $cond: ["$exactMatch", 150, 0] },
+
+                  // if name is start with search string + 100
+                  { $cond: ["$startsWith", 100, 0] },
+
+                  // additional point base on position of search string in name
+                  // if position more higher than will get more additional point
+                  {
+                    $subtract: [
+                      80,
+                      {
+                        $multiply: [
+                          { $divide: ["$position", "$nameLength"] },
+                          60,
+                        ],
+                      },
+                    ],
+                  },
+
+                  // Add 50 if after the searching string position is empty space or position = 0
+                  {
+                    $cond: [
+                      {
+                        $or: [
+                          // Uf position = 0 + 50
+                          { $eq: ["$position", 0] },
+                          // If position != 0 then get 1 letter before search string position
+                          // if letter = empty space + 50
+                          {
+                            $eq: [
+                              {
+                                $substrCP: [
+                                  "$name",
+                                  { $subtract: ["$position", 1] },
+                                  1,
+                                ],
+                              },
+                              " ",
+                            ],
+                          },
+                        ],
+                      },
+                      50, // Điểm cộng thêm nếu là từ độc lập
+                      0, // Không cộng nếu là một phần của từ khác
+                    ],
+                  },
+                ],
+              },
+            },
+          },
+          {
+            $sort: {
+              // most relevance match score
+              relevanceScore: -1,
+              // most subscriber
+              subscriber: -1,
+              // most view
+              view: -1,
+              // most longest created time
+              createdAt: 1,
+            },
+          },
+        ];
+
+        const facet = {
+          $facet: {
+            total: [{ $count: "size" }],
+            data: [{ $skip: userSkip }, { $limit: userLimit }],
+          },
+        };
+
+        if (userId) {
+          facet.$facet.data.push(
+            {
+              $lookup: {
+                from: "subscribes",
+                localField: "_id",
+                foreignField: "channel_id",
+                pipeline: [{ $match: { subscriber_id: userId } }],
+                as: "subscription_info",
+              },
+            },
+            {
+              $unwind: {
+                path: "$subscription_info",
+                preserveNullAndEmptyArrays: true,
+              },
+            },
+          );
+        }
+
+        facet.$facet.data.push({
+          $project: {
+            name: 1,
+            email: 1,
+            avatar: 1,
+            subscriber: 1,
+            subscription_info: 1,
+            relevanceScore: 1,
+          },
+        });
+
+        pipeline.push(facet);
+
+        user = await User.aggregate(pipeline);
+
+        remainQtt = remainQtt - user[0].data.length;
+      },
+    },
+    playlist: {
+      condition: ["all", "playlist"].includes(type) || !tag,
+      action: async () => {
+        // playlist limit will equal 1/4 remainQtt and floor to round down if value not int
+        let playlistLimit = Math.round(remainQtt / 4);
+
+        if (type === "playlist") {
+          playlistLimit = remainQtt;
+        }
+
+        const playlistSkip = playlistLimit * (page - 1);
+
+        playlist = await Playlist.aggregate([
+          {
+            $match: {
+              title: { $regex: search, $options: "i" },
+              type: "playlist",
+              privacy: "public",
+            },
+          },
+          {
+            $set: {
+              // search string appear position in title
+              position: {
+                $indexOfCP: [{ $toLower: "$title" }, search.toLowerCase()],
+              },
+              // title length
+              titleLength: { $strLenCP: "$title" },
+              // if title is 100% match the search string
+              exactMatch: {
+                $eq: [{ $toLower: "$title" }, search.toLowerCase()],
+              },
+              // if title is start with search string
+              startsWith: {
+                $eq: [
+                  {
+                    $indexOfCP: [{ $toLower: "$title" }, search.toLowerCase()],
+                  },
+                  0,
+                ],
+              },
+            },
+          },
+          {
+            $set: {
+              // calculate relevanceScore
+              relevanceScore: {
+                $add: [
+                  // if exactMatch = true  + 150
+                  { $cond: ["$exactMatch", 150, 0] },
+
+                  // if title is start with search string + 100
+                  { $cond: ["$startsWith", 100, 0] },
+
+                  // additional point base on position of search string in title
+                  // if position more higher than will get more additional point
+                  {
+                    $subtract: [
+                      80,
+                      {
+                        $multiply: [
+                          { $divide: ["$position", "$titleLength"] },
+                          60,
+                        ],
+                      },
+                    ],
+                  },
+                  // Add 50 if after the searching string position is empty space or position = 0
+                  {
+                    $cond: [
+                      {
+                        $or: [
+                          // Uf position = 0 + 50
+                          { $eq: ["$position", 0] },
+                          // If position != 0 then get 1 letter before search string position
+                          // if letter = empty space + 50
+                          {
+                            $eq: [
+                              {
+                                $substrCP: [
+                                  "$title",
+                                  { $subtract: ["$position", 1] },
+                                  1,
+                                ],
+                              },
+                              " ",
+                            ],
+                          },
+                        ],
+                      },
+                      50, // Điểm cộng thêm nếu là từ độc lập
+                      0, // Không cộng nếu là một phần của từ khác
+                    ],
+                  },
+                ],
+              },
+            },
+          },
+          {
+            $sort: {
+              // most relevance match score
+              relevanceScore: -1,
+              // newly created
+              createdAt: -1,
+            },
+          },
+          {
+            $facet: {
+              total: [{ $count: "size" }],
+              data: [
+                { $skip: playlistSkip },
+                { $limit: playlistLimit },
+                {
+                  $lookup: {
+                    from: "users",
+                    localField: "created_user_id",
+                    foreignField: "_id",
+                    pipeline: [
+                      {
+                        $project: {
+                          name: 1,
+                          email: 1,
+                          avatar: 1,
+                          subscriber: 1,
+                        },
+                      },
+                    ],
+                    as: "channel_info",
+                  },
+                },
+                {
+                  $unwind: "$channel_info",
+                },
+                {
+                  $lookup: {
+                    from: "videos",
+                    let: { videoIdList: "$itemList" },
+                    pipeline: [
+                      {
+                        $set: {
+                          _idStr: { $toString: "$_id" },
+                          order: {
+                            $indexOfArray: [
+                              "$$videoIdList",
+                              { $toString: "$_id" },
+                            ],
+                          },
+                        },
+                      },
+                      {
+                        $match: {
+                          $expr: {
+                            $in: [{ $toString: "$_id" }, "$$videoIdList"],
+                          },
+                        },
+                      },
+                      {
+                        $sort: {
+                          order: -1,
+                        },
+                      },
+                      {
+                        $limit: 1,
+                      },
+                      {
+                        $project: {
+                          _id: 1,
+                          title: 1,
+                          thumb: 1,
+                          createdAt: 1,
+                        },
+                      },
+                    ],
+                    as: "video_list",
+                  },
+                },
+                {
+                  $project: {
+                    title: 1,
+                    video_list: 1,
+                    channel_info: 1,
+                    relevanceScore: 1,
+                  },
+                },
+              ],
+            },
+          },
+        ]);
+
+        remainQtt = remainQtt - playlist[0].data.length;
+      },
+    },
+    video: {
+      condition: ["all", "video", "short"].includes(type),
+      action: async () => {
+        const videoLimit = remainQtt;
+
+        const videoSkip = videoLimit * (page - 1);
+
+        const pipeline = [];
+
+        const matchObj = { title: { $regex: search, $options: "i" } };
+
+        // match type if type is not all
+        if (type !== "all") {
+          matchObj.type = type;
+        }
+
+        if (tag) {
+          pipeline.push(
+            {
+              $lookup: {
+                from: "tags",
+                let: {
+                  tagList: "$tags",
+                },
+                pipeline: [
+                  {
+                    $set: {
+                      _idStr: { $toString: "$_id" },
+                    },
+                  },
+                  {
+                    $match: {
+                      $expr: {
+                        $and: [
+                          { $in: ["$_idStr", "$$tagList"] },
+                          { $eq: ["$title", tag] },
+                        ],
+                      },
+                    },
+                  },
+                ],
+                as: "tag_info",
+              },
+            },
+            { $unwind: "$tag_info" },
+          );
+
+          matchObj["tag_info.title"] = tag;
+        }
+
+        pipeline.push(
+          { $match: matchObj },
+          {
+            $set: {
+              // search string appear position in title
+              position: {
+                $indexOfCP: [{ $toLower: "$title" }, search.toLowerCase()],
+              },
+              // title length
+              titleLength: { $strLenCP: "$title" },
+              // if title is 100% match the search string
+              exactMatch: {
+                $eq: [{ $toLower: "$title" }, search.toLowerCase()],
+              },
+              // if title is start with search string
+              startsWith: {
+                $eq: [
+                  {
+                    $indexOfCP: [{ $toLower: "$title" }, search.toLowerCase()],
+                  },
+                  0,
+                ],
+              },
+            },
+          },
+          {
+            $set: {
+              // calculate relevanceScore
+              relevanceScore: {
+                $add: [
+                  // if exactMatch = true  + 150
+                  { $cond: ["$exactMatch", 150, 0] },
+
+                  // if title is start with search string + 100
+                  { $cond: ["$startsWith", 100, 0] },
+
+                  // additional point base on position of search string in title
+                  // if position more higher than will get more additional point
+                  {
+                    $subtract: [
+                      80,
+                      {
+                        $multiply: [
+                          { $divide: ["$position", "$titleLength"] },
+                          60,
+                        ],
+                      },
+                    ],
+                  },
+                  // Add 50 if after the searching string position is empty space or position = 0
+                  {
+                    $cond: [
+                      {
+                        $or: [
+                          // Uf position = 0 + 50
+                          { $eq: ["$position", 0] },
+                          // If position != 0 then get 1 letter before search string position
+                          // if letter = empty space + 50
+                          {
+                            $eq: [
+                              {
+                                $substrCP: [
+                                  "$title",
+                                  { $subtract: ["$position", 1] },
+                                  1,
+                                ],
+                              },
+                              " ",
+                            ],
+                          },
+                        ],
+                      },
+                      50, // Điểm cộng thêm nếu là từ độc lập
+                      0, // Không cộng nếu là một phần của từ khác
+                    ],
+                  },
+                ],
+              },
+            },
+          },
+          {
+            $sort: {
+              // most relevance match score
+              relevanceScore: -1,
+              // most view
+              view: -1,
+              // newly created
+              createdAt: -1,
+            },
+          },
+          {
+            $facet: {
+              total: [{ $count: "size" }],
+              data: [
+                { $skip: videoSkip },
+                { $limit: videoLimit },
+                {
+                  $lookup: {
+                    from: "users",
+                    localField: "user_id",
+                    foreignField: "_id",
+                    pipeline: [
+                      {
+                        $project: {
+                          name: 1,
+                          email: 1,
+                          avatar: 1,
+                          subscriber: 1,
+                        },
+                      },
+                    ],
+                    as: "channel_info",
+                  },
+                },
+                {
+                  $unwind: "$channel_info",
+                },
+                {
+                  $project: {
+                    title: 1,
+                    thumb: 1,
+                    type: 1,
+                    duration: 1,
+                    description: 1,
+                    channel_info: 1,
+                    relevanceScore: 1,
+                  },
+                },
+              ],
+            },
+          },
+        );
+
+        video = await Video.aggregate(pipeline);
+      },
+    },
+  };
+
+  for (const rule of Object.values(searchingRules)) {
+    if (rule.condition) {
+      await rule.action();
+    }
+  }
+
+  // await searchingRules.video.action();
+
+  res
+    .status(StatusCodes.OK)
+    .json({ video: video, user: user, playlist: playlist });
+};
+
 // Lấy data channel, playlist và video
 const getRandomShorts = async (req, res) => {
   try {
@@ -1281,41 +1855,10 @@ const getChannelPlaylistVideos = async (req, res) => {
             $limit: Number(videoLimit),
           },
           {
-            $lookup: {
-              from: "users",
-              localField: "user_id",
-              foreignField: "_id",
-              pipeline: [
-                {
-                  $project: {
-                    _id: 1,
-                    name: 1,
-                    email: 1,
-                    avatar: 1,
-                    subscriber: 1,
-                    createdAt: 1,
-                  },
-                },
-              ],
-              as: "channel_info",
-            },
-          },
-          { $unwind: "$channel_info" },
-          {
             $project: {
               _id: 1,
+              title: 1,
               thumb: 1,
-              video: 1,
-              stream: {
-                $cond: {
-                  if: { $ne: ["$stream", null] }, // Check if `stream` exists and is not null
-                  then: "$stream", // Keep the `stream` value if it exists
-                  else: null, // Set it to null if it doesn't exist
-                },
-              },
-              duration: { $ifNull: ["$duration", null] },
-              view: 1,
-              channel_info: 1,
               createdAt: 1,
             },
           },
@@ -2057,6 +2600,7 @@ const getTagsList = async (req, res) => {
 module.exports = {
   getVideoList,
   getDataList,
+  getSearchingDatas,
   getChannelInfo,
   getChannelData,
   getChannelPlaylistVideos,
