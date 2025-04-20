@@ -7,6 +7,11 @@ const {
 } = require("../../errors");
 const mongoose = require("mongoose");
 const { Validator } = require("../../utils/validate");
+const {
+  encodedWithZlib,
+  decodedWithZlib,
+  mergeListsRandomly,
+} = require("../../utils/other");
 
 const {
   client,
@@ -646,7 +651,7 @@ const getVideoList = async (req, res) => {
 };
 
 const getSearchingDatas = async (req, res) => {
-  const { search, cursors, tag } = req.query;
+  const { search, tag } = req.query;
 
   if (!search) {
     throw new BadRequestError(
@@ -661,9 +666,18 @@ const getSearchingDatas = async (req, res) => {
 
   let type = validType.includes(req.query.type) ? req.query.type : "all";
 
-  const limit = Number(req.query.limit) || 12;
+  let cursors;
 
-  const page = Number(req.query.page) || 1;
+  if (req.query.cursors) {
+    try {
+      cursors = decodedWithZlib(req.query.cursors);
+    } catch (e) {
+      throw new BadRequestError("Invalid cursor format");
+    }
+  }
+  console.log("🚀 ~ cursors:", cursors);
+
+  const limit = Number(req.query.limit) || 12;
 
   let remainQtt = limit;
 
@@ -673,17 +687,25 @@ const getSearchingDatas = async (req, res) => {
 
   let video = [];
 
+  let nextCursors = {
+    playlist: null,
+    video: null,
+    user: null,
+  };
+
   const searchingRules = {
     user: {
-      condition: ((type === "all" && page < 2) || type === "user") && !tag,
+      condition: ["all", "user"].includes(type) && !tag,
       action: async () => {
+        if (cursors && !cursors.user) {
+          return null;
+        }
+
         let userLimit = 2;
-        let userSkip = 0;
 
         // if user search for user only
         if (type !== "all") {
           userLimit = remainQtt;
-          userSkip = remainQtt * (page - 1);
         }
 
         const pipeline = [
@@ -767,24 +789,71 @@ const getSearchingDatas = async (req, res) => {
               },
             },
           },
-          {
-            $sort: {
-              // most relevance match score
-              relevanceScore: -1,
-              // most subscriber
-              subscriber: -1,
-              // most view
-              view: -1,
-              // most longest created time
-              createdAt: 1,
-            },
-          },
         ];
+
+        if (cursors) {
+          // Chainning conditions to get the next data
+          // if use strict condition like
+          // {
+          //   relevanceScore: { $lte: cursors.video.relavanceScore },
+          //   subscriber: { $lte: cursors.user.subscriber },
+          //   view: { $lte: cursors.user.view },
+          //   createdAt: { $gte: new Date(cursors.video.createdAt) },
+          //   _id: { $gt: new mongoose.Types.ObjectId(cursors.video._id) },
+          // }
+          // it will only get the data that match all the conditions
+          // but there will some of them match several conditions
+          // so we need to use $or to get the data that match any of the conditions
+          pipeline.push({
+            $match: {
+              $or: [
+                { relevanceScore: { $lt: cursors.user.relavanceScore } },
+                {
+                  relevanceScore: cursors.user.relavanceScore,
+                  subscriber: { $lt: cursors.user.subscriber },
+                },
+                {
+                  relevanceScore: cursors.user.relavanceScore,
+                  subscriber: cursors.user.subscriber,
+                  view: { $lt: cursors.user.view },
+                },
+                {
+                  relevanceScore: cursors.user.relavanceScore,
+                  subscriber: cursors.user.subscriber,
+                  view: cursors.user.view,
+                  createdAt: { $gt: new Date(cursors.user.createdAt) },
+                },
+                {
+                  relevanceScore: cursors.user.relavanceScore,
+                  subscriber: cursors.user.subscriber,
+                  view: cursors.user.view,
+                  createdAt: new Date(cursors.user.createdAt),
+                  _id: { $gt: new mongoose.Types.ObjectId(cursors.user._id) },
+                },
+              ],
+            },
+          });
+        }
+
+        pipeline.push({
+          $sort: {
+            // most relevance match score
+            relevanceScore: -1,
+            // most subscriber
+            subscriber: -1,
+            // most view
+            view: -1,
+            // most longest created time
+            createdAt: 1,
+            // If 2 data have same timestamp than compare their ObjectId
+            _id: 1,
+          },
+        });
 
         const facet = {
           $facet: {
             total: [{ $count: "size" }],
-            data: [{ $skip: userSkip }, { $limit: userLimit }],
+            data: [{ $limit: userLimit }],
           },
         };
 
@@ -813,9 +882,11 @@ const getSearchingDatas = async (req, res) => {
             name: 1,
             email: 1,
             avatar: 1,
-            subscriber: 1,
             subscription_info: 1,
+            subscriber: 1,
+            view: 1,
             relevanceScore: 1,
+            createdAt: 1,
           },
         });
 
@@ -823,22 +894,44 @@ const getSearchingDatas = async (req, res) => {
 
         user = await User.aggregate(pipeline);
 
+        // if type == user (client only request for user data)
+        // and remain data is larger than current fetched data then set next cursor
+        if (
+          type === "user" &&
+          user.length > 0 &&
+          user[0].total[0].size > user[0].data.length
+        ) {
+          const lastData = user[0].data[user[0].data.length - 1];
+
+          nextCursors.user = {
+            relavanceScore: lastData.relevanceScore,
+            subscriber: lastData.subscriber,
+            view: lastData.view,
+            createdAt: lastData.createdAt,
+            _id: lastData._id,
+          };
+        }
+
         remainQtt = remainQtt - user[0].data.length;
       },
     },
     playlist: {
-      condition: ["all", "playlist"].includes(type) || !tag,
+      condition: ["all", "playlist"].includes(type) && !tag,
       action: async () => {
+        if (cursors && !cursors.playlist) {
+          return null;
+        }
+
         // playlist limit will equal 1/4 remainQtt and floor to round down if value not int
         let playlistLimit = Math.round(remainQtt / 4);
 
-        if (type === "playlist") {
+        // if user search for playlist only or data cursor of video is not available (means there is no video data left)
+        // then playlist limit will equal remainQtt
+        if (type === "playlist" || (cursors && !cursors.video)) {
           playlistLimit = remainQtt;
         }
 
-        const playlistSkip = playlistLimit * (page - 1);
-
-        playlist = await Playlist.aggregate([
+        const pipeline = [
           {
             $match: {
               title: { $regex: search, $options: "i" },
@@ -924,19 +1017,54 @@ const getSearchingDatas = async (req, res) => {
               },
             },
           },
+        ];
+
+        if (cursors) {
+          // Chainning conditions to get the next data
+          // if use strict condition like
+          // {
+          //  relevanceScore: { $lte: cursors.playlist.relavanceScore },
+          //  createdAt: { $lte: new Date(cursors.playlist.createdAt) },
+          //  _id: { $lt: new mongoose.Types.ObjectId(cursors.playlist._id) },
+          // }
+          // it will only get the data that match all the conditions
+          // but there will some of them match several conditions
+          // so we need to use $or to get the data that match any of the conditions
+          pipeline.push({
+            $match: {
+              $or: [
+                { relevanceScore: { $lt: cursors.playlist.relavanceScore } },
+                {
+                  relevanceScore: cursors.playlist.relavanceScore,
+                  createdAt: { $lt: new Date(cursors.playlist.createdAt) },
+                },
+                {
+                  relevanceScore: cursors.playlist.relavanceScore,
+                  createdAt: new Date(cursors.playlist.createdAt),
+                  _id: {
+                    $lt: new mongoose.Types.ObjectId(cursors.playlist._id),
+                  },
+                },
+              ],
+            },
+          });
+        }
+
+        pipeline.push(
           {
             $sort: {
               // most relevance match score
               relevanceScore: -1,
               // newly created
               createdAt: -1,
+              // If 2 data have same timestamp than compare their ObjectId
+              _id: -1,
             },
           },
           {
             $facet: {
               total: [{ $count: "size" }],
               data: [
-                { $skip: playlistSkip },
                 { $limit: playlistLimit },
                 {
                   $lookup: {
@@ -1008,22 +1136,40 @@ const getSearchingDatas = async (req, res) => {
                     video_list: 1,
                     channel_info: 1,
                     relevanceScore: 1,
+                    createdAt: 1,
                   },
                 },
               ],
             },
           },
-        ]);
+        );
+
+        playlist = await Playlist.aggregate(pipeline);
+
+        // if remain data is larger than current fetched data then set next cursor
+        if (
+          playlist.length > 0 &&
+          playlist[0].total[0].size > playlist[0].data.length
+        ) {
+          const lastData = playlist[0].data[playlist[0].data.length - 1];
+          nextCursors.playlist = {
+            relavanceScore: lastData.relevanceScore,
+            createdAt: lastData.createdAt,
+            _id: lastData._id,
+          };
+        }
 
         remainQtt = remainQtt - playlist[0].data.length;
       },
     },
     video: {
-      condition: ["all", "video", "short"].includes(type),
+      condition: ["all", "video", "short"].includes(type) || tag,
       action: async () => {
-        const videoLimit = remainQtt;
+        if (cursors && !cursors.video) {
+          return null;
+        }
 
-        const videoSkip = videoLimit * (page - 1);
+        const videoLimit = remainQtt;
 
         const pipeline = [];
 
@@ -1148,6 +1294,47 @@ const getSearchingDatas = async (req, res) => {
               },
             },
           },
+        );
+
+        if (cursors) {
+          // Chainning conditions to get the next data
+          // if use strict condition like
+          // {
+          //   relevanceScore: { $lte: cursors.video.relavanceScore },
+          //   view: { $lte: cursors.video.view },
+          //   createdAt: { $lt3: new Date(cursors.video.createdAt) },
+          //   _id: { $lt: new mongoose.Types.ObjectId(cursors.video._id) },
+          // }
+          // it will only get the data that match all the conditions
+          // but there will some of them match several conditions
+          // so we need to use $or to get the data that match any of the conditions
+          pipeline.push({
+            $match: {
+              $or: [
+                {
+                  relevanceScore: { $lt: cursors.video.relavanceScore },
+                },
+                {
+                  relevanceScore: cursors.video.relavanceScore,
+                  view: { $lt: cursors.video.view },
+                },
+                {
+                  relevanceScore: cursors.video.relavanceScore,
+                  view: cursors.video.view,
+                  createdAt: { $lt: new Date(cursors.video.createdAt) },
+                },
+                {
+                  relevanceScore: cursors.video.relavanceScore,
+                  view: cursors.video.view,
+                  createdAt: new Date(cursors.video.createdAt),
+                  _id: { $lt: new mongoose.Types.ObjectId(cursors.video._id) },
+                },
+              ],
+            },
+          });
+        }
+
+        pipeline.push(
           {
             $sort: {
               // most relevance match score
@@ -1156,13 +1343,14 @@ const getSearchingDatas = async (req, res) => {
               view: -1,
               // newly created
               createdAt: -1,
+              // if 2 data have same timestamp than compare their ObjectId
+              _id: -1,
             },
           },
           {
             $facet: {
               total: [{ $count: "size" }],
               data: [
-                { $skip: videoSkip },
                 { $limit: videoLimit },
                 {
                   $lookup: {
@@ -1193,6 +1381,8 @@ const getSearchingDatas = async (req, res) => {
                     duration: 1,
                     description: 1,
                     channel_info: 1,
+                    createdAt: 1,
+                    view: 1,
                     relevanceScore: 1,
                   },
                 },
@@ -1202,6 +1392,17 @@ const getSearchingDatas = async (req, res) => {
         );
 
         video = await Video.aggregate(pipeline);
+
+        // if remain data is larger than current fetched data then set next cursor
+        if (video.length > 0 && video[0].total[0]?.size > video[0].data.length) {
+          const lastData = video[0].data[video[0].data.length - 1];
+          nextCursors.video = {
+            relavanceScore: lastData.relevanceScore,
+            createdAt: lastData.createdAt,
+            view: lastData.view,
+            _id: lastData._id,
+          };
+        }
       },
     },
   };
@@ -1211,12 +1412,16 @@ const getSearchingDatas = async (req, res) => {
       await rule.action();
     }
   }
+  if (nextCursors.user || nextCursors.playlist || nextCursors.video) {
+    nextCursors = encodedWithZlib(nextCursors);
+  } else nextCursors = null;
 
-  // await searchingRules.video.action();
+  let content = mergeListsRandomly(
+    video.length > 0 ? video[0].data : [],
+    playlist.length > 0 ? playlist[0].data : [],
+  );
 
-  res
-    .status(StatusCodes.OK)
-    .json({ video: video, user: user, playlist: playlist });
+  res.status(StatusCodes.OK).json({ user, content, nextCursors });
 };
 
 // Lấy data channel, playlist và video
@@ -1564,7 +1769,7 @@ const getChannelData = async (req, res) => {
     try {
       cursors = JSON.parse(Buffer.from(req.query.cursors, "base64").toString());
     } catch (e) {
-      return res.status(400).json({ msg: "Invalid cursor format" });
+      throw new BadRequestError("Invalid cursor format");
     }
   }
 
@@ -1756,23 +1961,6 @@ const getChannelData = async (req, res) => {
   if (playlistList[0].total[0]?.size > playlistList[0].data.length) {
     newCursors.playlist =
       playlistList[0].data[playlistList[0].data.length - 1].updatedAt;
-  }
-
-  function mergeListsRandomly(list1, list2) {
-    // Kết hợp hai mảng
-    const combinedList = [...list1, ...list2];
-    if (
-      combinedList.length !== list1.length &&
-      combinedList.length !== list2.length
-    ) {
-      // Thuật toán Fisher-Yates để trộn ngẫu nhiên
-      for (let i = combinedList.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [combinedList[i], combinedList[j]] = [combinedList[j], combinedList[i]];
-      }
-    }
-
-    return combinedList;
   }
 
   const combinedList = mergeListsRandomly(
