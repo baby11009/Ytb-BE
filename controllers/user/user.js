@@ -129,6 +129,7 @@ const settingAccount = async (req, res) => {
 const getSubscribedChannels = async (req, res) => {
   try {
     const { userId } = req.user;
+
     const { page, limit, sort } = req.query;
 
     const dataPage = Number(page) || 1;
@@ -137,12 +138,7 @@ const getSubscribedChannels = async (req, res) => {
 
     const pipeline = [
       {
-        $addFields: {
-          subscriber_idStr: { $toString: "$subscriber_id" },
-        },
-      },
-      {
-        $match: { subscriber_idStr: userId },
+        $match: { subscriber_id: userId },
       },
       {
         $lookup: {
@@ -248,7 +244,6 @@ const getSubscribedChannels = async (req, res) => {
     );
 
     const channels = await Subscribe.aggregate(pipeline);
-
     res.status(StatusCodes.OK).json({
       data: channels[0].data,
       qtt: channels[0].totalReturned,
@@ -273,13 +268,8 @@ const getSubscribedChannelsVideos = async (req, res) => {
 
   const channels = await Subscribe.aggregate([
     {
-      $addFields: {
-        subscriber_idStr: { $toString: "$subscriber_id" },
-      },
-    },
-    {
       $match: {
-        subscriber_idStr: userId,
+        subscriber_id: userId,
       },
     },
     {

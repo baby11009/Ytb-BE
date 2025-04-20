@@ -106,10 +106,7 @@ const getDataList = async (req, res) => {
                   $expr: {
                     $and: [
                       {
-                        $eq: [
-                          "$subscriber_id",
-                          new mongoose.Types.ObjectId(userId),
-                        ],
+                        $eq: ["$subscriber_id", userId],
                         $eq: ["$channel_id", "$$channelId"],
                       },
                     ],
@@ -654,9 +651,7 @@ const getSearchingDatas = async (req, res) => {
   const { search, tag } = req.query;
 
   if (!search) {
-    throw new BadRequestError(
-      "Please enter search string to searching for match datas",
-    );
+    res.status(StatusCodes.NO_CONTENT).json({ content: [], cursors: null });
   }
 
   // extract user request id to lookup for user request subscription for matched users
@@ -675,7 +670,6 @@ const getSearchingDatas = async (req, res) => {
       throw new BadRequestError("Invalid cursor format");
     }
   }
-  console.log("🚀 ~ cursors:", cursors);
 
   const limit = Number(req.query.limit) || 12;
 
@@ -899,7 +893,7 @@ const getSearchingDatas = async (req, res) => {
         if (
           type === "user" &&
           user.length > 0 &&
-          user[0].total[0].size > user[0].data.length
+          user[0].total[0]?.size > user[0].data.length
         ) {
           const lastData = user[0].data[user[0].data.length - 1];
 
@@ -1149,7 +1143,7 @@ const getSearchingDatas = async (req, res) => {
         // if remain data is larger than current fetched data then set next cursor
         if (
           playlist.length > 0 &&
-          playlist[0].total[0].size > playlist[0].data.length
+          playlist[0].total[0]?.size > playlist[0].data.length
         ) {
           const lastData = playlist[0].data[playlist[0].data.length - 1];
           nextCursors.playlist = {
@@ -1394,7 +1388,10 @@ const getSearchingDatas = async (req, res) => {
         video = await Video.aggregate(pipeline);
 
         // if remain data is larger than current fetched data then set next cursor
-        if (video.length > 0 && video[0].total[0]?.size > video[0].data.length) {
+        if (
+          video.length > 0 &&
+          video[0].total[0]?.size > video[0].data.length
+        ) {
           const lastData = video[0].data[video[0].data.length - 1];
           nextCursors.video = {
             relavanceScore: lastData.relevanceScore,
@@ -1412,16 +1409,21 @@ const getSearchingDatas = async (req, res) => {
       await rule.action();
     }
   }
+
   if (nextCursors.user || nextCursors.playlist || nextCursors.video) {
     nextCursors = encodedWithZlib(nextCursors);
   } else nextCursors = null;
 
-  let content = mergeListsRandomly(
+  let data = mergeListsRandomly(
     video.length > 0 ? video[0].data : [],
     playlist.length > 0 ? playlist[0].data : [],
   );
 
-  res.status(StatusCodes.OK).json({ user, content, nextCursors });
+  if (user.length > 0) {
+    data = [...user[0].data, ...data];
+  }
+
+  res.status(StatusCodes.OK).json({ data, cursors: nextCursors });
 };
 
 // Lấy data channel, playlist và video
@@ -1526,7 +1528,7 @@ const getRandomShorts = async (req, res) => {
             from: "subscribes",
             let: {
               videoOwnerId: "$user_id",
-              subscriberId: new mongoose.Types.ObjectId(userId),
+              subscriberId: userId,
             },
             pipeline: [
               {
@@ -1563,7 +1565,7 @@ const getRandomShorts = async (req, res) => {
             from: "reacts",
             let: {
               videoId: "$_id",
-              subscriberId: new mongoose.Types.ObjectId(userId),
+              subscriberId: userId,
             },
             // pipeline để so sánh dữ liệu
             pipeline: [
@@ -1696,7 +1698,7 @@ const getChannelInfo = async (req, res) => {
           from: "subscribes",
           let: {
             channelId: "$_id",
-            subscriberId: new mongoose.Types.ObjectId(userId),
+            subscriberId: userId,
           },
           pipeline: [
             {
@@ -2155,7 +2157,7 @@ const getVideoDetails = async (req, res) => {
         from: "subscribes",
         let: {
           videoOwnerId: "$user_id",
-          subscriberId: new mongoose.Types.ObjectId(userId),
+          subscriberId: userId,
         },
         pipeline: [
           {
@@ -2190,7 +2192,7 @@ const getVideoDetails = async (req, res) => {
         from: "reacts",
         let: {
           videoId: new mongoose.Types.ObjectId(id),
-          subscriberId: new mongoose.Types.ObjectId(userId),
+          subscriberId: userId,
         },
         // pipeline để so sánh dữ liệu
         pipeline: [
@@ -2369,7 +2371,7 @@ const getVideoCmts = async (req, res) => {
           from: "cmtreacts",
           let: {
             commentId: "$_id",
-            userId: new mongoose.Types.ObjectId(userId),
+            userId: userId,
           },
           pipeline: [
             {

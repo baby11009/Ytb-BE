@@ -81,6 +81,8 @@ const unsubscribe = async (req, res) => {
 
   const channel = await User.findById(channelId);
 
+  console.log("🚀 ~ userId:", userId);
+
   if (!channel) {
     throw new BadRequestError(`Not found channel with id ${channelId}`);
   }

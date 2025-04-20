@@ -18,7 +18,7 @@ const router = express.Router();
 
 router.route("/all").get(getDataList);
 
-router.route("/all-data").get(getSearchingDatas);
+router.route("/search").get(getSearchingDatas);
 
 router.route("/all/:email").get(getChannelData);
 

@@ -2,7 +2,6 @@ const { User } = require("../models");
 const jwt = require("jsonwebtoken");
 
 const getAccountInfo = async (req, res, next) => {
-
   const authHeader = req.headers.authorization;
 
   if (authHeader) {
@@ -20,7 +19,7 @@ const getAccountInfo = async (req, res, next) => {
     // }
 
     req.user = {
-      userId: payload.userId,
+      userId: user._id,
       name: payload.username,
       role: user.role,
     };
