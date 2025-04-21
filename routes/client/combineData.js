@@ -1,6 +1,7 @@
 const express = require("express");
 
 const {
+  getRandomData,
   getVideoList,
   getDataList,
   getSearchingDatas,
@@ -17,6 +18,8 @@ const {
 const router = express.Router();
 
 router.route("/all").get(getDataList);
+
+router.route("/random").get(getRandomData);
 
 router.route("/search").get(getSearchingDatas);
 

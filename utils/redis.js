@@ -35,11 +35,15 @@ const addValue = async (key, value) => {
       await client.sAdd(key, value);
     } else {
       const reply = await client.set(key, value);
-      console.log(reply);
     }
   } catch (err) {
     console.error("Error adding value to Redis:", err);
   }
+};
+
+const getValue = async (key) => {
+  const result = await client.get(key);
+  return result;
 };
 
 const setKeyExpire = async (key, time) => {
@@ -61,6 +65,7 @@ module.exports = {
   connectRedis,
   disconnectRedis,
   addValue,
+  getValue,
   setKeyExpire,
   removeKey,
 };

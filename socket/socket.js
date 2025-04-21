@@ -35,7 +35,8 @@ module.exports = {
         // Attach user information to the socket
         socket.user = {
           userId: payload.userId,
-          name: user.username,
+          name: user.name,
+          email: user.email,
           role: user.role,
         };
 
@@ -47,16 +48,14 @@ module.exports = {
       }
     });
     io.on("connection", async (socket) => {
-      console.log("User connected");
+      console.log("User connected", socket.user.email);
 
       const { unsubscribe } = notificationHandler(socket);
 
       socket.on("disconnect", () => {
-        console.log("User disconnected");
+        console.log("User disconnected", socket.user.email);
         unsubscribe();
       });
-
-      
     });
   },
   emitEvent: (eventNameSpace, data) => {

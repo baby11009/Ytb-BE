@@ -1,12 +1,12 @@
 const { Video, Playlist, User, Comment, Tag } = require("../../models");
 const { StatusCodes } = require("http-status-codes");
+const { v4: uuidv4 } = require("uuid");
 const {
   BadRequestError,
   NotFoundError,
   ForbiddenError,
 } = require("../../errors");
 const mongoose = require("mongoose");
-const { Validator } = require("../../utils/validate");
 const {
   encodedWithZlib,
   decodedWithZlib,
@@ -15,10 +15,9 @@ const {
 
 const {
   client,
-  connectRedis,
-  disconnectRedis,
   addValue,
   setKeyExpire,
+  getValue,
 } = require("../../utils/redis");
 
 const { generateSessionId } = require("../../utils/generator");
@@ -26,8 +25,6 @@ const { searchWithRegex } = require("../../utils/other");
 
 const getDataList = async (req, res) => {
   const {
-    limit,
-    page,
     sort,
     tag,
     type = "all",
@@ -39,13 +36,10 @@ const getDataList = async (req, res) => {
     watchedPlIdList = [],
   } = req.query;
 
-  const userId = req?.user?.userId;
+  const limit = Number(req.query.limit) || 16;
+  const page = Number(req.query.page) || 1;
+  const skip = (page - 1) * limit;
 
-  const dataLimit = Number(limit) || 16;
-  const dataPage = Number(page) || 1;
-  const skip = (dataPage - 1) * dataLimit;
-
-  const channelList = [];
   let playlistList = [];
   const videoAddFieldsObj = {};
   const videoMatchObj = {};
@@ -82,78 +76,8 @@ const getDataList = async (req, res) => {
     videoMatchObj["_idStr"] = { $nin: watchedVideoIdList };
   }
 
-  // Get users when searching
-  if (!channelEmail && search && dataPage < 2 && !tag) {
-    const channelPipeline = [
-      {
-        $match: {
-          name: { $regex: search, $options: "i" },
-        },
-      },
-    ];
-
-    if (userId) {
-      channelPipeline.push(
-        {
-          $lookup: {
-            from: "subscribes",
-            let: {
-              channelId: "$_id",
-            },
-            pipeline: [
-              {
-                $match: {
-                  $expr: {
-                    $and: [
-                      {
-                        $eq: ["$subscriber_id", userId],
-                        $eq: ["$channel_id", "$$channelId"],
-                      },
-                    ],
-                  },
-                },
-              },
-            ],
-            as: "subcribe_info",
-          },
-        },
-        {
-          $unwind: {
-            path: "$subcribe_info",
-            preserveNullAndEmptyArrays: true,
-          },
-        },
-      );
-    }
-
-    channelPipeline.push(
-      {
-        $project: {
-          _id: 1,
-          email: 1,
-          name: 1,
-          avatar: 1,
-          subscriber: 1,
-          description: 1,
-          subcribe_info: { $ifNull: ["$subcribe_info", null] },
-        },
-      },
-      {
-        $sort: {
-          subscriber: -1,
-        },
-      },
-      {
-        $limit: 2,
-      },
-    );
-    const channels = await User.aggregate(channelPipeline);
-
-    channelList.push(...channels);
-  }
-
   // Get playlist if type is not short , user don't provide tag and page < 3
-  if (type === "all" && !tag) {
+  if (["all", "video"].includes(type) && !tag) {
     const addFieldsObj = { _idStr: { $toString: "$_id" } };
 
     const matchObj = {
@@ -255,7 +179,7 @@ const getDataList = async (req, res) => {
           },
         },
         { $limit: 2 },
-        { $skip: 2 * (dataPage - 1) },
+        { $skip: 2 * (page - 1) },
       );
     } else {
       playlistPipeline.push({ $sample: { size: 2 } });
@@ -274,6 +198,7 @@ const getDataList = async (req, res) => {
     });
 
     playlistList = await Playlist.aggregate(playlistPipeline);
+    console.log(5);
   }
 
   const queryFuncObj = {
@@ -304,6 +229,7 @@ const getDataList = async (req, res) => {
               },
               {
                 $match: {
+                  slug: value,
                   $expr: { $in: ["$_idStr", "$$tagIds"] },
                 },
               },
@@ -320,33 +246,14 @@ const getDataList = async (req, res) => {
           },
         },
         {
-          $match: {
-            $expr: {
-              $gt: [{ $size: "$tag_info" }, 0], // Get data if it's have more than one tag
-            },
-          },
-        },
-        {
-          $match: {
-            $expr: {
-              $gt: [
-                // Get this data if it exists tag having the same slug with query
-                {
-                  $size: {
-                    $filter: {
-                      // Loop tag array and get all matching data
-                      input: "$tag_info",
-                      as: "t",
-                      cond: { $eq: ["$$t.slug", value] }, // check if data have same slug with query slug
-                    },
-                  },
-                },
-                0,
-              ],
-            },
+          $unwind: {
+            path: "$tag_info",
+            preserveNullAndEmptyArrays: true,
           },
         },
       );
+
+      videoMatchObj["tag_info.slug"] = value;
     },
   };
 
@@ -374,10 +281,10 @@ const getDataList = async (req, res) => {
     videoPipeline.push(
       { $sort: sortObj },
       { $skip: skip - Number(prevPlCount) },
-      { $limit: dataLimit - playlistList.length },
+      { $limit: limit - playlistList.length },
     );
   } else {
-    videoPipeline.push({ $sample: { size: dataLimit - playlistList.length } });
+    videoPipeline.push({ $sample: { size: limit - playlistList.length } });
   }
 
   videoPipeline.push({
@@ -386,14 +293,9 @@ const getDataList = async (req, res) => {
       title: 1,
       thumb: 1,
       video: 1,
-      stream: {
-        $cond: {
-          if: { $ne: ["$stream", null] }, // Check if `stream` exists and is not null
-          then: "$stream", // Keep the `stream` value if it exists
-          else: null, // Set it to null if it doesn't exist
-        },
-      },
+      stream: 1,
       duration: { $ifNull: ["$duration", 0] },
+      tag_info: 1,
       type: 1,
       view: 1,
       type: 1,
@@ -413,7 +315,7 @@ const getDataList = async (req, res) => {
       if (item["$match"] && item["$match"]["type"]) {
         item["$match"]["type"] = "short";
       } else if (item["$sample"] && item["$sample"]["size"]) {
-        item["$sample"]["size"] = dataLimit;
+        item["$sample"]["size"] = limit;
       }
     });
 
@@ -422,41 +324,60 @@ const getDataList = async (req, res) => {
 
   let finalData = [...videos];
 
+  console.log("🚀 ~ playlistList.length:", playlistList.length);
   if (playlistList.length > 0) {
-    for (let playlist of playlistList) {
-      const position = Math.floor(Math.random() * finalData.length - 1);
+    finalData = mergeListsRandomly(finalData, playlistList);
+    // for (let playlist of playlistList) {
+    //   const position = Math.floor(Math.random() * finalData.length - 1);
 
-      switch (position) {
-        case position === 0:
-          finalData = [playlist, ...finalData];
-          break;
-        case position === finalData.length - 1:
-          finalData = [...finalData, playlist];
-          break;
-        default:
-          finalData = [
-            ...finalData.slice(0, position),
-            playlist,
-            ...finalData.slice(position, finalData.length),
-          ];
-      }
-    }
+    //   switch (position) {
+    //     case position === 0:
+    //       finalData = [playlist, ...finalData];
+    //       break;
+    //     case position === finalData.length - 1:
+    //       finalData = [...finalData, playlist];
+    //       break;
+    //     default:
+    //       finalData = [
+    //         ...finalData.slice(0, position),
+    //         playlist,
+    //         ...finalData.slice(position, finalData.length),
+    //       ];
+    //   }
+    // }
   }
 
   let result = {
     data: finalData,
-    page: dataPage,
+    page: page,
   };
-
-  if (channelList.length > 0) {
-    result.channels = channelList;
-  }
 
   if (shorts) {
     result.shorts = shorts;
   }
 
   res.status(StatusCodes.OK).json(result);
+};
+
+const getRandomData = async (req, res) => {
+  const userId = req?.user?.userId;
+
+  let sessionId = req.cookies.sessionId;
+
+  if (!sessionId) {
+    res.cookie("sessionId", userId || uuidv4(), {
+      // 1hour
+      maxAge: 3600 * 1000,
+      httpOnly: true,
+      path: "/api/v1/data/random",
+    });
+  }
+
+  const value = await getValue(`session:${sessionId}`);
+
+  console.log(value);
+
+  res.status(200).json({});
 };
 
 const getVideoList = async (req, res) => {
@@ -1428,261 +1349,248 @@ const getSearchingDatas = async (req, res) => {
 
 // Lấy data channel, playlist và video
 const getRandomShorts = async (req, res) => {
-  try {
-    let id;
+  let id;
 
-    if (Object.keys(req.params).length > 0) {
-      id = req.params.id;
-    }
+  if (Object.keys(req.params).length > 0) {
+    id = req.params.id;
+  }
 
-    const { size = 1, type = "short" } = req.query;
+  const { size = 1, type = "short" } = req.query;
 
-    let userId;
-    let sessionId;
+  let userId;
+  let sessionId;
 
-    if (req.user) {
-      userId = req.user.userId;
+  if (req.user) {
+    userId = req.user.userId;
+  } else {
+    if (req.headers["session-id"]) {
+      sessionId = req.headers["session-id"];
     } else {
-      if (req.headers["session-id"]) {
-        sessionId = req.headers["session-id"];
-      } else {
-        sessionId = generateSessionId();
-      }
-    }
-
-    const pipeline = [];
-
-    const addFieldsObj = {};
-
-    const matchObj = {
-      type,
-    };
-
-    const key = userId ? userId : sessionId;
-    console.log("rediskey", key);
-    res.set("session-id", key);
-    res.set("Access-Control-Expose-Headers", "session-id");
-
-    // connect redis
-    await connectRedis();
-
-    // check if redis key is available
-    const watchedShortIdList = [];
-    if (await client.exists(key)) {
-      const idList = await client.sMembers(key);
-      watchedShortIdList.push(...idList);
-    }
-
-    // if user provided short id and short id is not in the wacthed list
-    if (id && !watchedShortIdList.includes(id)) {
-      addFieldsObj["_idStr"] = { $toString: "$_id" };
-
-      matchObj["_idStr"] = id;
-    } else {
-      if (watchedShortIdList && watchedShortIdList.length > 0) {
-        addFieldsObj["_idStr"] = { $toString: "$_id" };
-
-        matchObj["_idStr"] = { $nin: watchedShortIdList };
-      }
-    }
-
-    if (Object.keys(addFieldsObj).length > 0) {
-      pipeline.push({ $set: addFieldsObj });
-    }
-
-    pipeline.push({ $match: matchObj });
-
-    pipeline.push(
-      {
-        $sample: { size: Number(size) },
-      },
-      {
-        $lookup: {
-          from: "users",
-          localField: "user_id",
-          foreignField: "_id",
-          pipeline: [
-            {
-              $project: {
-                _id: 1,
-                name: 1,
-                email: 1,
-                avatar: 1,
-                subscriber: 1,
-              },
-            },
-          ],
-          as: "channel_info",
-        },
-      },
-      {
-        $unwind: "$channel_info",
-      },
-    );
-
-    if (userId) {
-      // Subscription state
-      pipeline.push(
-        {
-          $lookup: {
-            from: "subscribes",
-            let: {
-              videoOwnerId: "$user_id",
-              subscriberId: userId,
-            },
-            pipeline: [
-              {
-                $match: {
-                  $expr: {
-                    $and: [
-                      { $eq: ["$channel_id", "$$videoOwnerId"] },
-                      { $eq: ["$subscriber_id", "$$subscriberId"] },
-                    ],
-                  },
-                },
-              },
-              {
-                $project: {
-                  _id: 1,
-                  notify: 1,
-                },
-              },
-            ],
-            as: "subscription_info",
-          },
-        },
-        {
-          $unwind: {
-            path: "$subscription_info",
-            preserveNullAndEmptyArrays: true, // Ensure video is returned even if no subscription exists
-          },
-        },
-      );
-
-      pipeline.push(
-        {
-          $lookup: {
-            from: "reacts",
-            let: {
-              videoId: "$_id",
-              subscriberId: userId,
-            },
-            // pipeline để so sánh dữ liệu
-            pipeline: [
-              {
-                $match: {
-                  $expr: {
-                    $and: [
-                      { $eq: ["$video_id", "$$videoId"] },
-                      { $eq: ["$user_id", "$$subscriberId"] },
-                    ],
-                  },
-                },
-              },
-              {
-                $project: {
-                  type: 1,
-                },
-              },
-            ],
-            as: "react_info",
-          },
-        },
-        {
-          $unwind: {
-            path: "$react_info",
-            preserveNullAndEmptyArrays: true, // Ensure video is returned even if no subscription exists
-          },
-        },
-      );
-    }
-
-    pipeline.push(
-      {
-        $lookup: {
-          from: "tags",
-          let: { tagIds: "$tags" },
-          pipeline: [
-            {
-              $set: {
-                _idStr: { $toString: "$_id" },
-              },
-            },
-            {
-              $match: {
-                $expr: { $in: ["$_idStr", "$$tagIds"] },
-              },
-            },
-            {
-              $project: {
-                _id: 1,
-                title: 1,
-                slug: 1,
-                icon: 1,
-              },
-            },
-          ],
-          as: "tag_info",
-        },
-      },
-      {
-        $project: {
-          _id: 1,
-          title: 1, // Các trường bạn muốn giữ lại từ Video
-          channel_info: { $ifNull: ["$channel_info", null] },
-          thumb: 1,
-          video: 1,
-          stream: {
-            $cond: {
-              if: { $ne: ["$stream", null] }, // Check if `stream` exists and is not null
-              then: "$stream", // Keep the `stream` value if it exists
-              else: null, // Set it to null if it doesn't exist
-            },
-          },
-          type: 1,
-          view: 1,
-          like: 1,
-          dislike: 1,
-          totalCmt: 1,
-          createdAt: 1,
-          description: 1,
-          subscription_info: { $ifNull: ["$subscription_info", null] },
-          react_info: { $ifNull: ["$react_info", null] },
-          tag_info: { $ifNull: ["$tag_info", []] },
-        },
-      },
-    );
-
-    const shorts = await Video.aggregate(pipeline);
-
-    const totalData = await Video.countDocuments({ type: "short" });
-
-    let remainData = Math.max(
-      0,
-      totalData - (watchedShortIdList.length + shorts.length),
-    );
-
-    // add new shorts id to redis list
-    if (shorts.length > 0) {
-      await addValue(
-        key,
-        shorts.map((short) => short._id.toString()),
-      );
-    }
-
-    // set expire of the list or refresh the list if it was created
-    await setKeyExpire(key, 300);
-    // disconnect redis
-    await disconnectRedis();
-
-    res.status(StatusCodes.OK).json({ data: shorts, remain: remainData });
-  } catch (error) {
-    if (error.message === "Socket already opened") {
-      await disconnectRedis();
-    } else {
-      throw error;
+      sessionId = generateSessionId();
     }
   }
+
+  const pipeline = [];
+
+  const addFieldsObj = {};
+
+  const matchObj = {
+    type,
+  };
+
+  const key = userId ? userId.toString() : sessionId;
+  console.log("rediskey", key);
+  res.set("session-id", key);
+  res.set("Access-Control-Expose-Headers", "session-id");
+
+  // check if redis key is available
+  const watchedShortIdList = [];
+  if (await client.exists(key)) {
+    const idList = await client.sMembers(key);
+    watchedShortIdList.push(...idList);
+  }
+
+  // if user provided short id and short id is not in the wacthed list
+  if (id && !watchedShortIdList.includes(id)) {
+    addFieldsObj["_idStr"] = { $toString: "$_id" };
+
+    matchObj["_idStr"] = id;
+  } else {
+    if (watchedShortIdList && watchedShortIdList.length > 0) {
+      addFieldsObj["_idStr"] = { $toString: "$_id" };
+
+      matchObj["_idStr"] = { $nin: watchedShortIdList };
+    }
+  }
+
+  if (Object.keys(addFieldsObj).length > 0) {
+    pipeline.push({ $set: addFieldsObj });
+  }
+
+  pipeline.push({ $match: matchObj });
+
+  pipeline.push(
+    {
+      $sample: { size: Number(size) },
+    },
+    {
+      $lookup: {
+        from: "users",
+        localField: "user_id",
+        foreignField: "_id",
+        pipeline: [
+          {
+            $project: {
+              _id: 1,
+              name: 1,
+              email: 1,
+              avatar: 1,
+              subscriber: 1,
+            },
+          },
+        ],
+        as: "channel_info",
+      },
+    },
+    {
+      $unwind: "$channel_info",
+    },
+  );
+
+  if (userId) {
+    // Subscription state
+    pipeline.push(
+      {
+        $lookup: {
+          from: "subscribes",
+          let: {
+            videoOwnerId: "$user_id",
+            subscriberId: userId,
+          },
+          pipeline: [
+            {
+              $match: {
+                $expr: {
+                  $and: [
+                    { $eq: ["$channel_id", "$$videoOwnerId"] },
+                    { $eq: ["$subscriber_id", "$$subscriberId"] },
+                  ],
+                },
+              },
+            },
+            {
+              $project: {
+                _id: 1,
+                notify: 1,
+              },
+            },
+          ],
+          as: "subscription_info",
+        },
+      },
+      {
+        $unwind: {
+          path: "$subscription_info",
+          preserveNullAndEmptyArrays: true, // Ensure video is returned even if no subscription exists
+        },
+      },
+    );
+
+    pipeline.push(
+      {
+        $lookup: {
+          from: "reacts",
+          let: {
+            videoId: "$_id",
+            subscriberId: userId,
+          },
+          // pipeline để so sánh dữ liệu
+          pipeline: [
+            {
+              $match: {
+                $expr: {
+                  $and: [
+                    { $eq: ["$video_id", "$$videoId"] },
+                    { $eq: ["$user_id", "$$subscriberId"] },
+                  ],
+                },
+              },
+            },
+            {
+              $project: {
+                type: 1,
+              },
+            },
+          ],
+          as: "react_info",
+        },
+      },
+      {
+        $unwind: {
+          path: "$react_info",
+          preserveNullAndEmptyArrays: true, // Ensure video is returned even if no subscription exists
+        },
+      },
+    );
+  }
+
+  pipeline.push(
+    {
+      $lookup: {
+        from: "tags",
+        let: { tagIds: "$tags" },
+        pipeline: [
+          {
+            $set: {
+              _idStr: { $toString: "$_id" },
+            },
+          },
+          {
+            $match: {
+              $expr: { $in: ["$_idStr", "$$tagIds"] },
+            },
+          },
+          {
+            $project: {
+              _id: 1,
+              title: 1,
+              slug: 1,
+              icon: 1,
+            },
+          },
+        ],
+        as: "tag_info",
+      },
+    },
+    {
+      $project: {
+        _id: 1,
+        title: 1, // Các trường bạn muốn giữ lại từ Video
+        channel_info: { $ifNull: ["$channel_info", null] },
+        thumb: 1,
+        video: 1,
+        stream: {
+          $cond: {
+            if: { $ne: ["$stream", null] }, // Check if `stream` exists and is not null
+            then: "$stream", // Keep the `stream` value if it exists
+            else: null, // Set it to null if it doesn't exist
+          },
+        },
+        type: 1,
+        view: 1,
+        like: 1,
+        dislike: 1,
+        totalCmt: 1,
+        createdAt: 1,
+        description: 1,
+        subscription_info: { $ifNull: ["$subscription_info", null] },
+        react_info: { $ifNull: ["$react_info", null] },
+        tag_info: { $ifNull: ["$tag_info", []] },
+      },
+    },
+  );
+
+  const shorts = await Video.aggregate(pipeline);
+
+  const totalData = await Video.countDocuments({ type: "short" });
+
+  let remainData = Math.max(
+    0,
+    totalData - (watchedShortIdList.length + shorts.length),
+  );
+
+  // add new shorts id to redis list
+  if (shorts.length > 0) {
+    await addValue(
+      key,
+      shorts.map((short) => short._id.toString()),
+    );
+  }
+
+  // set expire of the list or refresh the list if it was created
+  await setKeyExpire(key, 300);
+
+  res.status(StatusCodes.OK).json({ data: shorts, remain: remainData });
 };
 
 const getChannelInfo = async (req, res) => {
@@ -1979,22 +1887,16 @@ const getChannelData = async (req, res) => {
 };
 
 const getChannelPlaylistVideos = async (req, res) => {
-  const {
-    limit,
-    page,
-    channelEmail,
-    videoLimit = 12,
-    sort = { createdAt: -1 },
-  } = req.query;
+  const { channelEmail, videoLimit = 12, sort = { createdAt: -1 } } = req.query;
 
   if (!channelEmail) {
     throw new BadRequestError("Please provide a channel email");
   }
 
-  const dataLimit = Number(limit) || 3;
-  const dataPage = Number(page) || 1;
+  const limit = Number(req.query.limit) || 3;
+  const page = Number(req.query.page) || 1;
 
-  const skip = (dataPage - 1) * dataLimit;
+  const skip = (page - 1) * page;
 
   const foundedChannel = await User.findOne({ email: channelEmail });
 
@@ -2096,7 +1998,7 @@ const getChannelPlaylistVideos = async (req, res) => {
     {
       $facet: {
         totalCount: [{ $count: "total" }],
-        data: [{ $skip: skip }, { $limit: dataLimit }],
+        data: [{ $skip: skip }, { $limit: page }],
       },
     },
   );
@@ -2106,8 +2008,8 @@ const getChannelPlaylistVideos = async (req, res) => {
     data: playlists[0]?.data,
     qtt: playlists[0]?.data?.length,
     totalQtt: playlists[0]?.totalCount[0]?.total,
-    currPage: dataPage,
-    totalPage: Math.ceil(playlists[0]?.totalCount[0]?.total / dataLimit) || 0,
+    currPage: page,
+    totalPage: Math.ceil(playlists[0]?.totalCount[0]?.total / page) || 0,
   });
 };
 
@@ -2666,128 +2568,146 @@ const getPlaylistDetails = async (req, res) => {
   });
 };
 
+// const getTagsList = async (req, res) => {
+//   const { limit, page, sort, search, priorityList } = req.query;
+
+//   const page = Number(limit) || 5;
+//   const page = Number(page) || 1;
+
+//   const skip = (page - 1) * page;
+
+//   const validator = new Validator();
+
+//   const errors = {
+//     invalidKey: [],
+//     invalidValue: [],
+//   };
+
+//   const searchObj = {};
+
+//   const searchEntries = Object.entries(search || {});
+
+//   if (searchEntries.length > 0) {
+//     const searchFuncObj = {
+//       title: (title) => {
+//         validator.isString("title", title);
+//         searchObj.title = searchWithRegex(title);
+//       },
+//     };
+
+//     for (const [key, value] of searchEntries) {
+//       if (!searchFuncObj[key]) {
+//         errors.invalidKey.push(key);
+//         continue;
+//       }
+
+//       try {
+//         searchFuncObj[key](value);
+//       } catch (error) {
+//         errors.invalidValue.push(key);
+//       }
+//     }
+//   }
+
+//   let sortObj = {};
+
+//   const sortEntries = Object.entries(sort || {});
+
+//   if (sortEntries.length > 0) {
+//     const sortKeys = new Set(["createdAt"]);
+//     const sortValueEnum = {
+//       1: 1,
+//       "-1": -1,
+//     };
+
+//     for (const [key, value] of sortEntries) {
+//       if (!sortKeys.has(key)) {
+//         errors.invalidKey(key);
+//         continue;
+//       }
+
+//       if (!sortValueEnum[value]) {
+//         errors.invalidValue(value);
+//         continue;
+//       }
+
+//       sortObj[key] = sortValueEnum[value];
+//     }
+//   }
+
+//   for (const error in errors) {
+//     if (errors[error].length > 0) {
+//       return res
+//         .status(StatusCodes.BAD_REQUEST)
+//         .json({ errors, message: "Failed to get data from server" });
+//     }
+//   }
+
+//   if (Object.keys(sortObj).length < 1) {
+//     sortObj.createdAt = -1;
+//   }
+
+//   const pipeline = [{ $match: searchObj }];
+
+//   if (priorityList && priorityList.length > 0) {
+//     sortObj = { priority: -1, ...sortObj };
+
+//     pipeline.push(
+//       {
+//         $set: {
+//           _idStr: { $toString: "$_id" },
+//         },
+//       },
+//       {
+//         $set: {
+//           priority: { $cond: [{ $in: ["$_idStr", priorityList] }, 1, 0] },
+//         },
+//       },
+//     );
+//   }
+
+//   pipeline.push(
+//     {
+//       $sort: sortObj,
+//     },
+//     {
+//       $facet: {
+//         totalCount: [{ $count: "total" }],
+//         data: [{ $skip: skip }, { $limit: page }],
+//       },
+//     },
+//   );
+
+//   const tags = await Tag.aggregate(pipeline);
+
+//   res.status(StatusCodes.OK).json({
+//     data: tags[0]?.data,
+//     qtt: tags[0]?.data?.length,
+//     totalQtt: tags[0]?.totalCount[0]?.total,
+//     currPage: page,
+//     totalPages: Math.ceil(tags[0]?.totalCount[0]?.total / page),
+//   });
+// };
+
+// get random tags
 const getTagsList = async (req, res) => {
-  const { limit, page, sort, search, priorityList } = req.query;
+  const { size = 5 } = req.query;
 
-  const dataLimit = Number(limit) || 5;
-  const dataPage = Number(page) || 1;
-
-  const skip = (dataPage - 1) * dataLimit;
-
-  const validator = new Validator();
-
-  const errors = {
-    invalidKey: [],
-    invalidValue: [],
-  };
-
-  const searchObj = {};
-
-  const searchEntries = Object.entries(search || {});
-
-  if (searchEntries.length > 0) {
-    const searchFuncObj = {
-      title: (title) => {
-        validator.isString("title", title);
-        searchObj.title = searchWithRegex(title);
-      },
-    };
-
-    for (const [key, value] of searchEntries) {
-      if (!searchFuncObj[key]) {
-        errors.invalidKey.push(key);
-        continue;
-      }
-
-      try {
-        searchFuncObj[key](value);
-      } catch (error) {
-        errors.invalidValue.push(key);
-      }
-    }
-  }
-
-  let sortObj = {};
-
-  const sortEntries = Object.entries(sort || {});
-
-  if (sortEntries.length > 0) {
-    const sortKeys = new Set(["createdAt"]);
-    const sortValueEnum = {
-      1: 1,
-      "-1": -1,
-    };
-
-    for (const [key, value] of sortEntries) {
-      if (!sortKeys.has(key)) {
-        errors.invalidKey(key);
-        continue;
-      }
-
-      if (!sortValueEnum[value]) {
-        errors.invalidValue(value);
-        continue;
-      }
-
-      sortObj[key] = sortValueEnum[value];
-    }
-  }
-
-  for (const error in errors) {
-    if (errors[error].length > 0) {
-      return res
-        .status(StatusCodes.BAD_REQUEST)
-        .json({ errors, message: "Failed to get data from server" });
-    }
-  }
-
-  if (Object.keys(sortObj).length < 1) {
-    sortObj.createdAt = -1;
-  }
-
-  const pipeline = [{ $match: searchObj }];
-
-  if (priorityList && priorityList.length > 0) {
-    sortObj = { priority: -1, ...sortObj };
-
-    pipeline.push(
-      {
-        $set: {
-          _idStr: { $toString: "$_id" },
-        },
-      },
-      {
-        $set: {
-          priority: { $cond: [{ $in: ["$_idStr", priorityList] }, 1, 0] },
-        },
-      },
-    );
-  }
-
-  pipeline.push(
+  const tagList = await Tag.aggregate([
+    { $sample: { size: Number(size) } },
     {
-      $sort: sortObj,
-    },
-    {
-      $facet: {
-        totalCount: [{ $count: "total" }],
-        data: [{ $skip: skip }, { $limit: dataLimit }],
+      $project: {
+        title: 1,
+        slug: 1,
       },
     },
-  );
+  ]);
 
-  const tags = await Tag.aggregate(pipeline);
-
-  res.status(StatusCodes.OK).json({
-    data: tags[0]?.data,
-    qtt: tags[0]?.data?.length,
-    totalQtt: tags[0]?.totalCount[0]?.total,
-    currPage: dataPage,
-    totalPages: Math.ceil(tags[0]?.totalCount[0]?.total / dataLimit),
-  });
+  res.status(StatusCodes.OK).json({ data: tagList });
 };
 
 module.exports = {
+  getRandomData,
   getVideoList,
   getDataList,
   getSearchingDatas,
