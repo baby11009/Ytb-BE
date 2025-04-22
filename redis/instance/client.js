@@ -1,24 +1,29 @@
 const redis = require("redis");
 
-const client = redis.createClient();
-
-const connectRedis = async () => {
-  try {
-    await client.connect();
-    console.log(`Redis connect to instance client`);
-
-    client.on("error", (err) => {
-      console.error(`Redis client Error:`, err);
-    });
-  } catch (error) {
-    console.error(`Failed to connect to Redis instance client:`, error);
-    process.exit(1);
-  }
-};
-
+const client = redis.createClient({
+  url: "redis://localhost:6379",
+  socket: {
+    reconnectStrategy: (retries) => {
+      // Reconnect after specific ms, with exponential backoff
+      return Math.min(retries * 50, 1000);
+    },
+  },
+});
 
 const getValue = async (key) => {
   return await client.get(key);
+};
+
+const getSetValue = async (key) => {
+  return await client.sMembers(key);
+};
+
+const removeSetValue = async (key, value) => {
+  try {
+    await client.sRem(key, value);
+  } catch (err) {
+    console.error("Error removing value from Redis set:", err);
+  }
 };
 
 const addValue = async (key, value, expire = 3600) => {
@@ -52,7 +57,8 @@ module.exports = {
   client,
   addValue,
   getValue,
+  getSetValue,
+  removeSetValue,
   setKeyExpire,
   removeKey,
-  connectRedis,
 };

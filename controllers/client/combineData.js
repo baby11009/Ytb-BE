@@ -17,8 +17,11 @@ const {
   client,
   addValue,
   setKeyExpire,
+  removeSetValue,
+  removeKey,
+  getSetValue,
   getValue,
-} = require("../../utils/redis");
+} = require("../../redis/instance/client");
 
 const { generateSessionId } = require("../../utils/generator");
 const { searchWithRegex } = require("../../utils/other");
@@ -359,8 +362,47 @@ const getDataList = async (req, res) => {
   res.status(StatusCodes.OK).json(result);
 };
 
+//  if data is still available then set next cursor
+// format cursos for get random data
+// true if there is available data
+// false if there is no  data left
+// {
+//   video :true,
+//   short :true,
+//   playlist :true
+// }
+// format cursors for get sorted data
+// previeous last data will be used to get next data
+// {
+//   video : {
+
+//   },
+//   short : {
+
+//   },
+//   playlist : {
+
+//   }
+// }
+
 const getRandomData = async (req, res) => {
+  const { sort, tag } = req.query;
+
+  const limit = Number(req.query.limit) || 16;
+
+  let remainQtt = limit;
+
   const userId = req?.user?.userId;
+
+  let cursors;
+
+  if (req.query.cursors) {
+    try {
+      cursors = decodedWithZlib(req.query.cursors);
+    } catch (e) {
+      throw new BadRequestError("Invalid cursor format");
+    }
+  }
 
   let sessionId = req.cookies.sessionId;
 
@@ -369,15 +411,422 @@ const getRandomData = async (req, res) => {
       // 1hour
       maxAge: 3600 * 1000,
       httpOnly: true,
-      path: "/api/v1/data/random",
     });
   }
 
-  const value = await getValue(`session:${sessionId}`);
+  // if previeous fetch is no same with current fetch then remove previous data
+  const previousFetchType = await getValue(`session:${sessionId}-type`);
+  const currentFetch = sort ? "sort" : "random";
 
-  console.log(value);
+  // remove previous data if current fetch is sort and previous fetch is random
+  if (
+    currentFetch === "sort" &&
+    previousFetchType &&
+    previousFetchType === "random"
+  ) {
+    await removeKey(`session:${sessionId}-video`);
 
-  res.status(200).json({});
+    await removeKey(`session:${sessionId}-playlist`);
+  }
+
+  await addValue(`session:${sessionId}-type`, currentFetch);
+
+  let video = [],
+    short = [],
+    playlist = [];
+
+  // use chaining condition to perfectly get data
+  // because field like createdAt, view, like,... can be similar between documents
+  // if use strict condition like gte or lte then it will automatically exclude data field
+  // that have same value in those field but difference in other fields
+  const sortInfomations = {
+    recently: () => ({
+      match: {
+        $or: [
+          {
+            createdAt: { $lt: new Date(cursors.video.createdAt) },
+          },
+          {
+            createdAt: new Date(cursors.video.createdAt),
+            _id: { $lt: new mongoose.Types.ObjectId(cursors.video._id) },
+          },
+        ],
+      },
+      sort: { createdAt: -1, _id: -1 },
+    }),
+    oldest: () => ({
+      match: {
+        $or: [
+          {
+            createdAt: { $gt: new Date(cursors.video.createdAt) },
+          },
+          {
+            createdAt: new Date(cursors.video.createdAt),
+            _id: { $gt: new mongoose.Types.ObjectId(cursors.video._id) },
+          },
+        ],
+      },
+
+      sort: { createdAt: 1, _id: 1 },
+    }),
+    popular: () => ({
+      match: {
+        $or: [
+          {
+            view: { $gt: cursors.video.view },
+          },
+          {
+            view: cursors.video.createdAt,
+            like: { $gt: cursors.video.like },
+          },
+          {
+            view: cursors.video.createdAt,
+            like: cursors.video.like,
+            dislike: { $gt: cursors.video.dislike },
+          },
+          {
+            view: cursors.video.createdAt,
+            like: cursors.video.like,
+            dislike: cursors.video.dislike,
+            _id: { $gt: new mongoose.Types.ObjectId(cursors.video._id) },
+          },
+        ],
+      },
+      sort: { view: -1, like: -1, dislike: -1, _id: -1 },
+    }),
+  };
+
+  const getVideoBaseOnType = async (type, limit) => {
+    let matchObj = {
+      type: type,
+    };
+
+    let sortObj = {};
+
+    const pipeline = [];
+
+    if (cursors) {
+      const sortInfomation = sort ? sortInfomations[sort]() : undefined;
+      if (sort && sortInfomation) {
+        matchObj = { ...matchObj, ...sortInfomation.match };
+        sortObj = { ...sortObj, ...sortInfomation.sort };
+      } else {
+        const idList = await getSetValue(`session:${sessionId}-${type}`);
+        if (idList.length > 0) {
+          pipeline.push({ $set: { _idStr: { $toString: "$_id" } } });
+          matchObj["_idStr"] = { $nin: idList };
+        }
+      }
+    }
+
+    if (tag) {
+      pipeline.push(
+        {
+          $lookup: {
+            from: "tags",
+            let: {
+              tagList: "$tags",
+            },
+            pipeline: [
+              {
+                $set: {
+                  _idStr: { $toString: "$_id" },
+                },
+              },
+              {
+                $match: {
+                  $expr: {
+                    $and: [
+                      { $in: ["$_idStr", "$$tagList"] },
+                      { $eq: ["$title", tag] },
+                    ],
+                  },
+                },
+              },
+            ],
+            as: "tag_info",
+          },
+        },
+        { $unwind: "$tag_info" },
+      );
+
+      matchObj["tag_info.title"] = tag;
+    }
+
+    if (Object.keys(matchObj).length > 0) {
+      pipeline.push({ $match: matchObj });
+    }
+
+    if (Object.keys(sortObj).length > 0) {
+      pipeline.push({ $sort: sortObj });
+    }
+
+    pipeline.push({
+      $facet: {
+        total: [{ $count: "size" }],
+        data: [
+          {
+            $limit: limit,
+          },
+          {
+            $lookup: {
+              from: "users",
+              localField: "user_id",
+              foreignField: "_id",
+              pipeline: [
+                {
+                  $project: {
+                    _id: 1,
+                    name: 1,
+                    email: 1,
+                    avatar: 1,
+                    subscriber: 1,
+                  },
+                },
+              ],
+              as: "channel_info",
+            },
+          },
+          {
+            $unwind: "$channel_info",
+          },
+          {
+            $project: {
+              title: 1,
+              thumb: 1,
+              duration: { $ifNull: ["$duration", 0] },
+              tag_info: 1,
+              type: 1,
+              channel_info: 1,
+              view: 1,
+              like: 1,
+              dislike: 1,
+              createdAt: 1,
+            },
+          },
+        ],
+      },
+    });
+
+    return await Video.aggregate(pipeline);
+  };
+
+  const nextCursors = {
+    playlist: null,
+    video: null,
+    short: null,
+  };
+
+  const getRandomRules = {
+    video: {
+      // fetching video data if request didn't provide cursors or cursors for video data is available
+      // it's mean video still have data left to return
+      condition: !cursors || cursors?.video,
+      action: async () => {
+        const videoLimit =
+          !cursors || cursors?.playlist
+            ? Math.floor((remainQtt * 4) / 5)
+            : remainQtt;
+        video = await getVideoBaseOnType("video", videoLimit);
+
+        if (video.length && video[0].data.length) {
+          remainQtt = remainQtt - video[0].data.length;
+
+          // set next video cursors
+          if (sort) {
+            if (video[0].total[0].size > video[0].data.length) {
+              const lastVideo = video[0].data[video[0].data.length - 1];
+
+              nextCursors.video = {
+                _id: lastVideo._id,
+                createdAt: lastVideo.createdAt,
+                view: lastVideo.view,
+                like: lastVideo.like,
+                dislike: lastVideo.dislike,
+              };
+            }
+          } else {
+            await addValue(
+              `session:${sessionId}-video`,
+              video[0].data.map((data) => data._id.toString()),
+            );
+
+            nextCursors.video = video[0].total[0].size > videoLimit;
+          }
+        }
+      },
+    },
+    short: {
+      condition: !cursors || cursors?.short,
+      action: async () => {
+        const shortLimit = 12;
+
+        short = await getVideoBaseOnType("short", shortLimit);
+
+        if (short.length && short[0].data.length) {
+          // set next short cursors
+          if (sort) {
+            if (short[0].total[0].size > short[0].data.length) {
+              const lastShort = short[0].data[short[0].data.length - 1];
+
+              nextCursors.short = {
+                _id: lastShort._id,
+                createdAt: lastShort.createdAt,
+                view: lastShort.view,
+                like: lastShort.like,
+                dislike: lastShort.dislike,
+              };
+            }
+          } else {
+            await addValue(
+              `session:${sessionId}-short`,
+              short[0].data.map((data) => data._id.toString()),
+            );
+
+            nextCursors.short = short[0].total[0].size > shortLimit;
+          }
+        }
+      },
+    },
+    playlist: {
+      condition: !tag && !sort && (!cursors || cursors?.playlist),
+      action: async () => {
+        const playlistLimit = remainQtt;
+
+        const playlistIdList = await client.sMembers(
+          `session:${sessionId}-playlist`,
+        );
+
+        const playlistPipeline = [
+          {
+            $set: {
+              _idStr: { $toString: "$_id" },
+            },
+          },
+          {
+            $match: {
+              _idStr: { $nin: playlistIdList },
+              type: "playlist",
+              itemList: { $ne: [] },
+            },
+          },
+          {
+            $facet: {
+              total: [{ $count: "size" }],
+              data: [
+                { $limit: playlistLimit },
+                {
+                  $lookup: {
+                    from: "users",
+                    localField: "created_user_id",
+                    foreignField: "_id",
+                    pipeline: [
+                      {
+                        $project: {
+                          name: 1,
+                          email: 1,
+                          avatar: 1,
+                          subscriber: 1,
+                        },
+                      },
+                    ],
+                    as: "channel_info",
+                  },
+                },
+                {
+                  $unwind: "$channel_info",
+                },
+                {
+                  $lookup: {
+                    from: "videos",
+                    let: { videoIdList: "$itemList" },
+                    pipeline: [
+                      {
+                        $set: {
+                          _idStr: { $toString: "$_id" },
+                          order: {
+                            $indexOfArray: [
+                              "$$videoIdList",
+                              { $toString: "$_id" },
+                            ],
+                          },
+                        },
+                      },
+                      {
+                        $match: {
+                          $expr: {
+                            $in: [{ $toString: "$_id" }, "$$videoIdList"],
+                          },
+                        },
+                      },
+                      {
+                        $sort: {
+                          order: -1,
+                        },
+                      },
+                      {
+                        $limit: 1,
+                      },
+                      {
+                        $project: {
+                          _id: 1,
+                          title: 1,
+                          thumb: 1,
+                          createdAt: 1,
+                        },
+                      },
+                    ],
+                    as: "video_list",
+                  },
+                },
+                {
+                  $project: {
+                    title: 1,
+                    video_list: 1,
+                    channel_info: 1,
+                    relevanceScore: 1,
+                    createdAt: 1,
+                  },
+                },
+              ],
+            },
+          },
+        ];
+
+        playlist = await Playlist.aggregate(playlistPipeline);
+
+        // set next playlist cursors
+        if (playlist.length && playlist[0].data.length) {
+          await addValue(
+            `session:${sessionId}-playlist`,
+            playlist[0].data.map((data) => data._id.toString()),
+          );
+
+          if (playlist[0].total[0].size > playlistLimit) {
+            nextCursors.playlist = true;
+          }
+        }
+      },
+    },
+  };
+
+  for (const [, method] of Object.entries(getRandomRules)) {
+    if (method.condition) {
+      await method.action();
+    }
+  }
+  let newCursors;
+  if (nextCursors.video || nextCursors.short || nextCursors.playlist) {
+    newCursors = encodedWithZlib(nextCursors);
+  } else newCursors = null;
+
+  res.status(200).json({
+    video: video.length ? video[0].data : [],
+    short: short.length ? short[0].data : [],
+    playlist: playlist.length ? playlist[0].data : [],
+    nextCursors: nextCursors,
+    cursors: newCursors,
+  });
 };
 
 const getVideoList = async (req, res) => {
