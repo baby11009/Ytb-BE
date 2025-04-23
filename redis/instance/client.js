@@ -44,12 +44,12 @@ const setKeyExpire = async (key, time = 300) => {
 };
 
 const removeKey = async (redisKey) => {
-  const exists = await client.exists(redisKey);
-  if (exists) {
+  try {
     await client.del(redisKey);
     console.log(`Removed key: ${redisKey}`);
-  } else {
-    console.log(`Key ${redisKey} not found in Redis`);
+  } catch (error) {
+    console.error(error);
+    console.log("Failed to remove key");
   }
 };
 

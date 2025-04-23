@@ -26,7 +26,23 @@ const {
   userRouter,
 } = require("./routes");
 
-app.use(cors());
+const allowedOrigins = ["http://localhost:5173"];
+app.use(
+  cors({
+    origin: function (origin, callback) {
+      // Cho phép request không có origin (VD: curl, Postman)
+
+      if (!origin) return callback(null, true);
+
+      if (allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error("Cannot access resources CORS!"));
+      }
+    },
+    credentials: true,
+  }),
+);
 app.use(cookieParser("random-data-secret"));
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());

@@ -42,28 +42,31 @@ const decodedWithZlib = (encodedString) => {
 
 // Merge two lists randomly, but keep the first list's order
 function mergeListsRandomly(list1, list2) {
+  if (!list1 || !list2) return [];
+
   // Return others list if other one is empty
   if (list1.length === 0) return list2;
   if (list2.length === 0) return list1;
 
-  const combinedList = [...list1];
+  let rootList, otherList;
 
-  //  create random numbers to store already used indexes
-  //  to avoid duplicate indexes in the combined list
-  const randomNumbers = [];
-
-  for (const item of list2) {
-    let rand;
-    do {
-      rand = Math.floor(Math.random() * (list1.length - 1));
-    } while (randomNumbers.includes(rand));
-    randomNumbers.push(rand);
-    combinedList.splice(rand, 0, item);
+  if (list1.length > list2.length) {
+    rootList = [...list1]; // Tạo bản sao để không thay đổi mảng gốc
+    otherList = list2;
+  } else {
+    rootList = [...list2]; // Tạo bản sao để không thay đổi mảng gốc
+    otherList = list1;
   }
 
-  return combinedList;
-}
+  // Không cần lưu trữ các vị trí đã sử dụng nếu không cần tránh trùng lặp
+  for (const item of otherList) {
+    // Chú ý: Sử dụng (rootList.length + 1) để có thể chèn vào cả vị trí cuối cùng
+    const rand = Math.floor(Math.random() * (rootList.length + 1));
+    rootList.splice(rand, 0, item);
+  }
 
+  return rootList;
+}
 module.exports = {
   searchWithRegex,
   isObjectEmpty,

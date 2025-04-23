@@ -19,18 +19,37 @@ const removeRedisKey = async (req, res) => {
   }
 };
 
-const cleanRedisRandomKey = async (req, res) => {
+const cleanRedisKey = async (req, res) => {
+  const { apiPath } = req.query;
+
   const sessionId = req.cookies.sessionId;
-  console.log("🚀 ~ sessionId:", sessionId);
 
   if (!sessionId) {
     throw new BadRequestError("Session ID is required");
   }
   try {
-    await removeKey(`session:${sessionId}-video`);
-    await removeKey(`session:${sessionId}-playlist`);
-    await removeKey(`session:${sessionId}-short`);
-    await removeKey(`session:${sessionId}-type`);
+    let keyList;
+
+    switch (apiPath) {
+      case "randomShort":
+        keyList = [`session:${sessionId}-short`];
+        break;
+      default:
+        keyList = [
+          `session:${sessionId}-video`,
+          `session:${sessionId}-playlist`,
+          `session:${sessionId}-short`,
+          `session:${sessionId}-type`,
+        ];
+    }
+
+    await removeKey(keyList);
+
+    // res.clearCookie("sessionId", {
+    //   httpOnly: true,
+    //   secure: true, // 👈 bắt buộc nếu dùng SameSite: 'None'
+    //   sameSite: "None",
+    // });
 
     res
       .status(StatusCodes.OK)
@@ -43,5 +62,5 @@ const cleanRedisRandomKey = async (req, res) => {
 
 module.exports = {
   removeRedisKey,
-  cleanRedisRandomKey,
+  cleanRedisKey,
 };
