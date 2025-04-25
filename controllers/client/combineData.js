@@ -16,7 +16,6 @@ const {
 const {
   client,
   addValue,
-  setKeyExpire,
   removeKey,
   getSetValue,
   getValue,
@@ -199,7 +198,6 @@ const getDataList = async (req, res) => {
     });
 
     playlistList = await Playlist.aggregate(playlistPipeline);
-    console.log(5);
   }
 
   const queryFuncObj = {
@@ -325,7 +323,6 @@ const getDataList = async (req, res) => {
 
   let finalData = [...videos];
 
-  console.log("🚀 ~ playlistList.length:", playlistList.length);
   if (playlistList.length > 0) {
     finalData = mergeListsRandomly(finalData, playlistList);
     // for (let playlist of playlistList) {
@@ -382,7 +379,9 @@ const getDataList = async (req, res) => {
 
 //   }
 // }
+
 const getRandomData = async (req, res) => {
+
   const { sort, tag } = req.query;
 
   const limit = Number(req.query.limit) || 16;

@@ -14,19 +14,14 @@ const sendEmail = async (job) => {
 };
 
 const createSubscriptionNotification = async (job) => {
-  const { senderId, receiverId, type, message } = job.data;
-
-  const data = {
-    sender_user_id: senderId,
-    receiver_user_id: receiverId,
-    type,
-    message,
-  };
-
   try {
+    console.log(job.data);
     const notification = await Notification.create(job.data);
 
-    publisher.publish(`user:${receiver_user_id}`, JSON.stringify(notification));
+    publisher.publish(
+      `user:${job.data.receiver_user_id}`,
+      JSON.stringify(notification),
+    );
   } catch (error) {
     console.error("Bull notification job error: ", error);
   }

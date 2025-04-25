@@ -34,12 +34,7 @@ const sendRealTimeNotification = async ({
 
       publisher.publish(`user:${receiverId}`, JSON.stringify(notification));
     } else {
-      await realTimeNotificationQueue.add({
-        senderId,
-        receiverId,
-        type,
-        message,
-      });
+      await realTimeNotificationQueue.add(data);
     }
   } catch (error) {
     console.error(error);

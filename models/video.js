@@ -71,9 +71,10 @@ const Video = new mongoose.Schema(
 
 // Update links data when create video
 Video.pre("save", async function () {
+  console.log("save");
   const { user_id } = this;
-  
-  const session = this.$session;
+
+  const session = this.$session();
 
   if (!session) {
     throw new Error("⚠️ Transaction session is required");

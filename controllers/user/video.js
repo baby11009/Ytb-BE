@@ -76,7 +76,7 @@ const upLoadVideo = async (req, res) => {
       description,
     };
 
-    const video = await sessionWrap(async (session) => {
+    const createdVideo = await sessionWrap(async (session) => {
       const video = await Video.create([data], { session });
       return video[0];
     });
@@ -93,8 +93,8 @@ const upLoadVideo = async (req, res) => {
             senderId: userId,
             receiverId: subscriber.subscriber_id,
             type: "subscription",
-            videoId: video._id,
-            message: `${name} has uploaded new video: ${video.title}`,
+            videoId: createdVideo._id,
+            message: `${name} has uploaded new video: ${createdVideo.title}`,
           });
         }
       }
@@ -105,12 +105,13 @@ const upLoadVideo = async (req, res) => {
     res.status(StatusCodes.CREATED).json({ msg: "Upload video successfully" });
   } catch (error) {
     let args = {};
+  
     if (video & video[0]) {
       args.videoPath = video[0].path;
     }
 
-    if (image & image[0]) {
-      args.imagePath = image[0].path;
+    if (thumbnail & thumbnail[0]) {
+      args.imagePath = thumbnail[0].path;
     }
     await clearUploadedVideoFiles(args);
     throw error;
@@ -339,8 +340,8 @@ const updateVideo = async (req, res) => {
   try {
     if (
       Object.keys(req.body).length === 0 &&
-      !req.files.image &&
-      !req.files.image[0]
+      !req.files.thumbnail &&
+      !req.files.thumbnail[0]
     ) {
       throw new BadRequestError("There is nothing to update.");
     }

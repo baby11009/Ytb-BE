@@ -1,6 +1,7 @@
 const mongoose = require("mongoose");
 const sessionWrap = async (cb) => {
   const session = await mongoose.startSession();
+
   session.startTransaction();
 
   try {
@@ -9,7 +10,7 @@ const sessionWrap = async (cb) => {
     return result;
   } catch (error) {
     await session.abortTransaction();
-    throw err;
+    throw error;
   } finally {
     await session.endSession();
   }
