@@ -21,8 +21,6 @@ const {
   getValue,
 } = require("../../redis/instance/client");
 
-const { generateSessionId } = require("../../utils/generator");
-
 const getDataList = async (req, res) => {
   const {
     sort,

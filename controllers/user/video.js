@@ -105,7 +105,7 @@ const upLoadVideo = async (req, res) => {
     res.status(StatusCodes.CREATED).json({ msg: "Upload video successfully" });
   } catch (error) {
     let args = {};
-  
+
     if (video & video[0]) {
       args.videoPath = video[0].path;
     }
@@ -361,7 +361,10 @@ const updateVideo = async (req, res) => {
       ["title", "thumbnail", "type", "tags", "description"],
     ).getValidatedUpdateData();
 
-    await Video.updateOne({ _id: id }, updateDatas);
+    await Video.updateOne(
+      { _id: id, user_id: foundedVideo.user_id },
+      updateDatas,
+    );
 
     if (req.files?.thumbnail && req.files?.thumbnail.length) {
       const imgPath = path.join(asssetPath, "video thumb", foundedVideo.thumb);

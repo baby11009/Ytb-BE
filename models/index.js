@@ -1,5 +1,6 @@
 const User = require("./user");
 const Video = require("./video");
+const VideoView = require("./videoView");
 const Comment = require("./comment");
 const Subscribe = require("./subscribe");
 const React = require("./react");
@@ -11,6 +12,7 @@ const Notification = require("./notification");
 module.exports = {
   User,
   Video,
+  VideoView,
   Comment,
   Subscribe,
   React,

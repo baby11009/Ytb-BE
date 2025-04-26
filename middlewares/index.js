@@ -6,9 +6,11 @@ const multerErrorHandling = require("./upload-error-handler");
 const permissionMiddleware = require("./permission");
 const fileLimitSizeMiddleware = require("./upload-limit-size");
 const getAccountInfoMiddleware = require("./get-account-info");
+const requestOriginChecker = require("./request-origin-checker");
 
 module.exports = {
   authMiddleware,
+  requestOriginChecker,
   errorHandlerMiddleware,
   notFoundMiddleware,
   createMulterUpload,

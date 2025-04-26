@@ -15,15 +15,17 @@ const {
   errorHandlerMiddleware,
   permissionMiddleware,
   getAccountInfoMiddleware,
+  requestOriginChecker,
 } = require("./middlewares");
 
 const {
   authRouter,
-  fileRouter,
-  combineRouter,
-  redisRouter,
   adminRouter,
   userRouter,
+  fileRouter,
+  combineRouter,
+  modifyData,
+  redisRouter,
 } = require("./routes");
 
 const allowedOrigins = ["http://localhost:5173"];
@@ -56,6 +58,12 @@ app.get("/", (req, res) => {
 app.use("/api/v1/auth", authRouter);
 app.use("/api/v1/file", fileRouter);
 app.use("/api/v1/data", getAccountInfoMiddleware, combineRouter);
+app.use(
+  "/api/v1/modify-data",
+  // requestOriginChecker,
+  getAccountInfoMiddleware,
+  modifyData,
+);
 app.use("/api/v1/redis", redisRouter);
 
 // Admin

@@ -218,7 +218,6 @@ const handleStreamVideoSegment = async (req, res, next) => {
     if (!hsl) {
       throw new BadRequestError("Please provide a hsl value");
     }
-
     if (!resolution) {
       throw new BadRequestError("Please provide a streaming resolution");
     }
@@ -230,15 +229,45 @@ const handleStreamVideoSegment = async (req, res, next) => {
       name,
       hsl,
     );
-    // check if file is exited
+
+    // check if file exists
     await fs.promises.access(hslPath, fs.constants.F_OK);
 
-    // create streaming
+    // Handle range request for streaming
+    const stat = await fs.promises.stat(hslPath);
+    const fileSize = stat.size;
+
+    let start = 0;
+    let end = fileSize - 1;
+
+    // If range is specified in request headers, adjust the start and end
+    const range = req.headers.range;
+    if (range) {
+      const parts = range.replace(/bytes=/, "").split("-");
+      start = parseInt(parts[0], 10);
+      end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+    }
+
+    const contentLength = end - start + 1;
+
+    // Set the necessary headers for range response
+    res.setHeader("Content-Range", `bytes ${start}-${end}/${fileSize}`);
+    res.setHeader("Accept-Ranges", "bytes");
+    res.setHeader("Content-Length", contentLength);
     res.setHeader("Content-Type", "video/MP2T");
-    const fileStream = fs.createReadStream(hslPath);
+
+    // Create file stream for the requested range
+    const fileStream = fs.createReadStream(hslPath, { start, end });
+
+    // Pipe the stream to the response
     fileStream.pipe(res);
+
+    // Handle stream errors
+    fileStream.on("error", (error) => {
+      res.status(500).send("Error streaming video: " + error.message);
+    });
   } catch (error) {
-    throw error;
+    next(error);
   }
 };
 

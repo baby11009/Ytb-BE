@@ -10,12 +10,7 @@ const generateCodeAndExpire = () => {
   };
 };
 
-function generateSessionId() {
-  // Tạo session ID ngẫu nhiên hoặc mã hóa
-  return Math.random().toString(36).substr(2, 9);
-}
 
 module.exports = {
   generateCodeAndExpire,
-  generateSessionId,
 };

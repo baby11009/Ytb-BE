@@ -71,7 +71,6 @@ const Video = new mongoose.Schema(
 
 // Update links data when create video
 Video.pre("save", async function () {
-  console.log("save");
   const { user_id } = this;
 
   const session = this.$session();
@@ -85,6 +84,29 @@ Video.pre("save", async function () {
     { $inc: { totalVids: 1 } },
     { session },
   );
+});
+
+Video.pre(["updateOne", "findOneAndUpdate"], async function () {
+  const { $inc, view } = this.getUpdate();
+  const videoQuery = this.getQuery();
+
+  if (($inc || view) && videoQuery.user_id) {
+    const { session } = this.options;
+
+    if (!session) {
+      throw new Error("⚠️ Transaction session is required");
+    }
+
+    const User = mongoose.model("User");
+
+    // if update by using admin api then must recalculate video view
+    // base on new video view will recalculate user totalView
+    const updateData = {
+      $inc: { totalView: $inc ? $inc.view : view - videoQuery.view },
+    };
+
+    await User.updateOne({ _id: videoQuery.user_id }, updateData, { session });
+  }
 });
 
 // Cascade when deleting video

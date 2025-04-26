@@ -3,6 +3,7 @@ const authRouter = require("./auth/auth");
 const fileRouter = require("./client/file");
 const redisRouter = require("./client/redis");
 const combineRouter = require("./client/combineData");
+const modifyData = require("./client/modifyData");
 
 // Admin
 const adminRouter = require("./admin");
@@ -11,10 +12,11 @@ const adminRouter = require("./admin");
 const userRouter = require("./user");
 
 module.exports = {
-  adminRouter,
   authRouter,
+  adminRouter,
+  userRouter,
   fileRouter,
   combineRouter,
-  userRouter,
+  modifyData,
   redisRouter,
 };

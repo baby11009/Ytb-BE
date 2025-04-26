@@ -375,11 +375,15 @@ const updateVideo = async (req, res) => {
       foundedVideo,
     ).getValidatedUpdateData();
 
-    const video = await Video.updateOne({ _id: id }, updateDatas);
+    const video = await sessionWrap(async (session) => {
+      const video = await Video.updateOne(
+        { _id: id, user_id: foundedVideo.user_id, view: foundedVideo.view },
+        updateDatas,
+        { session },
+      );
 
-    if (video.modifiedCount === 0) {
-      throw new InternalServerError("Failed to update user");
-    }
+      return video;
+    });
 
     if (req.files?.thumbnail && req.files?.thumbnail.length) {
       const imgPath = path.join(videoFolderPath, video.thumb);

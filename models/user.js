@@ -64,7 +64,7 @@ const User = new mongoose.Schema(
       type: Number,
       default: 0,
     },
-    totalViews: {
+    totalView: {
       type: Number,
       default: 0,
     },
