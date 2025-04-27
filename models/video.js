@@ -4,7 +4,7 @@ const path = require("path");
 const asssetPath = path.join(__dirname, "../assets");
 const { clearUploadedVideoFiles } = require("../utils/clear");
 
-const Video = new mongoose.Schema(
+const VideoSchema = new mongoose.Schema(
   {
     user_id: {
       type: mongoose.Types.ObjectId,
@@ -70,7 +70,7 @@ const Video = new mongoose.Schema(
 );
 
 // Update links data when create video
-Video.pre("save", async function () {
+VideoSchema.pre("save", async function () {
   const { user_id } = this;
 
   const session = this.$session();
@@ -86,7 +86,7 @@ Video.pre("save", async function () {
   );
 });
 
-Video.pre(["updateOne", "findOneAndUpdate"], async function () {
+VideoSchema.pre(["updateOne", "findOneAndUpdate"], async function () {
   const { $inc, view } = this.getUpdate();
   const videoQuery = this.getQuery();
 
@@ -110,7 +110,7 @@ Video.pre(["updateOne", "findOneAndUpdate"], async function () {
 });
 
 // Cascade when deleting video
-Video.pre("deleteOne", async function () {
+VideoSchema.pre("deleteOne", async function () {
   const { session } = this.getOptions();
 
   if (!session) {
@@ -161,7 +161,7 @@ Video.pre("deleteOne", async function () {
 });
 
 // Cascade when deleting user
-Video.pre("deleteMany", async function () {
+VideoSchema.pre("deleteMany", async function () {
   const { session } = this.getOptions();
 
   if (!session) {
@@ -241,4 +241,4 @@ Video.pre("deleteMany", async function () {
   }
 });
 
-module.exports = mongoose.model("Video", Video);
+module.exports = mongoose.model("Video", VideoSchema);

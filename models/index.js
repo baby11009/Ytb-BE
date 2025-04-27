@@ -6,8 +6,10 @@ const Subscribe = require("./subscribe");
 const React = require("./react");
 const CmtReact = require("./cmtReact");
 const Playlist = require("./playlist");
+const WatchedHistory = require("./watched_history");
 const Tag = require("./tag");
 const Notification = require("./notification");
+
 
 module.exports = {
   User,
@@ -18,6 +20,7 @@ module.exports = {
   React,
   CmtReact,
   Playlist,
+  WatchedHistory,
   Tag,
   Notification,
 };

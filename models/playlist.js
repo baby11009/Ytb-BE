@@ -1,7 +1,7 @@
 const mongoose = require("mongoose");
 const {  NotFoundError } = require("../errors");
 
-const Playlist = new mongoose.Schema(
+const PlaylistSchema = new mongoose.Schema(
   {
     created_user_id: {
       type: mongoose.Types.ObjectId,
@@ -71,7 +71,7 @@ const Playlist = new mongoose.Schema(
     type: {
       type: String,
       enum: {
-        values: ["playlist", "watch_later", "liked", "history"],
+        values: ["playlist", "watch_later", "liked"],
         message: "${VALUE} is not supported",
       },
       default: "playlist",
@@ -90,4 +90,4 @@ const Playlist = new mongoose.Schema(
   { timestamps: true },
 );
 
-module.exports = mongoose.model("Playlist", Playlist);
+module.exports = mongoose.model("Playlist", PlaylistSchema);

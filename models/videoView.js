@@ -1,6 +1,6 @@
 const mongoose = require("mongoose");
 
-const VideoView = new mongoose.Schema(
+const VideoViewSchema = new mongoose.Schema(
   {
     video_id: {
       type: mongoose.Types.ObjectId,
@@ -17,6 +17,6 @@ const VideoView = new mongoose.Schema(
   { timestamps: true },
 );
 
-VideoView.index("createdAt");
+VideoViewSchema.index("createdAt");
 
-module.exports = mongoose.model("VideoView", VideoView);
+module.exports = mongoose.model("VideoView", VideoViewSchema);

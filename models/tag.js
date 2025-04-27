@@ -1,6 +1,6 @@
 const mongoose = require("mongoose");
 
-const Tag = new mongoose.Schema(
+const TagSchema = new mongoose.Schema(
   {
     title: {
       type: String,
@@ -23,7 +23,7 @@ const Tag = new mongoose.Schema(
   { timestamps: true },
 );
 
-Tag.pre(["findOneAndUpdate", "updateOne"], function () {
+TagSchema.pre(["findOneAndUpdate", "updateOne"], function () {
   const update = this.getUpdate();
 
   if (update.title) {
@@ -35,4 +35,4 @@ Tag.pre(["findOneAndUpdate", "updateOne"], function () {
   
 });
 
-module.exports = mongoose.model("Tag", Tag);
+module.exports = mongoose.model("Tag", TagSchema);

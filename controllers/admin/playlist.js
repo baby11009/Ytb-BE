@@ -70,7 +70,7 @@ const getPlaylists = async (req, res) => {
         searchObj["privacy"] = privacy;
       },
       type: (type) => {
-        validator.isEnum("type", ["playlist", "watch_later", "history"], type);
+        validator.isEnum("type", ["playlist", "watch_later"], type);
 
         searchObj["type"] = type;
       },
@@ -201,7 +201,6 @@ const getPlaylists = async (req, res) => {
             branches: [
               { case: { $eq: ["$type", "watch_later"] }, then: "Watch later" },
               { case: { $eq: ["$type", "liked"] }, then: "Liked" },
-              { case: { $eq: ["$type", "history"] }, then: "History" },
             ],
             default: "Playlist",
           },

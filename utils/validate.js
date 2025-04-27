@@ -533,7 +533,6 @@ class PlaylistValidator {
   #allowedFields = {
     playlist: ["title", "privacy", "videoIdList"],
     watch_later: ["videoIdList"],
-    history: ["videoIdList"],
   };
   #errors = {};
 

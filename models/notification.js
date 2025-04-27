@@ -1,6 +1,6 @@
 const mongoose = require("mongoose");
 
-const Notification = new mongoose.Schema(
+const NotificationSchema = new mongoose.Schema(
   {
     sender_user_id: {
       type: mongoose.Types.ObjectId,
@@ -70,9 +70,9 @@ const Notification = new mongoose.Schema(
   },
 );
 
-Notification.index(["userId"]);
+NotificationSchema.index(["userId"]);
 
-Notification.post("save", async function () {
+NotificationSchema.post("save", async function () {
   const User = mongoose.model("User");
 
   await User.updateOne(
@@ -81,7 +81,7 @@ Notification.post("save", async function () {
   );
 });
 
-Notification.pre(["updateOne", "findOneAndUpdate"], async function () {
+NotificationSchema.pre(["updateOne", "findOneAndUpdate"], async function () {
   const { session } = this.options;
 
   if (!session) {
@@ -102,4 +102,4 @@ Notification.pre(["updateOne", "findOneAndUpdate"], async function () {
   }
 });
 
-module.exports = mongoose.model("Notification", Notification);
+module.exports = mongoose.model("Notification", NotificationSchema);

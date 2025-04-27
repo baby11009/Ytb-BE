@@ -1,6 +1,6 @@
 const mongoose = require("mongoose");
 
-const Subscribe = new mongoose.Schema(
+const SubscribeSchema = new mongoose.Schema(
   {
     subscriber_id: {
       type: mongoose.Types.ObjectId,
@@ -21,7 +21,7 @@ const Subscribe = new mongoose.Schema(
   },
 );
 
-Subscribe.post("save", async function (req, res) {
+SubscribeSchema.post("save", async function (req, res) {
   const session = this.$session();
 
   if (!session) {
@@ -36,7 +36,7 @@ Subscribe.post("save", async function (req, res) {
   );
 });
 
-Subscribe.pre("deleteOne", async function () {
+SubscribeSchema.pre("deleteOne", async function () {
   const { session } = this.getOptions();
 
   if (!session) {
@@ -66,7 +66,7 @@ Subscribe.pre("deleteOne", async function () {
   }
 });
 
-Subscribe.pre("deleteMany", async function () {
+SubscribeSchema.pre("deleteMany", async function () {
   const { session } = this.getOptions();
 
   if (!session) {
@@ -96,4 +96,4 @@ Subscribe.pre("deleteMany", async function () {
   }
 });
 
-module.exports = mongoose.model("Subscribe", Subscribe);
+module.exports = mongoose.model("Subscribe", SubscribeSchema);

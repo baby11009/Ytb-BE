@@ -90,7 +90,7 @@ const getPlaylists = async (req, res) => {
 
   const searchObj = {
     created_user_id: userId,
-    type: { $nin: ["history", ...exCludeTypes] },
+    type: { $nin: [...exCludeTypes] },
   };
 
   const searchEntries = Object.entries(search || {});
@@ -255,7 +255,7 @@ const getPlaylistDetails = async (req, res) => {
 
   const { videoLimit = 8, videoPage = 1, videoSearch } = req.query;
 
-  const typeSet = new Set(["watch_later", "liked", "history"]);
+  const typeSet = new Set(["watch_later", "liked"]);
 
   const pipeline = [];
 
@@ -353,7 +353,7 @@ const getPlaylistDetails = async (req, res) => {
               type: 1,
               view: 1,
               like: 1,
-              videoIdList: 1,
+              // videoIdList: 1,
               video: 1,
               totalCmt: 1,
               order: -1,
@@ -413,7 +413,6 @@ const updatePlaylist = async (req, res, next) => {
     const listTypes = {
       wl: "watch_later",
       liked: "liked",
-      history: "history",
     };
 
     const listType = listTypes[id];

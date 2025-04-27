@@ -1,6 +1,6 @@
 const mongoose = require("mongoose");
 
-const Comment = new mongoose.Schema(
+const CommentSchema = new mongoose.Schema(
   {
     user_id: {
       type: mongoose.Types.ObjectId,
@@ -44,7 +44,7 @@ const Comment = new mongoose.Schema(
 );
 
 // Update links data when user create comment
-Comment.pre("save", async function () {
+CommentSchema.pre("save", async function () {
   const session = this.$session();
 
   if (!session) {
@@ -74,7 +74,7 @@ Comment.pre("save", async function () {
 });
 
 // Cascade delete and update when delete comment
-Comment.pre(["deleteOne", "findOneAndDelete"], async function () {
+CommentSchema.pre(["deleteOne", "findOneAndDelete"], async function () {
   const { session } = this.options;
 
   if (!session) {
@@ -132,7 +132,7 @@ Comment.pre(["deleteOne", "findOneAndDelete"], async function () {
 
 // Cascade delete and update when delete user or video
 
-Comment.pre("deleteMany", async function () {
+CommentSchema.pre("deleteMany", async function () {
   const { session } = this.options;
 
   if (!session) {
@@ -238,4 +238,4 @@ Comment.pre("deleteMany", async function () {
   }
 });
 
-module.exports = mongoose.model("Comment", Comment);
+module.exports = mongoose.model("Comment", CommentSchema);

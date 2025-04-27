@@ -1,6 +1,6 @@
 const mongoose = require("mongoose");
-const Comment = require("./comment");
-const CmtReact = new mongoose.Schema(
+
+const CmtReactSchema = new mongoose.Schema(
   {
     user_id: {
       type: mongoose.Types.ObjectId,
@@ -19,7 +19,7 @@ const CmtReact = new mongoose.Schema(
   { timestamps: true },
 );
 
-CmtReact.pre("deleteMany", async function () {
+CmtReactSchema.pre("deleteMany", async function () {
   const { user_id } = this.getQuery();
   const { session } = this.options;
   if (!session) {
@@ -79,4 +79,4 @@ CmtReact.pre("deleteMany", async function () {
     }
   }
 });
-module.exports = mongoose.model("CmtReact", CmtReact);
+module.exports = mongoose.model("CmtReact", CmtReactSchema);

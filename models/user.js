@@ -6,7 +6,7 @@ const path = require("path");
 const avatarPath = path.join(__dirname, "../assets/user avatar");
 const { deleteFile } = require("../utils/file.js");
 
-const User = new mongoose.Schema(
+const UserSchema = new mongoose.Schema(
   {
     name: {
       type: String,
@@ -93,7 +93,7 @@ const User = new mongoose.Schema(
   { timestamps: true },
 );
 
-User.pre("save", async function () {
+UserSchema.pre("save", async function () {
   try {
     const salt = await bcrypt.genSalt(10);
     this.password = await bcrypt.hash(this.password, salt);
@@ -102,7 +102,7 @@ User.pre("save", async function () {
   }
 });
 
-User.post("save", async function () {
+UserSchema.post("save", async function () {
   const session = this.$session();
 
   if (!session) {
@@ -126,15 +126,6 @@ User.post("save", async function () {
         {
           insertOne: {
             document: {
-              title: "History",
-              created_user_id: this._id,
-              type: "history",
-            },
-          },
-        },
-        {
-          insertOne: {
-            document: {
               title: "Liked videos",
               created_user_id: this._id,
               type: "liked",
@@ -150,7 +141,7 @@ User.post("save", async function () {
 });
 
 // Cascade when deleting user
-User.pre("deleteOne", async function () {
+UserSchema.pre("deleteOne", async function () {
   const { _id } = this.getQuery();
   const session = this.getOptions().session;
 
@@ -255,7 +246,7 @@ User.pre("deleteOne", async function () {
   }
 });
 
-User.pre("deleteMany", async function () {
+UserSchema.pre("deleteMany", async function () {
   const { session } = this.getOptions();
   if (!session) {
     throw new Error("⚠️ Transaction session is required");
@@ -327,7 +318,7 @@ User.pre("deleteMany", async function () {
   }
 });
 
-User.methods.createJwt = function () {
+UserSchema.methods.createJwt = function () {
   return jwt.sign(
     {
       userId: this._id,
@@ -340,18 +331,18 @@ User.methods.createJwt = function () {
   );
 };
 
-User.methods.comparePassword = async function (candidatePw) {
+UserSchema.methods.comparePassword = async function (candidatePw) {
   const isMatch = await bcrypt.compare(candidatePw, this.password);
 
   return isMatch;
 };
 
-User.methods.getName = function () {
+UserSchema.methods.getName = function () {
   return this.name;
 };
 
-User.methods.isAdmin = function () {
+UserSchema.methods.isAdmin = function () {
   return this.role === "admin";
 };
 
-module.exports = mongoose.model("User", User);
+module.exports = mongoose.model("User", UserSchema);

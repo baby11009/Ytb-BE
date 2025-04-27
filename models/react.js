@@ -1,6 +1,6 @@
 const mongoose = require("mongoose");
 
-const React = new mongoose.Schema(
+const ReactSchema = new mongoose.Schema(
   {
     user_id: {
       type: mongoose.Types.ObjectId,
@@ -19,7 +19,7 @@ const React = new mongoose.Schema(
   { timestamps: true },
 );
 
-React.pre("deleteMany", async function () {
+ReactSchema.pre("deleteMany", async function () {
   const { user_id } = this.getQuery();
   const { session } = this.getOptions();
 
@@ -64,4 +64,4 @@ React.pre("deleteMany", async function () {
   }
 });
 
-module.exports = mongoose.model("React", React);
+module.exports = mongoose.model("React", ReactSchema);
