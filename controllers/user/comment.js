@@ -159,6 +159,7 @@ const createCmt = async (req, res) => {
 
 const getCmts = async (req, res) => {
   const { userId } = req.user;
+  console.log("🚀 ~ userId:", userId)
 
   const { limit, page, search, sort } = req.query;
 
@@ -244,14 +245,8 @@ const getCmts = async (req, res) => {
 
   const pipeline = [
     {
-      $set: {
-        _idStr: { $toString: "$_id" },
-        userIdStr: { $toString: "$user_id" },
-      },
-    },
-    {
       $match: {
-        userIdStr: userId,
+        user_id: userId,
       },
     },
     {

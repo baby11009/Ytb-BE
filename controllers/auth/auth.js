@@ -11,6 +11,7 @@ const { sessionWrap } = require("../../utils/session");
 const {
   sendEmailNotification,
 } = require("../../service/notification/notification");
+const bcrypt = require('bcryptjs')
 
 const register = async (req, res) => {
   const { email } = req.body;
@@ -293,10 +294,12 @@ const changePassword = async (req, res) => {
   if (isMatch) {
     throw new BadRequestError("New password is already in use");
   }
+  const salt = await bcrypt.genSalt(10);
+  const hashedPassword = await bcrypt.hash(password, salt);
 
-  const user = await User.updateOne(
+  await User.updateOne(
     { email },
-    { password, privateCode: "", codeType: "" },
+    { password: hashedPassword, privateCode: "", codeType: "" },
   );
 
   let msg;

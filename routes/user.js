@@ -7,12 +7,15 @@ const commentRouter = require("./user/comment");
 const videoReactRouter = require("./user/video-react");
 const commentReactRouter = require("./user/comment-react");
 const subscriptionRouter = require("./user/subscription");
+const watchedHistoryRouter = require("./user/watched_history");
 
 const router = express.Router();
 
 router.use("/", userRouter);
 
 router.use("/video", videoRouter);
+
+router.use("/watched-history", watchedHistoryRouter);
 
 router.use("/playlist", playlistRouter);
 

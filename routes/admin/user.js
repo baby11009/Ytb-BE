@@ -13,9 +13,8 @@ const {
   getUsers,
   getUserDetails,
   deleteUser,
-  deleteManyUsers,
+  deleteUsers,
   updateUser,
-  testDlt,
 } = require("../../controllers/admin/user");
 
 router
@@ -36,8 +35,7 @@ router
     createUser,
   );
 
-router.route("/delete-many").delete(deleteManyUsers);
-router.route("/test").delete(testDlt);
+router.route("/delete-many").delete(deleteUsers);
 
 router
   .route("/:id")

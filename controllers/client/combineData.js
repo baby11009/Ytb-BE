@@ -154,13 +154,7 @@ const getDataList = async (req, res) => {
                 _id: 1,
                 thumb: 1,
                 video: 1,
-                stream: {
-                  $cond: {
-                    if: { $ne: ["$stream", null] }, // Check if `stream` exists and is not null
-                    then: "$stream", // Keep the `stream` value if it exists
-                    else: null, // Set it to null if it doesn't exist
-                  },
-                },
+                stream: 1,
                 createdAt: 1,
               },
             },
@@ -3178,13 +3172,7 @@ const getPlaylistDetails = async (req, res) => {
                 view: 1,
                 type: 1,
                 video: 1,
-                stream: {
-                  $cond: {
-                    if: { $ne: ["$stream", null] }, // Check if `stream` exists and is not null
-                    then: "$stream", // Keep the `stream` value if it exists
-                    else: null, // Set it to null if it doesn't exist
-                  },
-                },
+                stream: 1,
                 createdAt: 1,
                 duration: 1,
                 channel_info: 1,

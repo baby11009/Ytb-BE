@@ -2,10 +2,6 @@ const mongoose = require("mongoose");
 const jwt = require("jsonwebtoken");
 const bcrypt = require("bcryptjs");
 
-const path = require("path");
-const avatarPath = path.join(__dirname, "../assets/user avatar");
-const { deleteFile } = require("../utils/file.js");
-
 const UserSchema = new mongoose.Schema(
   {
     name: {
@@ -149,100 +145,84 @@ UserSchema.pre("deleteOne", async function () {
     throw new Error("⚠️ Transaction session is required");
   }
 
-  try {
-    const User = mongoose.model("User");
-    const Video = mongoose.model("Video");
-    const Playlist = mongoose.model("Playlist");
-    const Comment = mongoose.model("Comment");
-    const React = mongoose.model("React");
-    const Subscribe = mongoose.model("Subscribe");
-    const CmtReact = mongoose.model("CmtReact");
+  const User = mongoose.model("User");
+  const Video = mongoose.model("Video");
+  const Playlist = mongoose.model("Playlist");
+  const Comment = mongoose.model("Comment");
+  const React = mongoose.model("React");
+  const Subscribe = mongoose.model("Subscribe");
+  const CmtReact = mongoose.model("CmtReact");
+  const WathcedHistory = mongoose.model("WatchedHistory");
 
-    const foundedUser = await User.findById(_id)
-      .session(session)
-      .select("_id avatar banner");
+  const foundedUser = await User.findById(_id)
+    .session(session)
+    .select("_id avatar banner");
 
-    // Delete all the video that user have uploaded
-    const videoCount = await Video.countDocuments(
+  // Delete all user watched histories
+  await WathcedHistory.deleteMany({ user_id: foundedUser._id }, { session });
+
+  // Delete all the video that user have uploaded
+  const videoCount = await Video.countDocuments(
+    { user_id: foundedUser._id },
+    { session },
+  );
+
+  if (videoCount > 0) {
+    await Video.deleteMany({ user_id: foundedUser._id }, { session });
+  }
+
+  // Delete all the subcription that user has subscribed to other user channel
+  const userSubscriptionCount = await Subscribe.countDocuments(
+    { subscriber_id: foundedUser._id },
+    { session },
+  );
+
+  if (userSubscriptionCount > 0) {
+    await Subscribe.deleteMany({ subscriber_id: foundedUser._id }, { session });
+  }
+
+  // Delete all user channel subscriptions
+  const subscriberCount = await Subscribe.countDocuments(
+    { channel_id: foundedUser._id },
+    { session },
+  );
+
+  if (subscriberCount) {
+    await Subscribe.deleteMany({ channel_id: foundedUser._id }, { session });
+  }
+
+  // Delete all the react that user has created
+  const reactCount = await React.countDocuments(
+    { user_id: foundedUser._id },
+    { session },
+  );
+  if (reactCount > 0) {
+    await React.deleteMany(
       { user_id: foundedUser._id },
-      { session },
+      { session, isDeletedUser: true },
     );
+  }
 
-    if (videoCount > 0) {
-      await Video.deleteMany({ user_id: foundedUser._id }, { session });
-    }
+  // Delete all the playlist user has created
+  await Playlist.deleteMany({ created_user_id: foundedUser._id }, { session });
 
-    // Delete all the subcription that user has subscribed to other user channel
-    const userSubscriptionCount = await Subscribe.countDocuments(
-      { subscriber_id: foundedUser._id },
-      { session },
-    );
+  // Delete all the comment that user has posted
+  const commentCount = await Comment.countDocuments(
+    { user_id: foundedUser._id },
+    { session },
+  );
+  if (commentCount > 0) {
+    await Comment.deleteMany({ user_id: foundedUser._id }, { session });
+  }
 
-    if (userSubscriptionCount > 0) {
-      await Subscribe.deleteMany(
-        { subscriber_id: foundedUser._id },
-        { session },
-      );
-    }
+  // Delete all the comment react that user has created
+  const cmtReactCount = await CmtReact.countDocuments(
+    { user_id: foundedUser._id },
+    { session },
+  );
 
-    // Delete all user channel subscriptions
-    const subscriberCount = await Subscribe.countDocuments(
-      { channel_id: foundedUser._id },
-      { session },
-    );
-
-    if (subscriberCount) {
-      await Subscribe.deleteMany({ channel_id: foundedUser._id }, { session });
-    }
-
-    // Delete all the react that user has created
-    const reactCount = await React.countDocuments(
-      { user_id: foundedUser._id },
-      { session },
-    );
-    if (reactCount > 0) {
-      await React.deleteMany(
-        { user_id: foundedUser._id },
-        { session, isDeletedUser: true },
-      );
-    }
-
-    // Delete all the playlist user has created
-    await Playlist.deleteMany(
-      { created_user_id: foundedUser._id },
-      { session },
-    );
-
-    // Delete all the comment that user has posted
-    const commentCount = await Comment.countDocuments(
-      { user_id: foundedUser._id },
-      { session },
-    );
-    if (commentCount > 0) {
-      await Comment.deleteMany({ user_id: foundedUser._id }, { session });
-    }
-
-    // Delete all the comment react that user has created
-    const cmtReactCount = await CmtReact.countDocuments(
-      { user_id: foundedUser._id },
-      { session },
-    );
-
-    if (cmtReactCount > 0) {
-      await CmtReact.deleteMany({ user_id: foundedUser._id }, { session });
-    }
-
-    // Deleting avatar file if user has uploaded
-    if (foundedUser.avatar !== "df.jpg") {
-      deleteFile(path.join(avatarPath, foundedUser.avatar));
-    }
-
-    // Deleting banner file if user has uploaded
-    if (foundedUser.banner !== "df-banner.jpg") {
-      deleteFile(path.join(avatarPath, foundedUser.banner));
-    }
-  } catch (error) {
-    throw error;
+  if (cmtReactCount > 0) {
+    await CmtReact.deleteMany({ user_id: foundedUser._id }, { session });
   }
 });
 
@@ -255,66 +235,87 @@ UserSchema.pre("deleteMany", async function () {
   const filter = this.getFilter();
   const deleteIdList = filter._id["$in"];
 
+  const User = mongoose.model("User");
   const Video = mongoose.model("Video");
   const Playlist = mongoose.model("Playlist");
   const Comment = mongoose.model("Comment");
   const React = mongoose.model("React");
   const Subscribe = mongoose.model("Subscribe");
   const CmtReact = mongoose.model("CmtReact");
+  const WathcedHistory = mongoose.model("WatchedHistory");
 
-  for (const id of deleteIdList) {
+  const foundedUserList = await User.find({
+    _id: { $in: deleteIdList },
+  }).select("_id avatar banner");
+
+  for (const foundedUser of foundedUserList) {
+    // Delete all user watched histories
+    await WathcedHistory.deleteMany({ user_id: foundedUser._id }, { session });
+
     // Delete all the video that user has uploaded
-    const videoCount = await Video.countDocuments({ user_id: id }, { session });
+    const videoCount = await Video.countDocuments(
+      { user_id: foundedUser._id },
+      { session },
+    );
 
     if (videoCount > 0) {
-      await Video.deleteMany({ user_id: id }, { session });
+      await Video.deleteMany({ user_id: foundedUser._id }, { session });
     }
 
     // Delete all the react that user has created
-    const reactCount = await React.countDocuments({ user_id: id }, { session });
+    const reactCount = await React.countDocuments(
+      { user_id: foundedUser._id },
+      { session },
+    );
     if (reactCount > 0) {
-      await React.deleteMany({ user_id: id }, { session });
+      await React.deleteMany({ user_id: foundedUser._id }, { session });
     }
 
     // Delete all the comment that user has posted
     const commentCount = await Comment.countDocuments(
-      { user_id: id },
+      { user_id: foundedUser._id },
       { session },
     );
 
     if (commentCount > 0) {
-      await Comment.deleteMany({ user_id: id }, { session });
+      await Comment.deleteMany({ user_id: foundedUser._id }, { session });
     }
 
     // Delete all the comment react that user has created
     const cmtReactCount = await CmtReact.countDocuments(
-      { user_id: id },
+      { user_id: foundedUser._id },
       { session },
     );
     if (cmtReactCount > 0) {
-      await CmtReact.deleteMany({ user_id: id }, { session });
+      await CmtReact.deleteMany({ user_id: foundedUser._id }, { session });
     }
 
     // Delete all the subcription that user has subscribed to other user channel
     const supscriptionsCount = await Subscribe.countDocuments(
-      { subscriber_id: id },
+      { subscriber_id: foundedUser._id },
       { session },
     );
 
     if (supscriptionsCount > 0) {
-      await Subscribe.deleteMany({ subscriber_id: id }, { session });
+      await Subscribe.deleteMany(
+        { subscriber_id: foundedUser._id },
+        { session },
+      );
     }
 
     // Delete all user channel subscriptions
     const subscriberCount = await Subscribe.countDocuments(
-      { channel_id: id },
+      { channel_id: foundedUser._id },
       { session },
     );
     if (subscriberCount > 0) {
-      await Subscribe.deleteMany({ channel_id: id }, { session });
+      await Subscribe.deleteMany({ channel_id: foundedUser._id }, { session });
     }
 
-    await Playlist.deleteMany({ created_user_id: id }, { session });
+    await Playlist.deleteMany(
+      { created_user_id: foundedUser._id },
+      { session },
+    );
   }
 });
 
@@ -332,6 +333,7 @@ UserSchema.methods.createJwt = function () {
 };
 
 UserSchema.methods.comparePassword = async function (candidatePw) {
+  console.log("🚀 ~ candidatePw:", candidatePw);
   const isMatch = await bcrypt.compare(candidatePw, this.password);
 
   return isMatch;

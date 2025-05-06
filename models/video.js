@@ -127,7 +127,11 @@ VideoSchema.pre("deleteOne", async function () {
 
   const React = mongoose.model("React");
 
+  const WathcedHistory = mongoose.model("WatchedHistory");
+
   const video = await Video.findOne({ _id: _id }).session(session);
+
+  await WathcedHistory.deleteMany({ video_id: video._id }, { session });
 
   // Delete video and thumbnail belong to this video
 
@@ -202,6 +206,7 @@ VideoSchema.pre("deleteMany", async function () {
         if (video?.stream) {
           args.streamFolderName = video.stream;
         }
+
         await clearUploadedVideoFiles(args);
 
         // Delete all the React belong to videos

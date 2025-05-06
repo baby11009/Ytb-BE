@@ -2,19 +2,19 @@ const { User } = require("../../models");
 const {
   BadRequestError,
   NotFoundError,
-  InternalServerError,
   InvalidError,
 } = require("../../errors");
 const { StatusCodes } = require("http-status-codes");
 const { deleteFile } = require("../../utils/file");
-const mongoose = require("mongoose");
 const { searchWithRegex, isObjectEmpty } = require("../../utils/other");
-const { UserValidator, Validator } = require("../../utils/validate");
-
-const path = require("path");
-const { sessionWrap } = require("../../utils/session");
-
-const avatarPath = path.join(__dirname, "../../assets/user avatar");
+const { Validator } = require("../../utils/validate");
+const {
+  insertSingleUser,
+  getSingleUser,
+  updateSingleUser,
+  deleteSingleUser,
+  deleteManyUser,
+} = require("../../service/user-service");
 
 const createUser = async (req, res) => {
   try {
@@ -40,10 +40,7 @@ const createUser = async (req, res) => {
       finalData.banner = req.files.banner[0].filename;
     }
 
-    const user = await sessionWrap(async (session) => {
-      const user = await User.create([finalData], { session });
-      return user;
-    });
+    const user = await insertSingleUser(finalData);
 
     res.status(StatusCodes.CREATED).json({ msg: user });
   } catch (error) {
@@ -195,7 +192,8 @@ const getUserDetails = async (req, res) => {
     throw new BadRequestError("Please provide user id");
   }
 
-  const user = await User.findById(id).select(
+  const user = await getSingleUser(
+    { _id: id },
     "-password -subscriber -totalVids -codeType -privateCode -__v",
   );
 
@@ -216,30 +214,7 @@ const updateUser = async (req, res) => {
       throw new BadRequestError("No data provided to update");
     }
 
-    const foundedUser = await User.findOne({ _id: id });
-
-    if (!foundedUser) {
-      throw new NotFoundError("User not found");
-    }
-
-    const updateDatas = await new UserValidator(
-      { ...data, ...req.files },
-      foundedUser,
-    ).getValidatedUpdateData();
-
-    const user = await User.updateOne({ _id: id }, updateDatas);
-
-    if (user.modifiedCount === 0) {
-      throw new InternalServerError("Failed to update user");
-    }
-
-    if (foundedUser.avatar !== "df.jpg" && updateDatas.avatar) {
-      deleteFile(path.join(avatarPath, foundedUser.avatar));
-    }
-
-    if (foundedUser.banner !== "df-banner.jpg" && updateDatas.banner) {
-      deleteFile(path.join(avatarPath, foundedUser.banner));
-    }
+    await updateSingleUser({ _id: id }, data, req.files);
 
     res.status(StatusCodes.OK).json({ msg: "User updated successfully" });
   } catch (error) {
@@ -250,11 +225,13 @@ const updateUser = async (req, res) => {
     if (req.files?.banner && req.files.banner.length) {
       deleteFile(req.files.banner[0].path);
     }
+
     if (error instanceof InvalidError) {
       return res
         .status(StatusCodes.BAD_REQUEST)
         .json({ errors: error.errorObj });
     }
+
     throw error;
   }
 };
@@ -266,25 +243,8 @@ const deleteUser = async (req, res) => {
     throw new BadRequestError("Please provide user id");
   }
 
-  const foundedUser = await User.findById(id);
-
-  if (!foundedUser) {
-    throw new NotFoundError("User not found");
-  }
-
   try {
-    await sessionWrap(async (session) => {
-      await User.deleteOne({ _id: id }, { session: session });
-    });
-    // Delete user uploaded avatar and banner
-
-    if (foundedUser.avatar !== "df.jpg") {
-      deleteFile(path.join(avatarPath, foundedUser.avatar));
-    }
-
-    if (foundedUser.banner !== "df-banner.jpg") {
-      deleteFile(path.join(avatarPath, foundedUser.banner));
-    }
+    await deleteSingleUser({ _id: id });
 
     res.status(StatusCodes.OK).json({ msg: "User deleted" });
   } catch (error) {
@@ -292,7 +252,7 @@ const deleteUser = async (req, res) => {
   }
 };
 
-const deleteManyUsers = async (req, res) => {
+const deleteUsers = async (req, res) => {
   const { idList } = req.query;
 
   if (!idList) {
@@ -305,51 +265,18 @@ const deleteManyUsers = async (req, res) => {
     throw new BadRequestError("idList must be an array and can't be empty");
   }
 
-  const foundedUsers = await User.find({ _id: { $in: idArray } }).select("_id");
+  await deleteManyUser(idArray);
 
-  if (foundedUsers.length === 0) {
-    throw new NotFoundError(`No user found with these ids ${idList}`);
-  } else if (foundedUsers.length !== idArray.length) {
-    const notFoundedList = [];
-
-    foundedUsers.forEach((user) => {
-      if (idArray.includes(user._id.toString())) {
-        notFoundedList.push(user._id);
-      }
-    });
-
-    throw new NotFoundError(
-      `No user found with these ids : ${notFoundedList.join(", ")}`,
-    );
-  }
-
-  // Delete users after verify the id list is valid
-
-  try {
-    await sessionWrap(async (session) => {
-      await User.deleteMany({ _id: { $in: idArray } }, { session });
-    });
-   
-    res.status(StatusCodes.OK).json({
-      msg: `Successfully deleted these following users : ${idList}`,
-    });
-  } catch (error) {
-  
-    throw error;
-  } 
+  res.status(StatusCodes.OK).json({
+    msg: `Successfully deleted these following users : ${idList}`,
+  });
 };
 
-const testDlt = async (req, res) => {
-  await User.deleteOne({ _id: 21321 });
-
-  res.status(StatusCodes.OK).json({ msg: "OK" });
-};
 module.exports = {
   createUser,
   getUsers,
   getUserDetails,
   deleteUser,
-  deleteManyUsers,
+  deleteUsers,
   updateUser,
-  testDlt,
 };

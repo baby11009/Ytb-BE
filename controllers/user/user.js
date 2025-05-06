@@ -16,6 +16,7 @@ const {
 } = require("../../models");
 const avatarPath = path.join(__dirname, "../../assets/user avatar");
 const { UserValidator, Validator } = require("../../utils/validate");
+const { updateSingleUser } = require("../../service/user-service");
 const {
   isObjectEmpty,
   decodedWithZlib,
@@ -87,36 +88,22 @@ const getAccountInfo = async (req, res) => {
 };
 
 const settingAccount = async (req, res) => {
-  const id = req.user.userId;
+  const { userId } = req.user;
 
   try {
     if (Object.keys(req.body).length === 0 && !req.files) {
       throw new BadRequestError("No data provided to update");
     }
 
-    const foundedUser = await User.findOne({ _id: id });
+    const data = await updateSingleUser({ _id: userId }, req.body, req.files, [
+      "name",
+      "password",
+      "description",
+      "avatar",
+      "banner",
+    ]);
 
-    if (!foundedUser) {
-      throw new NotFoundError("User not found");
-    }
-
-    const updateDatas = await new UserValidator(
-      { ...req.body, ...req.files },
-      foundedUser,
-      ["name", "password", "description", "avatar", "banner"],
-    ).getValidatedUpdateData();
-
-    await User.updateOne({ _id: id }, updateDatas);
-
-    if (foundedUser.avatar !== "df.jpg" && updateDatas.avatar) {
-      deleteFile(path.join(avatarPath, foundedUser.avatar));
-    }
-
-    if (foundedUser.banner !== "df-banner.jpg" && updateDatas.banner) {
-      deleteFile(path.join(avatarPath, foundedUser.banner));
-    }
-
-    res.status(StatusCodes.OK).json({ msg: "User updated successfully" });
+    res.status(StatusCodes.OK).json({ msg: "User updated successfully", data });
   } catch (error) {
     if (req.files?.avatar && req.files.avatar.length) {
       deleteFile(req.files.avatar[0].path);
@@ -826,224 +813,7 @@ const getNotificationList = async (req, res) => {
   });
 };
 
-const setUserHistoryList = async (req, res) => {
-  const { userId } = req.user;
-  const { videoId, watchedDuration } = req.body;
-
-  const foundedVideo = await Video.findById(videoId).select(
-    "_id type duration",
-  );
-
-  if (!foundedVideo) {
-    throw new NotFoundError(`Not found video with id ${videoId}`);
-  }
-
-  if (watchedDuration > foundedVideo.duration) {
-    throw new BadRequestError(
-      `Watched duration cannot larger than video duration it self`,
-    );
-  }
-
-  const foundedWatchedList = await WatchedHistory.findOne({
-    user_id: userId,
-    video_id: videoId,
-  });
-
-  if (foundedWatchedList) {
-    await WatchedHistory.updateOne(
-      { _id: foundedWatchedList._id },
-      { last_watched_at: Date.now(), watched_duration: watchedDuration },
-    );
-  } else {
-    await WatchedHistory.create({
-      user_id: userId,
-      video_id: videoId,
-      video_type: foundedVideo.type,
-      watched_duration: watchedDuration,
-      last_watched_at: new Date(),
-    });
-  }
-
-  res.status(StatusCodes.OK).send("Sucess full set history");
-};
-
-const getHistoryList = async (req, res) => {
-  const { userId } = req.user;
-  const { cursors, limit } = req.query;
-
-  let cursorsData = null;
-
-  if (cursors) {
-    try {
-      cursorsData = decodedWithZlib(cursors);
-    } catch (e) {
-      throw new BadRequestError("Invalid cursor format");
-    }
-  }
-
-  const matchObj = {
-    user_id: userId,
-  };
-
-  const buildPipeline = (type, base, limit, lastEndDate) => {
-    //If no cursor is provided, we start fetching data from
-    // before tomorrow at 00:00:00 (i.e., all history up to the end of today
-    const startDateTime = lastEndDate
-      ? new Date(lastEndDate)
-      : new Date(new Date(Date.now() + 24 * 60 * 60 * 1000).setHours(0, 0, 0));
-
-    const pipeline = [
-      {
-        $match: {
-          ...base,
-          last_watched_at: { $lt: startDateTime },
-          video_type: type,
-        },
-      },
-    ];
-
-    if (lastId) {
-      pipeline.push(
-        { $set: { _idStr: { $toString: "$_id" } } },
-        { $match: { $lt: lastId } },
-      );
-    }
-
-    pipeline.push({
-      $facet: {
-        total: [{ $count: "size" }],
-        data: [
-          {
-            $sort: {
-              last_watched_at: -1,
-            },
-          },
-          { $limit: limit },
-          {
-            $lookup: {
-              from: "videos",
-              localField: "video_id",
-              foreignField: "_id",
-              pipeline: [
-                {
-                  $lookup: {
-                    from: "users",
-                    localField: "user_id",
-                    foreignField: "_id",
-                    pipeline: [
-                      {
-                        $project: {
-                          name: 1,
-                          email: 1,
-                          subscriber: 1,
-                          avatar: 1,
-                        },
-                      },
-                    ],
-                    as: "channel_info",
-                  },
-                },
-                {
-                  $unwind: "$channel_info",
-                },
-                {
-                  $project: {
-                    title: 1,
-                    thumb: 1,
-                    view: 1,
-                    duration: 1,
-                    description: {
-                      $substrCP: ["$description", 0, 255], // substring from start to 100 characters
-                    },
-                    channel_info: 1,
-                  },
-                },
-              ],
-              as: "video_info",
-            },
-          },
-          {
-            $unwind: "$video_info",
-          },
-          {
-            $project: {
-              video_info: 1,
-              watched_duration: 1,
-              last_watched_at: 1,
-            },
-          },
-        ],
-      },
-    });
-
-    return pipeline;
-  };
-
-  const promiseList = [];
-
-  const fetchingRules = {
-    video: {
-      condition: !cursorsData || cursorsData?.lastVideoEndDate,
-      action: () => {
-        const videoPipeline = buildPipeline(
-          "video",
-          matchObj,
-          limit,
-          cursorsData?.lastVideoEndDate,
-        );
-
-        promiseList.push(WatchedHistory.aggregate(videoPipeline));
-      },
-    },
-    short: {
-      condition: !cursorsData || cursorsData?.lastVideoEndDate,
-      action: () => {
-        const shortPipeline = buildPipeline(
-          "short",
-          matchObj,
-          limit,
-          cursorsData?.lastShortEndDate,
-        );
-
-        promiseList.push(WatchedHistory.aggregate(shortPipeline));
-      },
-    },
-  };
-
-  for (const rules of Object.values(fetchingRules)) {
-    if (rules.condition) {
-      rules.action();
-    }
-  }
-
-  const [videos = [], shorts = []] = await Promise.all(promiseList);
-
-  let nextCursors = null;
-
-  if (videos.length && videos[0].total[0].size > videos[0].data.length) {
-    nextCursors = {
-      lastVideoEndDate:
-        videos[0].data[videos[0].data.length - 1].last_watched_at,
-    };
-  }
-
-  if (shorts.length && shorts[0].total[0].size > shorts[0].data.length) {
-    nextCursors = {
-      lastShortEndDate:
-        shorts[0].data[shorts[0].data.length - 1].last_watched_at,
-    };
-  }
-
-  let newCursors;
-  if (nextCursors) {
-    newCursors = encodedWithZlib(nextCursors);
-  }
-
-  res.status(200).json({ videos, shorts, nextCursors, newCursors });
-};
-
 module.exports = {
-  
   getAccountInfo,
   getSubscribedChannels,
   settingAccount,

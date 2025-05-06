@@ -47,16 +47,6 @@ const upLoadVideo = async (req, res) => {
       throw new BadRequestError(`Please provide ${fileErr.join(", ")}`);
     }
 
-    if (!userId) {
-      throw new BadRequestError("Please provide user id");
-    }
-
-    const foundedUser = await User.findById(userId);
-
-    if (!foundedUser) {
-      throw new NotFoundError(`Not found user with id ${userId}`);
-    }
-
     const videoPath = video[0].path; // Đường dẫn đến video vừa upload
     const filename = video[0].filename.split(".")[0];
 
@@ -391,8 +381,9 @@ const deleteVideo = async (req, res) => {
 
   const { id } = req.params;
 
-  const foundedVideo = await Video.findOne({ _id: id, user_id: userId });
-
+  const foundedVideo = await Video.findOne({ _id: id, user_id: userId }).select(
+    "_id video thumb stream",
+  );
   if (!foundedVideo) {
     throw new NotFoundError(`Not found video with id ${id}`);
   }
@@ -401,6 +392,17 @@ const deleteVideo = async (req, res) => {
     await sessionWrap(async (session) => {
       await Video.deleteOne({ _id: id }, { session });
     });
+
+    const videoPath = path.join(asssetPath, "videos", foundedVideo.video);
+
+    const imagePath = path.join(asssetPath, "video thumb", foundedVideo.thumb);
+    let args = { videoPath, imagePath };
+
+    if (foundedVideo?.stream) {
+      args.streamFolderName = foundedVideo.stream;
+    }
+
+    clearUploadedVideoFiles(args);
 
     res.status(StatusCodes.OK).json({ msg: "Video deleted successfully" });
   } catch (error) {
@@ -427,11 +429,13 @@ const deleteManyVideos = async (req, res) => {
   const foundedVideos = await Video.find({
     _id: { $in: idArray },
     user_id: userId,
-  }).select("_id");
+  }).select("_id video thumb stream");
 
-  if (foundedVideos.length === 0) {
+  if (foundedVideos.length < 1) {
     throw new NotFoundError(`Not found any video with these ids: ${idList}`);
-  } else if (foundedVideos.length !== idArray.length) {
+  }
+
+  if (foundedVideos.length !== idArray.length) {
     const notFoundedList = [];
 
     foundedVideos.forEach((video) => {
@@ -448,6 +452,25 @@ const deleteManyVideos = async (req, res) => {
   try {
     await sessionWrap(async (session) => {
       await Video.deleteMany({ _id: { $in: idArray } }, { session });
+    });
+
+    foundedVideos.forEach((foundedVideo) => {
+      // Delete video and thumbnail belong to this video
+
+      const videoPath = path.join(asssetPath, "videos", foundedVideo.video);
+
+      const imagePath = path.join(
+        asssetPath,
+        "video thumb",
+        foundedVideo.thumb,
+      );
+      let args = { videoPath, imagePath };
+
+      if (foundedVideo?.stream) {
+        args.streamFolderName = foundedVideo.stream;
+      }
+
+      clearUploadedVideoFiles(args);
     });
 
     res.status(StatusCodes.OK).json({ msg: "Videos deleted successfully" });

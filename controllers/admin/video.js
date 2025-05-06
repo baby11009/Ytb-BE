@@ -20,6 +20,8 @@ const { VideoValidator, Validator } = require("../../utils/validate");
 
 const { sessionWrap } = require("../../utils/session");
 
+const { uploadVideo } = require("../../service/video-service");
+
 const videoFolderPath = path.join(__dirname, "../../assets/video thumb");
 
 const upLoadVideo = async (req, res) => {
@@ -63,8 +65,6 @@ const upLoadVideo = async (req, res) => {
     const videoPath = video[0].path;
     const filename = video[0].filename.split(".")[0];
 
-    await createHls(filename, videoPath, type);
-
     const videoDuration = await getVideoDuration(video[0].path);
 
     const data = {
@@ -81,9 +81,9 @@ const upLoadVideo = async (req, res) => {
       dislike,
     };
 
-    await sessionWrap(async (session) => {
-      await Video.create([data], { session });
-    });
+    await uploadVideo(data);
+
+    await createHls(filename, videoPath, type);
 
     res.status(StatusCodes.CREATED).json({ msg: "Upload video successfully" });
   } catch (error) {
@@ -95,6 +95,7 @@ const upLoadVideo = async (req, res) => {
     if (thumbnail & thumbnail[0]) {
       args.imagePath = thumbnail[0].path;
     }
+
     await clearUploadedVideoFiles(args);
 
     throw error;
@@ -412,7 +413,9 @@ const deleteVideo = async (req, res) => {
     throw new BadRequestError(`Video id cannot be empty`);
   }
 
-  const foundedVideo = await Video.findById(id);
+  const foundedVideo = await Video.findById(id).select(
+    "_id video thumb stream",
+  );
 
   if (!foundedVideo) {
     throw new NotFoundError(`Not found video with id ${id}`);
@@ -422,6 +425,19 @@ const deleteVideo = async (req, res) => {
     await sessionWrap(async (session) => {
       await Video.deleteOne({ _id: id }, { session });
     });
+
+    // Delete video and thumbnail belong to this video
+
+    const videoPath = path.join(asssetPath, "videos", foundedVideo.video);
+
+    const imagePath = path.join(asssetPath, "video thumb", foundedVideo.thumb);
+    let args = { videoPath, imagePath };
+
+    if (foundedVideo?.stream) {
+      args.streamFolderName = foundedVideo.stream;
+    }
+
+    clearUploadedVideoFiles(args);
 
     res.status(StatusCodes.OK).json({ msg: "Video deleted successfully" });
   } catch (error) {
@@ -443,7 +459,7 @@ const deleteManyVideos = async (req, res) => {
   }
 
   const foundedVideos = await Video.find({ _id: { $in: idArray } }).select(
-    "_id",
+    "_id video thumb stream",
   );
 
   if (foundedVideos.length < 1) {
@@ -466,6 +482,21 @@ const deleteManyVideos = async (req, res) => {
 
   await sessionWrap(async (session) => {
     await Video.deleteMany({ _id: { $in: idArray } }, { session });
+  });
+
+  foundedVideos.forEach((foundedVideo) => {
+    // Delete video and thumbnail belong to this video
+
+    const videoPath = path.join(asssetPath, "videos", foundedVideo.video);
+
+    const imagePath = path.join(asssetPath, "video thumb", foundedVideo.thumb);
+    let args = { videoPath, imagePath };
+
+    if (foundedVideo?.stream) {
+      args.streamFolderName = foundedVideo.stream;
+    }
+
+    clearUploadedVideoFiles(args);
   });
 
   res.status(StatusCodes.OK).json({ msg: "Videos deleted successfully" });
