@@ -7,11 +7,14 @@ const {
 } = require("../../errors");
 const { generateCodeAndExpire } = require("../../utils/generator");
 const { StatusCodes } = require("http-status-codes");
-const { sessionWrap } = require("../../utils/session");
 const {
   sendEmailNotification,
 } = require("../../service/notification/notification");
-const bcrypt = require('bcryptjs')
+const bcrypt = require("bcryptjs");
+const {
+  insertSingleUser,
+  updateSingleUser,
+} = require("../../service/user-service");
 
 const register = async (req, res) => {
   const { email } = req.body;
@@ -34,11 +37,7 @@ const register = async (req, res) => {
     codeExpires: confirmCodeExpires,
   };
 
-  await sessionWrap(async (session) => {
-    const user = await User.create([userData], { session });
-
-    return user;
-  });
+  await insertSingleUser(userData);
 
   await sendEmailNotification(
     email,
@@ -74,7 +73,7 @@ const verifyAccount = async (req, res) => {
     throw new BadRequestError("Confirmation code is wrong");
   }
 
-  await User.updateOne(
+  await updateSingleUser(
     { email },
     { confirmed: true, codeType: "", privateCode: "" },
   );
@@ -100,7 +99,7 @@ const resendConfirmCode = async (req, res) => {
   }
   const { confirmCode, confirmCodeExpires } = generateCodeAndExpire();
 
-  const user = await User.updateOne(
+  await updateSingleUser(
     { email },
     { privateCode: confirmCode, codeExpires: confirmCodeExpires },
   );
@@ -214,7 +213,7 @@ const sendConfirmCode = async (req, res) => {
     expires = confirmCodeExpires;
   }
 
-  await User.updateOne(
+  await updateSingleUser(
     { email },
     {
       privateCode: confirmCode,
@@ -252,14 +251,14 @@ const sendCode = async (req, res) => {
     expires = confirmCodeExpires;
   }
 
-  const udUser = await User.updateOne(
+  await updateSingleUser(
     { email },
     {
       privateCode: confirmCode,
       codeType: type,
       codeExpires: expires,
     },
-  ).select("-password");
+  );
 
   await sendEmailNotification(
     email,
@@ -294,12 +293,10 @@ const changePassword = async (req, res) => {
   if (isMatch) {
     throw new BadRequestError("New password is already in use");
   }
-  const salt = await bcrypt.genSalt(10);
-  const hashedPassword = await bcrypt.hash(password, salt);
 
-  await User.updateOne(
+  await updateSingleUser(
     { email },
-    { password: hashedPassword, privateCode: "", codeType: "" },
+    { password: password, privateCode: "", codeType: "" },
   );
 
   let msg;
@@ -361,8 +358,7 @@ const resetPassword = async (req, res) => {
   if (isMatch) {
     throw new BadRequestError("New password is already in use");
   }
-
-  const user = await User.updateOne(
+  await updateSingleUser(
     { email },
     { password, privateCode: "", codeType: "" },
   );

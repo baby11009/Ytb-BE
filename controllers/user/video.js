@@ -13,17 +13,17 @@ const { deleteFile, getVideoDuration } = require("../../utils/file");
 const { createHls } = require("../../utils/createhls");
 const { clearUploadedVideoFiles } = require("../../utils/clear");
 
-const { VideoValidator, Validator } = require("../../utils/validate");
+const { Validator } = require("../../utils/validate");
 
 const {
   sendRealTimeNotification,
 } = require("../../service/notification/notification");
-
-const { sessionWrap } = require("../../utils/session");
-
-const path = require("path");
-
-const asssetPath = path.join(__dirname, "../../assets");
+const {
+  uploadVideo,
+  updateVideoDetails,
+  deleteSingleVideo,
+  deleteVideos,
+} = require("../../service/video-service");
 
 const upLoadVideo = async (req, res) => {
   const { thumbnail, video } = req.files;
@@ -66,10 +66,7 @@ const upLoadVideo = async (req, res) => {
       description,
     };
 
-    const createdVideo = await sessionWrap(async (session) => {
-      const video = await Video.create([data], { session });
-      return video[0];
-    });
+    const createdVideo = await uploadVideo(data);
 
     const notifi = async () => {
       const subscriberList = await Subscribe.find({
@@ -258,12 +255,11 @@ const getVideoDetails = async (req, res) => {
     {
       $addFields: {
         _idStr: { $toString: "$_id" },
-        userIdStr: { $toString: "$user_id" },
       },
     },
     {
       $match: {
-        $and: [{ _idStr: id }, { userIdStr: userId }],
+        $and: [{ _idStr: id }, { user_id: userId }],
       },
     },
     {
@@ -342,24 +338,13 @@ const updateVideo = async (req, res) => {
       throw new NotFoundError(`Not found video with id ${id}`);
     }
 
-    const updateDatas = await new VideoValidator(
-      {
-        ...req.body,
-        ...req.files,
-      },
-      foundedVideo,
-      ["title", "thumbnail", "type", "tags", "description"],
-    ).getValidatedUpdateData();
-
-    await Video.updateOne(
-      { _id: id, user_id: foundedVideo.user_id },
-      updateDatas,
-    );
-
-    if (req.files?.thumbnail && req.files?.thumbnail.length) {
-      const imgPath = path.join(asssetPath, "video thumb", foundedVideo.thumb);
-      deleteFile(imgPath);
-    }
+    await updateVideoDetails({ _id: id }, req.body, req.files, [
+      "title",
+      "thumbnail",
+      "type",
+      "tags",
+      "description",
+    ]);
 
     res.status(StatusCodes.OK).json({ msg: "Video updated successfully" });
   } catch (error) {
@@ -381,28 +366,8 @@ const deleteVideo = async (req, res) => {
 
   const { id } = req.params;
 
-  const foundedVideo = await Video.findOne({ _id: id, user_id: userId }).select(
-    "_id video thumb stream",
-  );
-  if (!foundedVideo) {
-    throw new NotFoundError(`Not found video with id ${id}`);
-  }
-
   try {
-    await sessionWrap(async (session) => {
-      await Video.deleteOne({ _id: id }, { session });
-    });
-
-    const videoPath = path.join(asssetPath, "videos", foundedVideo.video);
-
-    const imagePath = path.join(asssetPath, "video thumb", foundedVideo.thumb);
-    let args = { videoPath, imagePath };
-
-    if (foundedVideo?.stream) {
-      args.streamFolderName = foundedVideo.stream;
-    }
-
-    clearUploadedVideoFiles(args);
+    await deleteSingleVideo({ user_id: userId, _id: id });
 
     res.status(StatusCodes.OK).json({ msg: "Video deleted successfully" });
   } catch (error) {
@@ -426,59 +391,17 @@ const deleteManyVideos = async (req, res) => {
     throw new BadRequestError("idList must be an array and can't be empty");
   }
 
-  const foundedVideos = await Video.find({
-    _id: { $in: idArray },
-    user_id: userId,
-  }).select("_id video thumb stream");
-
-  if (foundedVideos.length < 1) {
-    throw new NotFoundError(`Not found any video with these ids: ${idList}`);
-  }
-
-  if (foundedVideos.length !== idArray.length) {
-    const notFoundedList = [];
-
-    foundedVideos.forEach((video) => {
-      if (idArray.includes(video._id.toString())) {
-        notFoundedList.push(video._id);
-      }
-    });
-
-    throw new NotFoundError(
-      `Not found any video with these ids: ${notFoundedList.join(", ")}`,
-    );
-  }
-
   try {
-    await sessionWrap(async (session) => {
-      await Video.deleteMany({ _id: { $in: idArray } }, { session });
+    await deleteVideos(idArray, {
+      user_id: userId,
     });
-
-    foundedVideos.forEach((foundedVideo) => {
-      // Delete video and thumbnail belong to this video
-
-      const videoPath = path.join(asssetPath, "videos", foundedVideo.video);
-
-      const imagePath = path.join(
-        asssetPath,
-        "video thumb",
-        foundedVideo.thumb,
-      );
-      let args = { videoPath, imagePath };
-
-      if (foundedVideo?.stream) {
-        args.streamFolderName = foundedVideo.stream;
-      }
-
-      clearUploadedVideoFiles(args);
-    });
-
-    res.status(StatusCodes.OK).json({ msg: "Videos deleted successfully" });
+    return res
+      .status(StatusCodes.OK)
+      .json({ msg: "Videos deleted successfully" });
   } catch (error) {
     console.error("User delete many video error: ", error);
     throw new InternalServerError("Failed to delete many video");
   }
-  f;
 };
 
 module.exports = {

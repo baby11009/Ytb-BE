@@ -232,10 +232,6 @@ UserSchema.pre("deleteMany", async function () {
     throw new Error("⚠️ Transaction session is required");
   }
 
-  const filter = this.getFilter();
-  const deleteIdList = filter._id["$in"];
-
-  const User = mongoose.model("User");
   const Video = mongoose.model("Video");
   const Playlist = mongoose.model("Playlist");
   const Comment = mongoose.model("Comment");
@@ -244,11 +240,9 @@ UserSchema.pre("deleteMany", async function () {
   const CmtReact = mongoose.model("CmtReact");
   const WathcedHistory = mongoose.model("WatchedHistory");
 
-  const foundedUserList = await User.find({
-    _id: { $in: deleteIdList },
-  }).select("_id avatar banner");
+  const { foundedUsers } = this.getOptions().context;
 
-  for (const foundedUser of foundedUserList) {
+  for (const foundedUser of foundedUsers) {
     // Delete all user watched histories
     await WathcedHistory.deleteMany({ user_id: foundedUser._id }, { session });
 
@@ -333,7 +327,12 @@ UserSchema.methods.createJwt = function () {
 };
 
 UserSchema.methods.comparePassword = async function (candidatePw) {
-  console.log("🚀 ~ candidatePw:", candidatePw);
+  // console.log("🚀 ~ candidatePw:", candidatePw);
+  const salt = await bcrypt.genSalt(10);
+  const hashedPassword = await bcrypt.hash(candidatePw, salt);
+  console.log(hashedPassword);
+
+  console.log(this.password);
   const isMatch = await bcrypt.compare(candidatePw, this.password);
 
   return isMatch;

@@ -113,6 +113,9 @@ class UserValidator {
     "description",
     "avatar",
     "banner",
+    "codeType",
+    "privateCode",
+    "codeExpires",
   ];
   #errors = {};
 
@@ -203,30 +206,17 @@ class UserValidator {
     this.#sanitizeData();
 
     const validators = {
-      name: () => {
-        return this.#validateName();
-      },
-      password: async () => {
-        return this.#validatePassword();
-      },
-      role: () => {
-        return this.#validateRole();
-      },
-      confirmed: () => {
-        return this.#validateConfirmed();
-      },
-      subscriber: () => {
-        return this.#validateSubscriber();
-      },
-      description: () => {
-        return this.#validateDescription();
-      },
-      avatar: () => {
-        return this.#validateAvatar();
-      },
-      banner: () => {
-        return this.#validateBanner();
-      },
+      name: () => this.#validateName(),
+      password: () => this.#validatePassword(),
+      role: () => this.#validateRole(),
+      confirmed: () => this.#validateConfirmed(),
+      subscriber: () => this.#validateSubscriber(),
+      description: () => this.#validateDescription(),
+      avatar: () => this.#validateAvatar(),
+      banner: () => this.#validateBanner(),
+      codeType: () => this.#data.codeType,
+      privateCode: () => this.#data.privateCode,
+      codeExpires: () => this.#data.privateCode,
     };
 
     const updateDatas = {};

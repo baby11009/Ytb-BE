@@ -1,8 +1,6 @@
 const { User, Video } = require("../../models");
 const mongoose = require("mongoose");
 
-const path = require("path");
-
 const { StatusCodes } = require("http-status-codes");
 
 const {
@@ -16,13 +14,14 @@ const { createHls } = require("../../utils/createhls");
 const { clearUploadedVideoFiles } = require("../../utils/clear");
 
 const { searchWithRegex, isObjectEmpty } = require("../../utils/other");
-const { VideoValidator, Validator } = require("../../utils/validate");
+const { Validator } = require("../../utils/validate");
 
-const { sessionWrap } = require("../../utils/session");
-
-const { uploadVideo } = require("../../service/video-service");
-
-const videoFolderPath = path.join(__dirname, "../../assets/video thumb");
+const {
+  uploadVideo,
+  updateVideoDetails,
+  deleteSingleVideo,
+  deleteVideos,
+} = require("../../service/video-service");
 
 const upLoadVideo = async (req, res) => {
   const { thumbnail, video } = req.files;
@@ -72,7 +71,7 @@ const upLoadVideo = async (req, res) => {
       type: type,
       title: title,
       video: video[0].filename,
-      stream: filename,
+      // stream: filename,
       thumb: thumbnail[0].filename,
       duration: videoDuration,
       tags: tags,
@@ -81,9 +80,9 @@ const upLoadVideo = async (req, res) => {
       dislike,
     };
 
-    await uploadVideo(data);
-
     await createHls(filename, videoPath, type);
+
+    await uploadVideo(data);
 
     res.status(StatusCodes.CREATED).json({ msg: "Upload video successfully" });
   } catch (error) {
@@ -362,34 +361,7 @@ const updateVideo = async (req, res) => {
       throw new BadRequestError("There is nothing to update.");
     }
 
-    const foundedVideo = await Video.findById(id);
-
-    if (!foundedVideo) {
-      throw new NotFoundError(`Not found video with id ${id}`);
-    }
-
-    const updateDatas = await new VideoValidator(
-      {
-        ...req.body,
-        ...req.files,
-      },
-      foundedVideo,
-    ).getValidatedUpdateData();
-
-    const video = await sessionWrap(async (session) => {
-      const video = await Video.updateOne(
-        { _id: id, user_id: foundedVideo.user_id, view: foundedVideo.view },
-        updateDatas,
-        { session },
-      );
-
-      return video;
-    });
-
-    if (req.files?.thumbnail && req.files?.thumbnail.length) {
-      const imgPath = path.join(videoFolderPath, video.thumb);
-      deleteFile(imgPath);
-    }
+    await updateVideoDetails({ _id: id }, req.body, req.files);
 
     res.status(StatusCodes.OK).json({ msg: "Video updated successfully" });
   } catch (error) {
@@ -409,40 +381,9 @@ const updateVideo = async (req, res) => {
 const deleteVideo = async (req, res) => {
   const { id } = req.params;
 
-  if (id === "" || id === ":id") {
-    throw new BadRequestError(`Video id cannot be empty`);
-  }
+  await deleteSingleVideo({ _id: id });
 
-  const foundedVideo = await Video.findById(id).select(
-    "_id video thumb stream",
-  );
-
-  if (!foundedVideo) {
-    throw new NotFoundError(`Not found video with id ${id}`);
-  }
-
-  try {
-    await sessionWrap(async (session) => {
-      await Video.deleteOne({ _id: id }, { session });
-    });
-
-    // Delete video and thumbnail belong to this video
-
-    const videoPath = path.join(asssetPath, "videos", foundedVideo.video);
-
-    const imagePath = path.join(asssetPath, "video thumb", foundedVideo.thumb);
-    let args = { videoPath, imagePath };
-
-    if (foundedVideo?.stream) {
-      args.streamFolderName = foundedVideo.stream;
-    }
-
-    clearUploadedVideoFiles(args);
-
-    res.status(StatusCodes.OK).json({ msg: "Video deleted successfully" });
-  } catch (error) {
-    throw error;
-  }
+  res.status(StatusCodes.OK).json({ msg: "Video deleted successfully" });
 };
 
 const deleteManyVideos = async (req, res) => {
@@ -458,47 +399,7 @@ const deleteManyVideos = async (req, res) => {
     throw new BadRequestError("idList must be an array and can't be empty");
   }
 
-  const foundedVideos = await Video.find({ _id: { $in: idArray } }).select(
-    "_id video thumb stream",
-  );
-
-  if (foundedVideos.length < 1) {
-    throw new NotFoundError(`Not found any video with these ids: ${idList}`);
-  }
-
-  if (foundedVideos.length !== idArray.length) {
-    const notFoundedList = [];
-
-    foundedVideos.forEach((video) => {
-      if (idArray.includes(video._id.toString())) {
-        notFoundedList.push(video._id);
-      }
-    });
-
-    throw new NotFoundError(
-      `Not found any video with these ids: ${notFoundedList.join(", ")}`,
-    );
-  }
-
-  await sessionWrap(async (session) => {
-    await Video.deleteMany({ _id: { $in: idArray } }, { session });
-  });
-
-  foundedVideos.forEach((foundedVideo) => {
-    // Delete video and thumbnail belong to this video
-
-    const videoPath = path.join(asssetPath, "videos", foundedVideo.video);
-
-    const imagePath = path.join(asssetPath, "video thumb", foundedVideo.thumb);
-    let args = { videoPath, imagePath };
-
-    if (foundedVideo?.stream) {
-      args.streamFolderName = foundedVideo.stream;
-    }
-
-    clearUploadedVideoFiles(args);
-  });
-
+  await deleteVideos(idArray);
   res.status(StatusCodes.OK).json({ msg: "Videos deleted successfully" });
 };
 

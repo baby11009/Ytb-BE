@@ -12,6 +12,7 @@ const {
 const { searchWithRegex } = require("../../utils/other");
 const { CommentValidator, Validator } = require("../../utils/validate");
 const { sessionWrap } = require("../../utils/session");
+const { createComment } = require("../../service/comment-service");
 
 const createCmt = async (req, res) => {
   const neededKeys = ["userId", "videoId", "cmtText"];
@@ -33,8 +34,7 @@ const createCmt = async (req, res) => {
       `Missing required fields: ${invalidFields.join(", ")} `,
     );
   }
-
-  const { userId, videoId, cmtText, replyId, like, dislike } = req.body;
+  const { userId, ...commentData } = req.body;
 
   const user = await User.findById(userId);
 
@@ -42,60 +42,9 @@ const createCmt = async (req, res) => {
     throw new NotFoundError(`Not found user with id ${userId}`);
   }
 
-  const video = await Video.findById(videoId);
+  await createComment(userId, commentData);
 
-  if (!video) {
-    throw new NotFoundError(`Not found video with id ${videoId}`);
-  }
-
-  const data = {
-    user_id: userId,
-    video_id: videoId,
-    cmtText: cmtText,
-  };
-
-  if (replyId) {
-    const replyCmt = await Comment.findById(replyId);
-
-    if (!replyCmt) {
-      throw new NotFoundError(`Not found comment with id ${replyId}`);
-    }
-
-    if (replyCmt.video_id?.toString() !== videoId) {
-      throw new BadRequestError(
-        "Reply comment should belong to the same video",
-      );
-    }
-
-    if (replyCmt?.replied_parent_cmt_id) {
-      cmtId = replyCmt?.replied_parent_cmt_id;
-      data["replied_parent_cmt_id"] = replyCmt?.replied_parent_cmt_id;
-    } else {
-      data["replied_parent_cmt_id"] = replyId;
-    }
-
-    data["replied_cmt_id"] = replyId;
-    data["replied_user_id"] = replyCmt.user_id;
-  }
-
-  if (like) {
-    data.like = like;
-  }
-
-  if (dislike) {
-    data.dislike = dislike;
-  }
-
-  try {
-    const cmt = await sessionWrap(async (session) => {
-      const cmt = await Comment.create([data], { session });
-      return cmt;
-    });
-
-    res.status(StatusCodes.CREATED).json({ msg: "Comment created", data: cmt });
-  } catch (error) {
-    throw error;
-  }
+  res.status(StatusCodes.CREATED).json({ msg: "Comment created" });
 };
 
 const getCmts = async (req, res) => {
@@ -114,6 +63,8 @@ const getCmts = async (req, res) => {
   };
 
   const searchObj = {};
+
+  const directSearchObj = {};
 
   const searchEntries = Object.entries(search || {});
 
@@ -137,10 +88,16 @@ const getCmts = async (req, res) => {
       content: (content) => {
         validator.isString("content", content);
 
-        searchObj["cmtText"] = searchWithRegex(content);
+        directSearchObj["cmtText"] = searchWithRegex(content);
       },
       type: (type) => {
-        searchObj["replied_parent_cmt_id"] = { $exists: type === "reply" };
+        directSearchObj["replied_parent_cmt_id"] = {
+          $exists: type === "reply",
+        };
+      },
+      videoId: (videoId) => {
+        console.log(videoId);
+        // directSearchObj["video_id:"] = new mongoose.Types.ObjectId(videoId);
       },
     };
 
@@ -157,6 +114,7 @@ const getCmts = async (req, res) => {
       }
     }
   }
+  console.log(searchObj);
 
   const sortObj = {};
 
@@ -202,6 +160,9 @@ const getCmts = async (req, res) => {
   }
 
   const pipeline = [
+    {
+      $match: directSearchObj,
+    },
     {
       $lookup: {
         from: "users",
@@ -272,6 +233,7 @@ const getCmts = async (req, res) => {
   let result = Comment.aggregate(pipeline);
 
   const comments = await result;
+  console.log(comments);
 
   res.status(StatusCodes.OK).json({
     data: comments[0]?.data,

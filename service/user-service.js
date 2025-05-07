@@ -2,7 +2,7 @@ const { User } = require("../models");
 const { deleteFile } = require("../utils/file");
 const { sessionWrap } = require("../utils/session");
 const { NotFoundError } = require("../errors");
-const { UserValidator, Validator } = require("../utils/validate");
+const { UserValidator } = require("../utils/validate");
 
 const path = require("path");
 const avatarPath = path.join(__dirname, "../assets/user avatar");
@@ -96,7 +96,9 @@ class UserService {
     }
 
     await sessionWrap(async (session) => {
-      await User.deleteMany({ _id: { $in: idArray } }, { session });
+      await User.deleteMany({ _id: { $in: idArray } }, { session }).setOptions({
+        context: { foundedUsers },
+      });
     });
 
     foundedUsers.forEach((foundedUser) => {

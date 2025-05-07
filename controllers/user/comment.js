@@ -39,12 +39,6 @@ const createCmt = async (req, res) => {
 
   const { videoId, cmtText, replyId } = req.body;
 
-  const user = await User.findById(userId);
-
-  if (!user) {
-    throw new NotFoundError(`Not found user with id ${userId}`);
-  }
-
   const data = {
     user_id: userId,
     video_id: videoId,
@@ -329,12 +323,11 @@ const getCmtDetails = async (req, res) => {
     {
       $set: {
         _idStr: { $toString: "$_id" },
-        userIdStr: { $toString: "$user_id" },
       },
     },
     {
       $match: {
-        userIdStr: userId,
+        user_id: userId,
         _idStr: id,
       },
     },
