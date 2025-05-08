@@ -13,17 +13,23 @@ const { sessionWrap } = require("../../utils/session");
 const {
   sendRealTimeNotification,
 } = require("../../service/notification/notification");
+const {
+  createComment,
+  updateComment,
+  deleteComment,
+  deleteManyComment,
+} = require("../../service/comment-service.js");
 
 const createCmt = async (req, res) => {
-  const neededKeys = ["videoId", "cmtText"];
+  const validKeys = ["videoId", "cmtText"];
 
   if (Object.values(req.body).length === 0) {
     throw new BadRequestError(
-      `Please provide these ${neededKeys.join(" ")}fields to create comment `,
+      `Please provide these ${validKeys.join(" ")}fields to create comment `,
     );
   }
 
-  const invalidFields = neededKeys.filter((key) => {
+  const invalidFields = validKeys.filter((key) => {
     if (!req.body[key]) {
       return key;
     }
@@ -37,49 +43,10 @@ const createCmt = async (req, res) => {
 
   const { userId, name } = req.user;
 
-  const { videoId, cmtText, replyId } = req.body;
-
-  const data = {
-    user_id: userId,
-    video_id: videoId,
-    cmtText: cmtText,
-  };
-  let replyCmt;
-  if (replyId) {
-    replyCmt = await Comment.findById(replyId);
-
-    if (!replyCmt) {
-      throw new NotFoundError(`Not found comment with id ${replyId}`);
-    }
-
-    if (replyCmt.video_id?.toString() !== videoId) {
-      throw new BadRequestError(
-        "Reply comment should belong to the same video",
-      );
-    }
-
-    if (replyCmt?.replied_parent_cmt_id) {
-      // If comment is in commen tree
-      data["replied_parent_cmt_id"] = replyCmt?.replied_parent_cmt_id;
-    } else {
-      data["replied_parent_cmt_id"] = replyId;
-    }
-
-    data["replied_cmt_id"] = replyId;
-    data["replied_user_id"] = replyCmt.user_id;
-  }
-
-  const result = await sessionWrap(async (session) => {
-    const cmt = await Comment.create([data], { session });
-    if (!cmt) {
-      throw new InternalServerError("Failed to create comment");
-    }
-
-    return cmt;
-  });
+  const { replyCmt, comment } = await createComment(userId, req.body);
 
   const createdCmt = await Comment.aggregate([
-    { $match: { _id: result[0]._id } },
+    { $match: { _id: comment._id } },
     {
       $lookup: {
         from: "users",
@@ -129,7 +96,7 @@ const createCmt = async (req, res) => {
 
   let type = "NORMAL";
 
-  if (replyId) {
+  if (req.body.replyId) {
     type = "REPLY";
 
     if (userId.toString() !== replyCmt.user_id.toString()) {
@@ -153,7 +120,6 @@ const createCmt = async (req, res) => {
 
 const getCmts = async (req, res) => {
   const { userId } = req.user;
-  console.log("🚀 ~ userId:", userId)
 
   const { limit, page, search, sort } = req.query;
 
@@ -382,24 +348,16 @@ const updateCmt = async (req, res) => {
   }
 
   try {
-    const updateDatas = new CommentValidator(req.body, foundedCmt, [
+    const cmt = await updateComment(id, { user_id: userId }, req.body, [
       "cmtText",
-    ]).getValidatedUpdateData();
-
-    const cmt = await Comment.findOneAndUpdate({ _id: id }, updateDatas, {
-      returnDocument: "after",
-    });
-
-    if (!cmt) {
-      throw new InternalServerError(
-        `There is something wrong with the server, please try again`,
-      );
-    }
+    ]);
 
     let type = "NORMAL";
+
     if (cmt.replied_cmt_id) {
       type = "REPLY";
     }
+
     emitEvent(`update-comment-${userId}`, {
       type,
       data: cmt,
@@ -420,63 +378,21 @@ const deleteCmt = async (req, res) => {
   const { userId } = req.user;
   const { id } = req.params;
 
-  const foundedCmt = await Comment.aggregate([
-    {
-      $set: {
-        _idStr: { $toString: "$_id" },
-      },
-    },
-    { $match: { _idStr: id } },
-    {
-      $lookup: {
-        from: "videos",
-        localField: "video_id",
-        foreignField: "_id",
-        pipeline: [{ $project: { user_id: 1 } }],
-        as: "video_info",
-      },
-    },
-    {
-      $unwind: "$video_info",
-    },
-    {
-      $project: {
-        user_id: 1,
-        video_info: 1,
-        replied_cmt_id: 1,
-        replied_parent_cmt_id: 1,
-        replied_cmt_total: 1,
-      },
-    },
-  ]);
-
-  if (
-    foundedCmt.length < 1 ||
-    (foundedCmt[0].user_id.toString() !== userId.toString() &&
-      foundedCmt[0].video_info.user_id.toString() !== userId.toString())
-  ) {
-    throw new NotFoundError(`Not found comment with id ${id}`);
-  }
-
   try {
-    await sessionWrap(async (session) => {
-      await Comment.deleteOne({ _id: id }, { session });
-    });
+    const result = await deleteComment(id, req.user);
 
     let type = "NORMAL";
 
-    if (foundedCmt[0].replied_cmt_id) {
+    if (result.replied_cmt_id) {
       type = "REPLY";
     }
 
     emitEvent(`delete-comment-${userId}`, {
       type,
-      data: foundedCmt[0],
+      data: result,
     });
 
-    res
-      .status(StatusCodes.OK)
-      .json({ msg: "Comment deleted", data: foundedCmt });
+    res.status(StatusCodes.OK).json({ msg: "Comment deleted", data: result });
   } catch (error) {
     console.log("User delete one comment: ", error);
     throw new InternalServerError(`Failed to delete comment with id ${id}`);
@@ -498,49 +414,8 @@ const deleteManyCmt = async (req, res) => {
     throw new BadRequestError("idList must be an array and can't be empty");
   }
 
-  const foundedCmts = await Comment.find({
-    _id: { $in: idArray },
-    user_id: userId,
-  }).select("_id");
-
-  const cmtListNeedToDelete = [];
-
-  if (foundedCmts.length < 1) {
-    throw new BadRequestError(
-      `Not found comments with id : ${idArray.join(", ")}`,
-    );
-  } else if (foundedCmts.length !== idArray.length) {
-    const foundedCmtIdList = new Set();
-
-    for (const cmt of foundedCmts) {
-      //Remove reply comment ID if the root comment is included in the list,
-      //  because in cascade deletion, the entire comment tree will be deleted if the root comment got removed.
-      if (
-        !cmt.replied_parent_cmt_id ||
-        !idArray.includes(cmt.replied_parent_cmt_id)
-      ) {
-        cmtListNeedToDelete.push(cmt._id);
-      }
-
-      foundedCmtIdList.add(cmt._id);
-    }
-
-    const notFoundedCmts = idArray.filter((id) => !foundedCmtIdList.has(id));
-
-    if (notFoundedCmts.length > 0) {
-      throw new BadRequestError(
-        `Not found comments with id : ${notFoundedCmts.join(", ")}`,
-      );
-    }
-  }
-
   try {
-    await sessionWrap(async (session) => {
-      await Comment.deleteMany(
-        { _id: { $in: cmtListNeedToDelete } },
-        { session },
-      );
-    });
+    await deleteManyComment(idArray, { user_id: userId });
 
     res.status(StatusCodes.OK).json({
       msg: `Comments with the following id have been deleted: ${idArray.join(
@@ -548,8 +423,8 @@ const deleteManyCmt = async (req, res) => {
       )}`,
     });
   } catch (error) {
-    console.log("User delete many comment: ", error);
-    throw InternalServerError("Failed to delete many comment");
+    // throw new InternalServerError("Failed to delete many comment");
+    throw error;
   }
 };
 

@@ -80,7 +80,7 @@ const upLoadVideo = async (req, res) => {
       dislike,
     };
 
-    await createHls(filename, videoPath, type);
+    // await createHls(filename, videoPath, type);
 
     await uploadVideo(data);
 

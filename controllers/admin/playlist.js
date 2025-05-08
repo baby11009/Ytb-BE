@@ -7,11 +7,16 @@ const {
 } = require("../../errors");
 const { StatusCodes } = require("http-status-codes");
 const { searchWithRegex } = require("../../utils/other");
-const { PlaylistValidator, Validator } = require("../../utils/validate");
-const { sessionWrap } = require("../../utils/session");
+const { Validator } = require("../../utils/validate");
+const {
+  createPlaylistService,
+  updatePlaylistService,
+  deletePlaylistService,
+  deleteManyPlaylistService,
+} = require("../../service/playlist-service");
 
 const createPlaylist = async (req, res) => {
-  const { title, videoIdList = [], userId, privacy } = req.body;
+  const { userId, ...tagData } = req.body;
 
   const user = await User.findById(userId);
 
@@ -19,13 +24,7 @@ const createPlaylist = async (req, res) => {
     throw new BadRequestError(`Not found user with id ${userId}`);
   }
 
-  await Playlist.create({
-    created_user_id: userId,
-    title,
-    itemList: videoIdList,
-    type: "playlist",
-    privacy,
-  });
+  await createPlaylistService(userId, tagData);
 
   res.status(StatusCodes.OK).json({ msg: "Created playlist successfully" });
 };
@@ -431,21 +430,8 @@ const updatePlaylist = async (req, res) => {
     throw new BadRequestError("Please provide at least one data to update");
   }
 
-  const foundedPlaylist = await Playlist.findById(id);
-
-  if (!foundedPlaylist) {
-    throw new NotFoundError("Playlist not found");
-  }
-
   try {
-    const bulkWrites = await new PlaylistValidator(
-      req.body,
-      foundedPlaylist,
-    ).getValidatedUpdateData();
-
-    await sessionWrap(async (session) => {
-      await Playlist.bulkWrite(bulkWrites, { session });
-    });
+    await updatePlaylistService({ _id: id }, req.body);
 
     res.status(StatusCodes.OK).json({ msg: "Playlist updated successfullly" });
   } catch (error) {
@@ -461,17 +447,7 @@ const updatePlaylist = async (req, res) => {
 const deletePlaylist = async (req, res) => {
   const { id } = req.params;
 
-  const playlist = await Playlist.findOne({ _id: id });
-
-  if (!playlist) {
-    throw new NotFoundError(`Playlist not found`);
-  }
-
-  if (playlist.type !== "playlist") {
-    throw new ForbiddenError("You can't delete this list");
-  }
-
-  await Playlist.deleteOne({ _id: id });
+  await deletePlaylistService(id);
 
   res.status(StatusCodes.OK).json({ msg: "Playlist deleted successfully" });
 };
@@ -491,39 +467,7 @@ const deleteManyPlaylist = async (req, res) => {
     throw new BadRequestError("idList must be an array and can't be empty");
   }
 
-  const foundedPlaylists = await Playlist.find({
-    _id: { $in: idArray },
-  }).select("_id type");
-
-  if (foundedPlaylists.length === 0) {
-    throw new NotFoundError(`No playlist found with these ids ${idList}`);
-  }
-
-  if (foundedPlaylists.length !== idArray.length) {
-    const notFoundedList = [];
-
-    foundedPlaylists.forEach((user) => {
-      if (idArray.includes(user._id.toString())) {
-        notFoundedList.push(user._id);
-      }
-    });
-
-    throw new NotFoundError(
-      `No playlist found with these ids : ${notFoundedList.join(", ")}`,
-    );
-  }
-
-  const specialList = foundedPlaylists.filter((playlist) => {
-    if (playlist.type !== "playlist") {
-      return playlist._id.toString();
-    }
-  });
-
-  if (specialList.length > 0) {
-    throw new ForbiddenError("You can't delete these playlists");
-  }
-
-  await Playlist.deleteMany({ _id: { $in: idArray } });
+  await deleteManyPlaylistService(idArray);
 
   res.status(StatusCodes.OK).json({
     msg: `Successfully deleted playlist with following id: ${idList}`,

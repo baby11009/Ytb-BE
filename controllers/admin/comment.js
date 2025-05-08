@@ -12,7 +12,12 @@ const {
 const { searchWithRegex } = require("../../utils/other");
 const { CommentValidator, Validator } = require("../../utils/validate");
 const { sessionWrap } = require("../../utils/session");
-const { createComment } = require("../../service/comment-service");
+const {
+  createComment,
+  updateComment,
+  deleteComment,
+  deleteManyComment,
+} = require("../../service/comment-service");
 
 const createCmt = async (req, res) => {
   const neededKeys = ["userId", "videoId", "cmtText"];
@@ -96,13 +101,12 @@ const getCmts = async (req, res) => {
         };
       },
       videoId: (videoId) => {
-        console.log(videoId);
-        // directSearchObj["video_id:"] = new mongoose.Types.ObjectId(videoId);
+        directSearchObj["video_id"] = new mongoose.Types.ObjectId(videoId);
       },
     };
 
     for (const [key, value] of searchEntries) {
-      if (!searchFuncObj[key]) {
+      if (!searchFuncObj[key] && !value) {
         errors.invalidKey.push(key);
         continue;
       }
@@ -114,7 +118,6 @@ const getCmts = async (req, res) => {
       }
     }
   }
-  console.log(searchObj);
 
   const sortObj = {};
 
@@ -230,16 +233,14 @@ const getCmts = async (req, res) => {
     },
   ];
 
-  let result = Comment.aggregate(pipeline);
-
-  const comments = await result;
-  console.log(comments);
+  const comments = await Comment.aggregate(pipeline);
+  console.log("🚀 ~ comments:", comments);
 
   res.status(StatusCodes.OK).json({
     data: comments[0]?.data,
     qtt: comments[0]?.data?.length,
     totalQtt: comments[0]?.totalCount[0]?.total,
-    currPage: page,
+    currPage: pageNumber,
     totalPages: Math.ceil(comments[0]?.totalCount[0]?.total / limit) || 1,
   });
 };
@@ -345,18 +346,7 @@ const updateCmt = async (req, res) => {
   }
 
   try {
-    const foundedCmt = await Comment.findById(id);
-
-    const updateDatas = new CommentValidator(
-      req.body,
-      foundedCmt,
-    ).getValidatedUpdateData();
-
-    const cmt = await Comment.updateOne({ _id: id }, updateDatas);
-
-    if (cmt.modifiedCount === 0) {
-      throw new InternalServerError(`Failed to update comment`);
-    }
+    await updateComment(id, {}, req.body);
 
     res.status(StatusCodes.OK).json({ msg: "Comment updated" });
   } catch (error) {
@@ -372,17 +362,8 @@ const updateCmt = async (req, res) => {
 const deleteCmt = async (req, res) => {
   const { id } = req.params;
 
-  const foundedCmt = await Comment.findById(id);
-
-  if (!foundedCmt) {
-    throw new NotFoundError(`Cannot find comment with id ${id}`);
-  }
-
   try {
-    const cmt = await sessionWrap(async (session) => {
-      const cmt = await Comment.deleteOne({ _id: id }, { session: session });
-      return cmt;
-    });
+    const cmt = await deleteComment(id, req.user);
 
     res.status(StatusCodes.OK).json({ msg: "Comment deleted", data: cmt });
   } catch (error) {
@@ -404,50 +385,8 @@ const deleteManyCmt = async (req, res) => {
     throw new BadRequestError("idList must be an array and can't be empty");
   }
 
-  const foundedCmts = await Comment.find({ _id: { $in: idArray } }).select(
-    "_id replied_parent_cmt_id",
-  );
-
-  const cmtListNeedToDelete = [];
-
-  if (foundedCmts.length < 1) {
-    throw new BadRequestError(
-      `Not found comments with id : ${idArray.join(", ")}`,
-    );
-  } else if (foundedCmts.length !== idArray.length) {
-    const foundedCmtIdList = new Set();
-
-    for (const cmt of foundedCmts) {
-      //Remove reply comment ID if the root comment is included in the list,
-      //  because in cascade deletion, the entire comment tree will be deleted if the root comment got removed.
-      if (
-        !cmt.replied_parent_cmt_id ||
-        !idArray.includes(cmt.replied_parent_cmt_id)
-      ) {
-        cmtListNeedToDelete.push(cmt._id);
-      }
-
-      foundedCmtIdList.add(cmt._id);
-    }
-
-    const notFoundedCmts = idArray.filter((id) => {
-      return !foundedCmtIdList.has(id);
-    });
-
-    if (notFoundedCmts.length > 0) {
-      throw new BadRequestError(
-        `Not found comments with id : ${notFoundedCmts.join(", ")}`,
-      );
-    }
-  }
-
   try {
-    await sessionWrap(async (session) => {
-      await Comment.deleteMany(
-        { _id: { $in: cmtListNeedToDelete } },
-        { session },
-      );
-    });
+    await deleteManyComment(idArray);
 
     res.status(StatusCodes.OK).json({
       msg: `Comments with the following IDs have been deleted: ${idArray.join(

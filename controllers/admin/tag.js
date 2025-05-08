@@ -7,11 +7,15 @@ const {
 } = require("../../errors");
 const { deleteFile } = require("../../utils/file");
 const path = require("path");
-const { mongoose } = require("mongoose");
 const { searchWithRegex, isObjectEmpty } = require("../../utils/other");
-const { TagValidator, Validator } = require("../../utils/validate");
+const {  Validator } = require("../../utils/validate");
 const iconPath = path.join(__dirname, "../../assets/tag icon");
-const { sessionWrap } = require("../../utils/session");
+const {
+  createNewTag,
+  updateTagDetails,
+  deleteSingleTag,
+  deleteManyTagService,
+} = require("../../service/tag-service");
 
 const createTag = async (req, res) => {
   try {
@@ -23,29 +27,13 @@ const createTag = async (req, res) => {
       throw new BadRequestError("Please provide data to register");
     }
 
-    const { title } = req.body;
+    const createdTag = await createNewTag(req.body, req.files);
 
-    const foundedTag = await Tag.findOne({ title: title });
-
-    if (foundedTag) {
-      throw new BadRequestError("Tag's title must be unique");
-    }
-
-    const data = {
-      title: title,
-      slug: title.toLowerCase().replace(/[^\w]+/g, "-"),
-      icon: req.files.icon[0].filename,
-    };
-
-    const tag = await Tag.create(data);
-    res.status(StatusCodes.CREATED).json({ data: tag });
+    res.status(StatusCodes.CREATED).json({ data: createdTag });
   } catch (error) {
     if (req.files?.icon && req.files.icon.length) {
-      const imgPath = path.join(
-        iconPath,
-        req.files.icon && req.files.icon[0].filename,
-      );
-      deleteFile(imgPath);
+      const iconFilePath = path.join(iconPath, req.files.icon[0].filename);
+      deleteFile(iconFilePath);
     }
     throw error;
   }
@@ -196,29 +184,8 @@ const updateTag = async (req, res) => {
     throw new BadRequestError("Please provide data to update");
   }
 
-  const foundedTag = await Tag.findById(id);
-
-  if (!foundedTag) {
-    throw new NotFoundError(`Cannot find tag with id ${id}`);
-  }
-
   try {
-    const updateDatas = new TagValidator(
-      {
-        ...req.body,
-        ...req.files,
-      },
-      foundedTag,
-    ).getValidatedUpdateData();
-
-    const tagData = await Tag.findOneAndUpdate({ _id: id }, updateDatas, {
-      new: true,
-    }).select("-__v");
-
-    if (req.files?.icon && req.files.icon.length) {
-      const imgPath = path.join(iconPath, foundedTag.icon);
-      await deleteFile(imgPath);
-    }
+    const tagData = await updateTagDetails(id, req.body, req.files);
 
     res
       .status(StatusCodes.OK)
@@ -244,18 +211,8 @@ const deleteTag = async (req, res) => {
     throw new BadRequestError("Please provide tag ID");
   }
 
-  const foundedTag = await Tag.findById(id);
-
-  if (!foundedTag) {
-    throw new NotFoundError(`Cannot find tag with id ${id}`);
-  }
-
   try {
-    await sessionWrap(async (session) => {
-      await Tag.deleteOne({ _id: id }, { session });
-    });
-
-    deleteFile(path.join(iconPath, foundedTag.icon));
+    await deleteSingleTag(id);
 
     res.status(StatusCodes.OK).json({ msg: "Tag deleted successfully" });
   } catch (error) {
@@ -271,44 +228,18 @@ const deleteManyTags = async (req, res) => {
   }
 
   const idArray = idList.split(",");
-  console.log(idArray);
-  const foundedTags = await Tag.find({ _id: { $in: idArray } }).select(
-    "_id icon",
-  );
 
-  const foundedTagsIcon = [];
-
-  const foundedTagIds = [];
-
-  for (const tag of foundedTags) {
-    foundedTagsIcon.push(tag.icon);
-    foundedTagIds.push(tag._id.toString());
-  }
-
-  const notFoundedTags = idArray.filter(
-    (tagId) => !foundedTagIds.includes(tagId),
-  );
-
-  if (notFoundedTags.length > 0) {
-    throw new NotFoundError(
-      `Cannot find these tags with id : ${notFoundedTags.join(", ")}`,
-    );
+  if (!Array.isArray(idArray) || idArray.length < 1) {
+    throw new BadRequestError("idList must be an array and can't be empty");
   }
 
   try {
-    await sessionWrap(async (session) => {
-      await Tag.deleteMany({ _id: { $in: idArray } }, { session });
-    });
+    await deleteManyTagService(idArray);
 
-    for (const icon of foundedTagsIcon) {
-      await deleteFile(path.join(iconPath, icon));
-    }
-  
     res.status(StatusCodes.OK).json({ msg: "Tags deleted successfully" });
   } catch (error) {
-
     throw error;
-  } 
+  }
 };
 
 module.exports = {

@@ -81,49 +81,42 @@ CommentSchema.pre(["deleteOne", "findOneAndDelete"], async function () {
     throw new Error("⚠️ Transaction session is required");
   }
 
-  const { _id } = this.getQuery();
+  // const { _id } = this.getQuery();
+  const { foundedCmt } = this.getOptions().context;
   const Comment = mongoose.model("Comment");
   const Video = mongoose.model("Video");
   const CmtReact = mongoose.model("CmtReact");
 
-  const cmt = await Comment.findOne({ _id: _id });
-
   // Update videos total comments
   await Video.updateOne(
-    { _id: cmt.video_id },
+    { _id: foundedCmt.video_id },
     { $inc: { totalCmt: -1 } },
     { session },
   );
 
   // Delete comment reacts
-  if (cmt.like > 0 || cmt.dislike > 0) {
-    await CmtReact.deleteMany({ cmt_id: cmt._id }, { session });
+  if (foundedCmt.like > 0 || foundedCmt.dislike > 0) {
+    await CmtReact.deleteMany({ cmt_id: foundedCmt._id }, { session });
   }
 
   // Check if comment is comment root
-  if (cmt.replied_cmt_total > 0) {
-    const filter = {
-      video_id: cmt.video_id,
-      replied_parent_cmt_id: cmt._id,
-    };
-
-    // Find all the comments that replying in the comment root tree
-    const dltCmtList = await Comment.find(filter);
-
-    if (dltCmtList.length > 0) {
-      // Delete all the founded comments
-      await Comment.deleteMany(filter, { session });
-    }
-  } // Update root comments reply count when the deleted comment is not root comment
-  else if (cmt.replied_parent_cmt_id) {
-    await Comment.updateOne(
-      { _id: cmt.replied_parent_cmt_id },
-      { $inc: { replied_cmt_total: -1 } },
+  if (foundedCmt.replied_cmt_total > 0) {
+    // Delete all the founded comments
+    await Comment.deleteMany(
+      {
+        video_id: foundedCmt.video_id,
+        replied_parent_cmt_id: foundedCmt._id,
+      },
       { session },
     );
-  } else if (cmt.replied_cmt_id) {
+  } // Update root comments reply count when the deleted comment is not root comment
+  else {
     await Comment.updateOne(
-      { _id: cmt.replied_cmt_id },
+      {
+        _id: foundedCmt.replied_parent_cmt_id
+          ? foundedCmt.replied_parent_cmt_id
+          : foundedCmt.replied_cmt_id,
+      },
       { $inc: { replied_cmt_total: -1 } },
       { session },
     );
@@ -145,25 +138,27 @@ CommentSchema.pre("deleteMany", async function () {
 
   const { user_id, video_id, replied_parent_cmt_id, _id } = this.getQuery();
 
-  const findObj = {};
+  let foundedCmts;
 
   if (user_id) {
     // Filtering all the comments for cascade delete when deleting a user
-    findObj.user_id = user_id;
+    foundedCmts = await Comment.find({ user_id: user_id }).session(session);
   } else if (video_id) {
+    const queriesObj = {};
     if (replied_parent_cmt_id) {
       // Filtering all comments that are replies to the root comment and cascade-deleting all of them.
-      findObj.video_id = video_id;
-      findObj["replied_parent_cmt_id"] = replied_parent_cmt_id;
+      queriesObj.video_id = video_id;
+      queriesObj["replied_parent_cmt_id"] = replied_parent_cmt_id;
     } else {
       // Filtering all the comments for cascade deleting when deleting a video
-      findObj.video_id = video_id;
+      queriesObj.video_id = video_id;
     }
-  } else if (_id) {
-    findObj._id = { $in: _id["$in"] };
-  }
 
-  const foundedCmts = await Comment.find(findObj).session(session);
+    foundedCmts = await Comment.find(queriesObj).session(session);
+  } else {
+    const context = this.getOptions().context;
+    foundedCmts = context.foundedCmts;
+  }
 
   // Filtering all the comments that have comment react
   const cmtHaveReactList = foundedCmts

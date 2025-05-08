@@ -183,11 +183,10 @@ VideoSchema.pre("deleteMany", async function () {
 
     if (user_id) {
       // Find all the videos is belong to user
-      foundedVideos = await Video.find(matchObj)
+      foundedVideos = await Video.find({ user_id })
         .select("_id user_id video thumb stream")
         .session(session);
     }
-    const matchObj = user_id ? { user_id } : { _id };
 
     //An array that manages updating the total video count based on the number of deleted videos owned by the same user
     const userTotalVideoUpdates = {};

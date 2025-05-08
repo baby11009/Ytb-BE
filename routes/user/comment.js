@@ -13,7 +13,7 @@ const router = express.Router();
 
 router.route("/").post(createCmt).get(getCmts);
 
-router.route("/delete-many").post(deleteManyCmt);
+router.route("/delete-many").delete(deleteManyCmt);
 
 router
   .route("/:id")

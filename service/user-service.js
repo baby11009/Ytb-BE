@@ -23,6 +23,7 @@ class UserService {
   }
 
   async updateSingleUser(query, data, files, allowedFields) {
+    console.log(data);
     const foundedUser = await User.findOne(query);
 
     if (!foundedUser) {

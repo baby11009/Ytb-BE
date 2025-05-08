@@ -8,61 +8,23 @@ const {
 const { StatusCodes } = require("http-status-codes");
 const mongoose = require("mongoose");
 const { searchWithRegex } = require("../../utils/other");
-const { PlaylistValidator, Validator } = require("../../utils/validate");
-const { sessionWrap } = require("../../utils/session");
+const { Validator } = require("../../utils/validate");
+const {
+  createPlaylistService,
+  updatePlaylistService,
+  deletePlaylistService,
+  deleteManyPlaylistService,
+} = require("../../service/playlist-service");
 
 const createPlaylist = async (req, res) => {
-  const { userId } = req.user;
-  const { title, videoIdList = [], privacy } = req.body;
-
-  if (!title || title === "") {
-    throw new BadRequestError("Please provide a playlist title");
-  }
-
-  if (videoIdList && videoIdList.length > 0) {
-    const foundedVideos = await Video.aggregate([
-      {
-        $set: {
-          _idStr: { $toString: "$_id" },
-        },
-      },
-      { $match: { _idStr: { $in: videoIdList } } },
-      { $group: { _id: null, idsFound: { $push: "$_idStr" } } },
-      {
-        $project: {
-          missingIds: { $setDifference: [videoIdList, "$idsFound"] },
-        },
-      },
-    ]);
-
-    if (foundedVideos.length === 0) {
-      throw new NotFoundError(
-        `The following videos with id: ${videoIdList.join(
-          ", ",
-        )} could not be found`,
-      );
-    }
-
-    if (foundedVideos[0]?.missingIds?.length > 0) {
-      throw new NotFoundError(
-        `The following videos with id: ${foundedVideos[0].missingIds.join(
-          ", ",
-        )} could not be found`,
-      );
-    }
-  }
-
-  const playlist = await Playlist.create({
-    created_user_id: userId,
-    title,
-    type: "playlist",
-    privacy,
-    itemList: videoIdList,
-  });
+  const createdPlaylist = await createPlaylistService(
+    req.user.userId,
+    req.body,
+  );
 
   res
     .status(StatusCodes.OK)
-    .json({ msg: "Created playlist successfully", data: playlist });
+    .json({ msg: "Created playlist successfully", data: createdPlaylist });
 };
 
 const getPlaylists = async (req, res) => {
@@ -403,12 +365,10 @@ const updatePlaylist = async (req, res, next) => {
     throw new BadRequestError("Please provide atleast one data to update");
   }
 
-  let searchObj;
+  const queriesObj = { created_user_id: userId };
 
   if (mongoose.Types.ObjectId.isValid(id)) {
-    searchObj = {
-      _id: id,
-    };
+    queriesObj["_id"] = id;
   } else {
     const listTypes = {
       wl: "watch_later",
@@ -421,97 +381,71 @@ const updatePlaylist = async (req, res, next) => {
       throw new BadRequestError("Invalid list id");
     }
 
-    searchObj = {
-      type: listType,
-      created_user_id: userId,
-    };
+    queriesObj["type"] = listType;
   }
-
-  const foundedPlaylist = await Playlist.findOne({
-    ...searchObj,
-    created_user_id: userId,
-  });
-
-  if (!foundedPlaylist) {
-    throw new NotFoundError("Playlist not found");
-  }
-
-  const { move, ...othersData } = req.body;
 
   try {
-    let bulkWrites = [];
+    // if (move) {
+    //   if (foundedPlaylist.itemList.length === 0) {
+    //     throw new BadRequestError("Invalid move action");
+    //   }
 
-    if (Object.keys(othersData).length > 0) {
-      bulkWrites = await new PlaylistValidator(
-        othersData,
-        foundedPlaylist,
-      ).getValidatedUpdateData();
-    }
+    //   if (typeof move !== "object" || !move.from || !move.to) {
+    //     throw new BadRequestError(
+    //       "Data type must be an object with following properties from : 'from video id' ,  to : 'to video id",
+    //     );
+    //   }
 
-    if (move) {
-      if (foundedPlaylist.itemList.length === 0) {
-        throw new BadRequestError("Invalid move action");
-      }
+    //   if (move.from === move.to) {
+    //     throw new BadRequestError("Cannot move video to itself");
+    //   }
 
-      if (typeof move !== "object" || !move.from || !move.to) {
-        throw new BadRequestError(
-          "Data type must be an object with following properties from : 'from video id' ,  to : 'to video id",
-        );
-      }
+    //   const fromVideoIdIndex = foundedPlaylist.itemList.indexOf(move.from);
 
-      if (move.from === move.to) {
-        throw new BadRequestError("Cannot move video to itself");
-      }
+    //   const toVideoIdIndex = foundedPlaylist.itemList.indexOf(move.to);
 
-      const fromVideoIdIndex = foundedPlaylist.itemList.indexOf(move.from);
+    //   if (fromVideoIdIndex === -1 || toVideoIdIndex === -1) {
+    //     throw new BadRequestError("Invalid move action");
+    //   }
 
-      const toVideoIdIndex = foundedPlaylist.itemList.indexOf(move.to);
+    //   bulkWrites.push({
+    //     updateOne: {
+    //       filter: { _id: id },
+    //       update: {
+    //         $set: {
+    //           [`itemList.${fromVideoIdIndex}`]: move.to,
+    //           [`itemList.${toVideoIdIndex}`]: move.from,
+    //         },
+    //       },
+    //     },
+    //   });
+    // }
 
-      if (fromVideoIdIndex === -1 || toVideoIdIndex === -1) {
-        throw new BadRequestError("Invalid move action");
-      }
+    await updatePlaylistService(queriesObj, req.body);
 
-      bulkWrites.push({
-        updateOne: {
-          filter: { _id: id },
-          update: {
-            $set: {
-              [`itemList.${fromVideoIdIndex}`]: move.to,
-              [`itemList.${toVideoIdIndex}`]: move.from,
-            },
-          },
+    const pipeline = [
+      {
+        $set: {
+          _idStr: { $toString: "$_id" },
         },
-      });
-    }
-
-    const playlist = await sessionWrap(async (session) => {
-      await Playlist.bulkWrite(bulkWrites, { session });
-
-      const pipeline = [
-        {
-          $set: {
-            _idStr: { $toString: "$_id" },
-          },
+      },
+      {
+        $match: { _idStr: id },
+      },
+      {
+        $project: {
+          _id: 1,
+          created_user_id: 1,
+          title: 1,
+          itemList: 1,
+          updatedAt: 1,
+          type: 1,
+          size: { $size: "$itemList" },
         },
-        {
-          $match: { _idStr: id },
-        },
-        {
-          $project: {
-            _id: 1,
-            created_user_id: 1,
-            title: 1,
-            itemList: 1,
-            updatedAt: 1,
-            type: 1,
-            size: { $size: "$itemList" },
-          },
-        },
-      ];
-      const playlist = await Playlist.aggregate(pipeline, { session });
+      },
+    ];
 
-      return playlist;
-    });
+    const playlist = await Playlist.aggregate(pipeline);
 
     res
       .status(StatusCodes.OK)
@@ -530,26 +464,12 @@ const updatePlaylist = async (req, res, next) => {
 const deletePlaylist = async (req, res) => {
   const { id } = req.params;
 
-  const { userId } = req.user;
-
-  const foundedPlaylist = await Playlist.findOne({
-    _id: id,
-    created_user_id: userId,
-    type: "playlist",
-  });
-
-  if (!foundedPlaylist) {
-    throw new NotFoundError("Playlist not found");
-  }
-
-  await Playlist.deleteOne({ _id: id });
+  await deletePlaylistService(id, { created_user_id: req.user.userId });
 
   res.status(StatusCodes.OK).json({ msg: "Playlist deleted successfully" });
 };
 
 const deleteManyPlaylist = async (req, res) => {
-  const { userId } = req.user;
-
   const { idList } = req.query;
 
   if (!idList) {
@@ -564,31 +484,9 @@ const deleteManyPlaylist = async (req, res) => {
     throw new BadRequestError("idList must be an array and can't be empty");
   }
 
-  const foundedPlaylists = await Playlist.find({
-    _id: { $in: idArray },
-    created_user_id: userId,
-    type: "playlist",
-  }).select("_id type");
-
-  if (foundedPlaylists.length === 0) {
-    throw new NotFoundError(`No playlist found with these ids ${idList}`);
-  }
-
-  if (foundedPlaylists.length !== idArray.length) {
-    const notFoundedList = [];
-
-    foundedPlaylists.forEach((user) => {
-      if (idArray.includes(user._id.toString())) {
-        notFoundedList.push(user._id);
-      }
-    });
-
-    throw new NotFoundError(
-      `No playlist found with these ids : ${notFoundedList.join(", ")}`,
-    );
-  }
-
-  await Playlist.deleteMany({ _id: { $in: idArray } });
+  await deleteManyPlaylistService(idArray, {
+    created_user_id: req.user.userId,
+  });
 
   res.status(StatusCodes.OK).json({
     msg: `Successfully deleted playlist with following id: ${idList}`,

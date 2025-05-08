@@ -178,7 +178,7 @@ class UserValidator {
   }
 
   #validateConfirmed() {
-    this.#validator.isBoolean("confirmed", this.#data.confirmed);
+    this.#validator.isBoolean("confirmed", Boolean(this.#data.confirmed));
     return this.#data.confirmed;
   }
 
@@ -364,30 +364,14 @@ class VideoValidator {
     this.#sanitizeData();
 
     const validators = {
-      title: () => {
-        return this.#validateTitle();
-      },
-      view: () => {
-        return this.#validateView();
-      },
-      like: () => {
-        return this.#validateLike();
-      },
-      dislike: () => {
-        return this.#validateDislike();
-      },
-      type: () => {
-        return this.#validateType();
-      },
-      tags: async () => {
-        return await this.#validateTags();
-      },
-      description: () => {
-        return this.#validateDescription();
-      },
-      thumbnail: () => {
-        return this.#validateThumbnail();
-      },
+      title: () => this.#validateTitle(),
+      view: () => this.#validateView(),
+      like: () => this.#validateLike(),
+      dislike: () => this.#validateDislike(),
+      type: () => this.#validateType(),
+      tags: async () => await this.#validateTags(),
+      description: () => this.#validateDescription(),
+      thumbnail: () => this.#validateThumbnail(),
     };
 
     const updateDatas = {};
@@ -521,8 +505,8 @@ class PlaylistValidator {
   #currentData;
   #validator;
   #allowedFields = {
-    playlist: ["title", "privacy", "videoIdList"],
-    watch_later: ["videoIdList"],
+    playlist: ["title", "privacy", "videoIdList", "move"],
+    watch_later: ["videoIdList", "move"],
   };
   #errors = {};
 
@@ -630,10 +614,39 @@ class PlaylistValidator {
     return this.#data.videoIdList;
   }
 
+  #validateMoveVideoPos(move) {
+    if (this.#currentData.itemList.length === 0) {
+      throw new BadRequestError("Invalid move action");
+    }
+
+    if (typeof move !== "object" || !move.from || !move.to) {
+      throw new BadRequestError(
+        "Data type must be an object with following properties from : 'from video id' ,  to : 'to video id",
+      );
+    }
+
+    if (move.from === move.to) {
+      throw new BadRequestError("Cannot move video to its current location");
+    }
+
+    const fromVideoIdIndex = this.#currentData.itemList.indexOf(move.from);
+
+    const toVideoIdIndex = this.#currentData.itemList.indexOf(move.to);
+
+    if (fromVideoIdIndex === -1 || toVideoIdIndex === -1) {
+      throw new BadRequestError("Invalid move action");
+    }
+
+    return {
+      [`itemList.${fromVideoIdIndex}`]: move.to,
+      [`itemList.${toVideoIdIndex}`]: move.from,
+    };
+  }
+
   async getValidatedUpdateData() {
     this.#sanitizeData();
 
-    const updateDatas = {};
+    let updateDatas = {};
 
     const bulkWrites = [];
 
@@ -684,11 +697,14 @@ class PlaylistValidator {
           });
         }
       },
+      move: (move) => {
+        updateDatas = { ...updateDatas, ...this.#validateMoveVideoPos(move) };
+      },
     };
 
     for (const field in this.#data) {
       try {
-        await validators[field]();
+        await validators[field](this.#data[field]);
       } catch (error) {
         if (error instanceof DataFieldError) {
           this.#errors[field] = error.message;
